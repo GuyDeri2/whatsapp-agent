@@ -21,7 +21,6 @@ export async function PATCH(
     const { tenantId } = await params;
     const body = await req.json();
 
-    // Only allow updating specific fields
     const allowedFields = [
         "business_name",
         "description",
@@ -29,6 +28,7 @@ export async function PATCH(
         "target_customers",
         "agent_mode",
         "agent_prompt",
+        "agent_filter_mode",
     ];
 
     const updates: Record<string, any> = {};
