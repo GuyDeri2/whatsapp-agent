@@ -30,6 +30,7 @@ interface SessionInfo {
     status: "connecting" | "connected" | "disconnected";
     tenantId: string;
     retryCount: number;
+    preKeyErrors: number; // track PreKey errors to decide when to reset
 }
 
 type QRUpdateCallback = (tenantId: string, qrDataUrl: string | null) => void;
@@ -37,6 +38,7 @@ type QRUpdateCallback = (tenantId: string, qrDataUrl: string | null) => void;
 // ─── State ────────────────────────────────────────────────────────────
 const sessions = new Map<string, SessionInfo>();
 const MAX_RETRIES = 5;
+const MAX_PREKEY_ERRORS = 10; // after this many PreKeyErrors, clear session and reconnect
 
 let _supabase: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
@@ -109,6 +111,30 @@ export async function stopSession(
         .eq("id", tenantId);
 
     console.log(`[${tenantId}] Session stopped`);
+}
+
+/**
+ * Force-reconnect: stop session, optionally clear auth, and restart.
+ */
+export async function reconnectSession(
+    tenantId: string,
+    clearAuth = false
+): Promise<void> {
+    console.log(`[${tenantId}] 🔄 Force reconnecting (clearAuth: ${clearAuth})...`);
+    const session = sessions.get(tenantId);
+    if (session) {
+        try { session.socket.end(undefined); } catch { /* ignore */ }
+        sessions.delete(tenantId);
+    }
+    if (clearAuth) {
+        await clearSessionData(tenantId);
+    }
+    await getSupabase()
+        .from("tenants")
+        .update({ whatsapp_connected: false })
+        .eq("id", tenantId);
+    await new Promise((r) => setTimeout(r, 2000));
+    await startSession(tenantId);
 }
 
 /**
@@ -209,12 +235,15 @@ async function createSession(tenantId: string): Promise<void> {
         generateHighQualityLinkPreview: false,
     });
 
+    // Preserve retry count from previous session if it exists
+    const prevSession = sessions.get(tenantId);
     const sessionInfo: SessionInfo = {
         socket,
         qrCode: null,
         status: "connecting",
         tenantId,
-        retryCount: 0,
+        retryCount: prevSession?.retryCount ?? 0,
+        preKeyErrors: 0,
     };
     sessions.set(tenantId, sessionInfo);
 
@@ -256,17 +285,19 @@ async function createSession(tenantId: string): Promise<void> {
         if (connection === "close") {
             sessionInfo.status = "disconnected";
             const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            const errorMessage = (lastDisconnect?.error as Boom)?.message || "";
             const shouldReconnect =
                 statusCode !== DisconnectReason.loggedOut &&
                 sessionInfo.retryCount < MAX_RETRIES;
 
             console.log(
-                `[${tenantId}] ❌ Connection closed (code: ${statusCode}). Reconnect: ${shouldReconnect}`
+                `[${tenantId}] ❌ Connection closed (code: ${statusCode}, msg: ${errorMessage}). Reconnect: ${shouldReconnect}`
             );
 
             if (shouldReconnect) {
                 sessionInfo.retryCount++;
-                const delay = Math.min(5000 * sessionInfo.retryCount, 30000);
+                // Use exponential backoff: 3s, 6s, 12s, 24s, 30s (capped)
+                const delay = Math.min(3000 * Math.pow(2, sessionInfo.retryCount - 1), 30000);
                 console.log(
                     `[${tenantId}] ♻️ Reconnecting in ${delay / 1000}s (attempt ${sessionInfo.retryCount}/${MAX_RETRIES})...`
                 );
@@ -281,6 +312,8 @@ async function createSession(tenantId: string): Promise<void> {
                 if (statusCode === DisconnectReason.loggedOut) {
                     console.log(`[${tenantId}] 🚪 Logged out — clearing session data`);
                     await clearSessionData(tenantId);
+                } else {
+                    console.log(`[${tenantId}] ⚠️ Max retries reached. Manual reconnect required.`);
                 }
             }
         }
@@ -368,6 +401,8 @@ async function createSession(tenantId: string): Promise<void> {
             // Skip status broadcasts and protocol messages
             if (msg.key.remoteJid === "status@broadcast") continue;
             if (msg.message?.protocolMessage) continue;
+            // Skip messages with no content (failed decryption produces empty msg)
+            if (msg.messageStubType && !msg.message) continue;
 
             // Extract text content and media
             let textContent =

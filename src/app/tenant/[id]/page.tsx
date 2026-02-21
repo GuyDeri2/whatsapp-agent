@@ -381,6 +381,28 @@ export default function TenantPage() {
         showToast("ווטסאפ נותק", "success");
     };
 
+    const handleReconnect = async (clearAuth = false) => {
+        showToast("מתחבר מחדש...", "success");
+        setConnectionStatus("connecting");
+        try {
+            const res = await fetch(`/api/sessions/${tenantId}/reconnect`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ clearAuth }),
+            });
+            const data = await res.json();
+            if (data.qrCode) {
+                setQrCode(data.qrCode);
+                setConnectionStatus("waiting_scan");
+            }
+            await fetchTenant();
+            showToast(clearAuth ? "נוצר QR חדש — סרוק שוב" : "מתחבר מחדש...", "success");
+        } catch {
+            showToast("שגיאה בהתחברות מחדש", "error");
+            setConnectionStatus("disconnected");
+        }
+    };
+
     // ── Select conversation ──
     const selectConversation = (conv: Conversation) => {
         setSelectedConvId(conv.id);
@@ -821,6 +843,8 @@ export default function TenantPage() {
                                             : "מושהה ולא מעבד הודעות"}.
                                 </p>
                                 <button className="btn btn-danger" onClick={handleDisconnect}>נתק ווטסאפ</button>
+                                <button className="btn btn-secondary" onClick={() => handleReconnect(false)} style={{ marginRight: 8 }}>🔄 חבר מחדש</button>
+                                <button className="btn btn-secondary" onClick={() => handleReconnect(true)} style={{ marginRight: 8 }}>📱 סרוק QR מחדש</button>
                             </div>
                         ) : (
                             <div className="connect-card">

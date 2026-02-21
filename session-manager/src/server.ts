@@ -15,6 +15,7 @@ import {
     restoreAllSessions,
     setQRUpdateCallback,
     sendMessage,
+    reconnectSession,
 } from "./session-manager";
 
 const app = express();
@@ -150,6 +151,33 @@ app.post("/sessions/:tenantId/stop", async (req, res) => {
         console.error(`Error stopping session for ${tenantId}:`, error);
         res.status(500).json({ error: error.message });
     }
+});
+
+/** Reconnect a session (force restart, optionally clear auth) */
+app.post("/sessions/:tenantId/reconnect", async (req, res) => {
+    const { tenantId } = req.params;
+    const clearAuth = req.body?.clearAuth === true;
+    try {
+        await reconnectSession(tenantId, clearAuth);
+        // Wait for QR to generate
+        await new Promise((r) => setTimeout(r, 3000));
+        const info = getSessionInfo(tenantId);
+        res.json({ success: true, ...info });
+    } catch (error: any) {
+        console.error(`Error reconnecting session for ${tenantId}:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── Global crash protection ─────────────────────────────────────────
+// Baileys WebSocket can throw unhandled errors that crash the process.
+// These handlers log the error but keep the server alive.
+process.on("uncaughtException", (err) => {
+    console.error("❌ Uncaught Exception (process will NOT exit):", err.message);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+    console.error("❌ Unhandled Rejection (process will NOT exit):", reason?.message || reason);
 });
 
 // ─── Start server ─────────────────────────────────────────────────────
