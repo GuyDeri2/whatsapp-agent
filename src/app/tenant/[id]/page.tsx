@@ -54,6 +54,39 @@ interface ContactRule {
 /* Toast component                                                     */
 /* ------------------------------------------------------------------ */
 
+// Detect if text starts with RTL characters (Hebrew, Arabic)
+function isRTL(text: string): boolean {
+    if (!text) return false;
+    const firstChar = text.replace(/[\s\u200f\u200e\[\(]/g, '').charAt(0);
+    return /[\u0590-\u05FF\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(firstChar);
+}
+
+// Generate a consistent color from a string (for avatars)
+const AVATAR_COLORS = [
+    '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
+    '#ec4899', '#f43f5e', '#ef4444', '#f97316',
+    '#eab308', '#84cc16', '#22c55e', '#14b8a6',
+    '#06b6d4', '#0ea5e9', '#3b82f6', '#2563eb',
+];
+
+function getAvatarColor(name: string): string {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string, isGroup: boolean): string {
+    if (!name) return isGroup ? '👥' : '?';
+    // For groups, take first letter. For people, take first+last initials.
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return parts[0].substring(0, 2).toUpperCase();
+}
+
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
     useEffect(() => {
         const timer = setTimeout(onClose, 3000);
@@ -615,8 +648,8 @@ export default function TenantPage() {
                                     className={`conv-item ${selectedConvId === conv.id ? "active" : ""}`}
                                     onClick={() => selectConversation(conv)}
                                 >
-                                    <div className="conv-avatar">
-                                        {conv.is_group ? "👥" : "👤"}
+                                    <div className="conv-avatar" style={{ background: getAvatarColor(getDisplayName(conv)) }}>
+                                        {getInitials(getDisplayName(conv), conv.is_group)}
                                     </div>
                                     <div className="conv-info">
                                         <span className="conv-name">{getDisplayName(conv)}</span>
@@ -649,7 +682,7 @@ export default function TenantPage() {
                                         return (
                                             <div className="chat-header-bar">
                                                 <div className="chat-header-info">
-                                                    <span className="chat-header-avatar">{conv.is_group ? "👥" : "👤"}</span>
+                                                    <span className="chat-header-avatar" style={{ background: getAvatarColor(getDisplayName(conv)) }}>{getInitials(getDisplayName(conv), conv.is_group)}</span>
                                                     <div>
                                                         <strong>{getDisplayName(conv)}</strong>
                                                         <span className="chat-header-phone">{conv.phone_number}</span>
@@ -681,11 +714,11 @@ export default function TenantPage() {
                                                 key={msg.id}
                                                 className={`message-bubble ${msg.role} ${msg.is_from_agent ? "from-agent" : ""}`}
                                             >
-                                                <div className="bubble-content">
+                                                <div className="bubble-content" dir={isRTL(msg.content) ? "rtl" : "ltr"}>
                                                     {msg.is_from_agent && <span className="agent-badge">🤖 AI</span>}
                                                     {msg.role === "owner" && <span className="owner-badge">👤 בעלים</span>}
-                                                    {msg.role === "user" && msg.sender_name && (
-                                                        <span className="sender-name-badge">{msg.sender_name}</span>
+                                                    {msg.role === "user" && (
+                                                        <span className="sender-name-badge">{msg.sender_name || "לקוח"}</span>
                                                     )}
                                                     {renderMedia(msg)}
                                                     {shouldShowText(msg) && <p>{msg.content}</p>}

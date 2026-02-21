@@ -366,3 +366,83 @@ Using the user object as returned from supabase.auth.getSession() or from some s
 Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
  GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 2.0s (compile: 2ms, proxy.ts: 1028ms, render: 988ms)
  GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 659ms (compile: 8ms, proxy.ts: 311ms, render: 340ms)
+ GET /tenant/2a29c279-5433-4cd5-afdc-f93e5958b2d9 200 in 1250ms (compile: 79ms, proxy.ts: 1073ms, render: 98ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 1539ms (compile: 9ms, proxy.ts: 367ms, render: 1163ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 2.2s (compile: 12ms, proxy.ts: 1103ms, render: 1063ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ DELETE /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts?id=5ae24caf-4d4b-49d2-be25-8c5b5b45120a 200 in 1742ms (compile: 14ms, proxy.ts: 711ms, render: 1017ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ DELETE /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts?id=5ae24caf-4d4b-49d2-be25-8c5b5b45120a 200 in 1637ms (compile: 6ms, proxy.ts: 262ms, render: 1369ms)
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 1583ms (compile: 8ms, proxy.ts: 839ms, render: 736ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 836ms (compile: 9ms, proxy.ts: 319ms, render: 508ms)
+ POST /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/start 200 in 4.9s (compile: 9ms, proxy.ts: 1044ms, render: 3.8s)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 767ms (compile: 20ms, proxy.ts: 474ms, render: 273ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 582ms (compile: 5ms, proxy.ts: 244ms, render: 333ms)
+ PATCH /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9 200 in 823ms (compile: 7ms, proxy.ts: 283ms, render: 532ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 1020ms (compile: 9ms, proxy.ts: 680ms, render: 331ms)
+ PATCH /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9 200 in 1164ms (compile: 5ms, proxy.ts: 467ms, render: 692ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 640ms (compile: 6ms, proxy.ts: 340ms, render: 294ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 568ms (compile: 8ms, proxy.ts: 326ms, render: 234ms)
+ PATCH /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9 200 in 1364ms (compile: 5ms, proxy.ts: 831ms, render: 528ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 607ms (compile: 5ms, proxy.ts: 281ms, render: 322ms)
+ PATCH /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9 200 in 743ms (compile: 19ms, proxy.ts: 252ms, render: 473ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 555ms (compile: 6ms, proxy.ts: 268ms, render: 282ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 508ms (compile: 6ms, proxy.ts: 225ms, render: 277ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 571ms (compile: 8ms, proxy.ts: 307ms, render: 255ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 466ms (compile: 7ms, proxy.ts: 234ms, render: 224ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 1021ms (compile: 9ms, proxy.ts: 315ms, render: 697ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 602ms (compile: 7ms, proxy.ts: 293ms, render: 302ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 491ms (compile: 6ms, proxy.ts: 241ms, render: 245ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 581ms (compile: 8ms, proxy.ts: 269ms, render: 304ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 528ms (compile: 5ms, proxy.ts: 217ms, render: 307ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 540ms (compile: 11ms, proxy.ts: 225ms, render: 305ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 522ms (compile: 6ms, proxy.ts: 282ms, render: 234ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 623ms (compile: 7ms, proxy.ts: 300ms, render: 316ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 600ms (compile: 6ms, proxy.ts: 300ms, render: 294ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 493ms (compile: 6ms, proxy.ts: 230ms, render: 258ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 541ms (compile: 5ms, proxy.ts: 226ms, render: 311ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 488ms (compile: 5ms, proxy.ts: 232ms, render: 250ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 523ms (compile: 10ms, proxy.ts: 299ms, render: 214ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 522ms (compile: 12ms, proxy.ts: 260ms, render: 251ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 598ms (compile: 4ms, proxy.ts: 285ms, render: 309ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 560ms (compile: 7ms, proxy.ts: 291ms, render: 263ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 693ms (compile: 5ms, proxy.ts: 394ms, render: 294ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 621ms (compile: 17ms, proxy.ts: 311ms, render: 292ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 490ms (compile: 4ms, proxy.ts: 250ms, render: 236ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 617ms (compile: 5ms, proxy.ts: 288ms, render: 324ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 500ms (compile: 8ms, proxy.ts: 232ms, render: 260ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 706ms (compile: 5ms, proxy.ts: 264ms, render: 437ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 530ms (compile: 7ms, proxy.ts: 258ms, render: 265ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 557ms (compile: 6ms, proxy.ts: 231ms, render: 321ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 539ms (compile: 4ms, proxy.ts: 282ms, render: 253ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 672ms (compile: 6ms, proxy.ts: 432ms, render: 233ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 581ms (compile: 7ms, proxy.ts: 289ms, render: 285ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 471ms (compile: 5ms, proxy.ts: 221ms, render: 245ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 547ms (compile: 5ms, proxy.ts: 236ms, render: 306ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 496ms (compile: 6ms, proxy.ts: 231ms, render: 260ms)
+ GET /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/status 200 in 640ms (compile: 14ms, proxy.ts: 309ms, render: 317ms)
+✓ Compiled in 114ms
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 1234ms (compile: 40ms, proxy.ts: 846ms, render: 348ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 1790ms (compile: 34ms, proxy.ts: 830ms, render: 926ms)
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 573ms (compile: 39ms, proxy.ts: 278ms, render: 257ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 763ms (compile: 26ms, proxy.ts: 280ms, render: 457ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 788ms (compile: 14ms, proxy.ts: 273ms, render: 501ms)
+✓ Compiled in 44ms
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 851ms (compile: 16ms, proxy.ts: 590ms, render: 244ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 1113ms (compile: 13ms, proxy.ts: 610ms, render: 490ms)
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 492ms (compile: 6ms, proxy.ts: 220ms, render: 266ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 750ms (compile: 4ms, proxy.ts: 247ms, render: 499ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 796ms (compile: 11ms, proxy.ts: 275ms, render: 509ms)
+✓ Compiled in 156ms
+✓ Compiled in 40ms

@@ -586,7 +586,17 @@ body {
 }
 
 .conv-avatar {
-  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
 
 .conv-info {
@@ -1160,7 +1170,34 @@ body {
 }
 
 .chat-header-avatar {
-  font-size: 24px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* RTL-aware bubble alignment */
+.bubble-content[dir="rtl"] {
+  text-align: right;
+}
+
+.bubble-content[dir="ltr"] {
+  text-align: left;
+}
+
+.bubble-content[dir="rtl"] .bubble-time {
+  text-align: left;
+}
+
+.bubble-content[dir="ltr"] .bubble-time {
+  text-align: right;
 }
 
 .chat-header-info strong {
