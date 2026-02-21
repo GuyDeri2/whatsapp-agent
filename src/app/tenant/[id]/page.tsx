@@ -340,32 +340,44 @@ export default function TenantPage() {
     const handleConnect = async () => {
         setConnectionStatus("connecting");
         setQrCode(null);
-        const res = await fetch(`/api/sessions/${tenantId}/start`, { method: "POST" });
-        const data = await res.json();
-        if (data.qrCode) {
-            setQrCode(data.qrCode);
-            setConnectionStatus("waiting_scan");
-        } else if (data.status === "connected") {
-            setConnectionStatus("connected");
-            await fetchTenant();
-        }
+        try {
+            const res = await fetch(`/api/sessions/${tenantId}/start`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to start");
 
-        const interval = setInterval(async () => {
-            const statusRes = await fetch(`/api/sessions/${tenantId}/status`);
-            const statusData = await statusRes.json();
-            if (statusData.status === "connected") {
-                setConnectionStatus("connected");
-                setQrCode(null);
-                await fetchTenant();
-                clearInterval(interval);
-                showToast("ווטסאפ מחובר בהצלחה!", "success");
-            } else if (statusData.qrCode) {
-                setQrCode(statusData.qrCode);
+            if (data.qrCode) {
+                setQrCode(data.qrCode);
                 setConnectionStatus("waiting_scan");
+            } else if (data.status === "connected") {
+                setConnectionStatus("connected");
+                await fetchTenant();
             }
-        }, 3000);
 
-        setTimeout(() => clearInterval(interval), 120000);
+            const interval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`/api/sessions/${tenantId}/status`);
+                    const statusData = await statusRes.json();
+                    if (statusData.status === "connected") {
+                        setConnectionStatus("connected");
+                        setQrCode(null);
+                        await fetchTenant();
+                        clearInterval(interval);
+                        showToast("ווטסאפ מחובר בהצלחה!", "success");
+                    } else if (statusData.qrCode) {
+                        setQrCode(statusData.qrCode);
+                        setConnectionStatus("waiting_scan");
+                    }
+                } catch {
+                    // ignore polling errors
+                }
+            }, 3000);
+
+            setTimeout(() => clearInterval(interval), 120000);
+        } catch (err: any) {
+            console.error(err);
+            showToast("שגיאה - השרת בכתובת localhost:3001 לא זמין", "error");
+            setConnectionStatus("disconnected");
+        }
     };
 
     // ── Disconnect WhatsApp ──
@@ -391,14 +403,16 @@ export default function TenantPage() {
                 body: JSON.stringify({ clearAuth }),
             });
             const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to reconnect");
             if (data.qrCode) {
                 setQrCode(data.qrCode);
                 setConnectionStatus("waiting_scan");
             }
             await fetchTenant();
             showToast(clearAuth ? "נוצר QR חדש — סרוק שוב" : "מתחבר מחדש...", "success");
-        } catch {
-            showToast("שגיאה בהתחברות מחדש", "error");
+        } catch (err: any) {
+            console.error(err);
+            showToast("שגיאה בהתחברות מחדש - יכול להיות שהשרת לא פעיל", "error");
             setConnectionStatus("disconnected");
         }
     };

@@ -1,0 +1,250 @@
+
+> whatsapp-agent@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.226:3000
+- Environments: .env.local
+
+✓ Starting...
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+✓ Ready in 672ms
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 1659ms (compile: 1027ms, proxy.ts: 471ms, render: 161ms)
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 1774ms (compile: 470ms, proxy.ts: 1125ms, render: 179ms)
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 468ms (compile: 17ms, proxy.ts: 296ms, render: 156ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1523ms (compile: 694ms, proxy.ts: 226ms, render: 603ms)
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1770ms (compile: 735ms, proxy.ts: 236ms, render: 798ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 732ms (compile: 8ms, proxy.ts: 233ms, render: 491ms)
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 727ms (compile: 15ms, proxy.ts: 681ms, render: 31ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1204ms (compile: 5ms, proxy.ts: 314ms, render: 884ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1389ms (compile: 105ms, proxy.ts: 437ms, render: 847ms)
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 709ms (compile: 14ms, proxy.ts: 660ms, render: 36ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1045ms (compile: 6ms, proxy.ts: 246ms, render: 792ms)
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: AggregateError: 
+      at ignore-listed frames {
+    code: 'ECONNREFUSED'
+  }
+}
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 500 in 1982ms (compile: 614ms, proxy.ts: 646ms, render: 722ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1080ms (compile: 17ms, proxy.ts: 443ms, render: 620ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 500 in 1272ms (compile: 492ms, proxy.ts: 245ms, render: 536ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 500 in 737ms (compile: 9ms, proxy.ts: 227ms, render: 501ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 500 in 881ms (compile: 12ms, proxy.ts: 249ms, render: 620ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 500 in 766ms (compile: 10ms, proxy.ts: 244ms, render: 512ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 1501ms (compile: 175ms, proxy.ts: 656ms, render: 670ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 986ms (compile: 4ms, proxy.ts: 339ms, render: 643ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 869ms (compile: 10ms, proxy.ts: 322ms, render: 537ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 866ms (compile: 12ms, proxy.ts: 233ms, render: 621ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 706ms (compile: 3ms, proxy.ts: 228ms, render: 476ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 849ms (compile: 9ms, proxy.ts: 296ms, render: 545ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 769ms (compile: 8ms, proxy.ts: 245ms, render: 516ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ POST /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1056ms (compile: 10ms, proxy.ts: 358ms, render: 688ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 757ms (compile: 8ms, proxy.ts: 219ms, render: 529ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ POST /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1016ms (compile: 8ms, proxy.ts: 436ms, render: 571ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 674ms (compile: 6ms, proxy.ts: 229ms, render: 440ms)
+ PATCH /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 992ms (compile: 12ms, proxy.ts: 374ms, render: 606ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1097ms (compile: 22ms, proxy.ts: 433ms, render: 643ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1055ms (compile: 10ms, proxy.ts: 386ms, render: 659ms)
+ GET / 200 in 605ms (compile: 70ms, proxy.ts: 497ms, render: 38ms)
+ GET /api/tenants 200 in 881ms (compile: 37ms, proxy.ts: 247ms, render: 597ms)
+ GET /api/tenants 200 in 766ms (compile: 3ms, proxy.ts: 233ms, render: 530ms)
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 341ms (compile: 10ms, proxy.ts: 317ms, render: 13ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1174ms (compile: 4ms, proxy.ts: 263ms, render: 907ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 801ms (compile: 6ms, proxy.ts: 302ms, render: 492ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1950ms (compile: 20ms, proxy.ts: 744ms, render: 1186ms)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 2.6min (compile: 6ms, proxy.ts: 258ms, render: 2.6min)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 2.5min (compile: 11ms, proxy.ts: 462ms, render: 2.5min)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 2.4min (compile: 9ms, proxy.ts: 456ms, render: 2.4min)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 2.6min (compile: 10ms, proxy.ts: 265ms, render: 2.6min)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 2.8s (compile: 20ms, proxy.ts: 586ms, render: 2.2s)
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 354ms (compile: 14ms, proxy.ts: 267ms, render: 74ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 1089ms (compile: 8ms, proxy.ts: 298ms, render: 783ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 200 in 879ms (compile: 14ms, proxy.ts: 258ms, render: 607ms)
+ DELETE /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826 200 in 1146ms (compile: 10ms, proxy.ts: 492ms, render: 644ms)
+ GET / 200 in 253ms (compile: 7ms, proxy.ts: 233ms, render: 14ms)
+ GET /api/tenants 200 in 734ms (compile: 3ms, proxy.ts: 231ms, render: 499ms)
+ GET /api/tenants 200 in 710ms (compile: 5ms, proxy.ts: 241ms, render: 464ms)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 58s (compile: 3ms, proxy.ts: 237ms, render: 57s)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 58s (compile: 9ms, proxy.ts: 284ms, render: 58s)
+ POST /api/sessions/8dc65665-3f6b-4725-a073-51d17d260826/stop 200 in 59s (compile: 18ms, proxy.ts: 247ms, render: 58s)
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: Error [HeadersTimeoutError]: Headers Timeout Error
+      at ignore-listed frames {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+✓ Compiled in 215ms
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 1803ms (compile: 26ms, proxy.ts: 1235ms, render: 542ms)
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 497ms (compile: 6ms, proxy.ts: 262ms, render: 230ms)
+✓ Compiled in 45ms
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 1041ms (compile: 10ms, proxy.ts: 714ms, render: 317ms)
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 522ms (compile: 9ms, proxy.ts: 233ms, render: 281ms)
+ GET / 200 in 1313ms (compile: 37ms, proxy.ts: 1126ms, render: 150ms)
+ GET /api/tenants 200 in 1640ms (compile: 5ms, proxy.ts: 662ms, render: 972ms)
+ POST /api/tenants 201 in 1006ms (compile: 7ms, proxy.ts: 444ms, render: 555ms)
+ GET /api/tenants 200 in 734ms (compile: 3ms, proxy.ts: 243ms, render: 488ms)
+ GET /tenant/2a29c279-5433-4cd5-afdc-f93e5958b2d9 200 in 377ms (compile: 95ms, proxy.ts: 244ms, render: 38ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 1190ms (compile: 6ms, proxy.ts: 245ms, render: 939ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 766ms (compile: 6ms, proxy.ts: 262ms, render: 498ms)
+⨯ TypeError: fetch failed
+    at async POST (src/app/api/sessions/[tenantId]/[action]/route.ts:48:22)
+  46 |     const body = await req.json().catch(() => ({}));
+  47 |
+> 48 |     const response = await fetch(
+     |                      ^
+  49 |         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
+  50 |         {
+  51 |             method: "POST", {
+  [cause]: AggregateError: 
+      at ignore-listed frames {
+    code: 'ECONNREFUSED'
+  }
+}
+ POST /api/sessions/2a29c279-5433-4cd5-afdc-f93e5958b2d9/start 500 in 822ms (compile: 8ms, proxy.ts: 256ms, render: 557ms)
+✓ Compiled in 190ms
+✓ Compiled in 79ms
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 814ms (compile: 69ms, proxy.ts: 572ms, render: 172ms)
+ GET /tenant/2a29c279-5433-4cd5-afdc-f93e5958b2d9 200 in 856ms (compile: 124ms, proxy.ts: 582ms, render: 150ms)
+ GET / 200 in 976ms (compile: 40ms, proxy.ts: 849ms, render: 88ms)
+ GET /tenant/8dc65665-3f6b-4725-a073-51d17d260826 200 in 275ms (compile: 6ms, proxy.ts: 237ms, render: 31ms)
+Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 1168ms (compile: 109ms, proxy.ts: 561ms, render: 498ms)
+ GET /api/tenants/2a29c279-5433-4cd5-afdc-f93e5958b2d9/contacts 200 in 1390ms (compile: 11ms, proxy.ts: 805ms, render: 573ms)
+ GET /api/tenants/8dc65665-3f6b-4725-a073-51d17d260826/contacts 403 in 533ms (compile: 3ms, proxy.ts: 266ms, render: 264ms)
