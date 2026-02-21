@@ -219,6 +219,46 @@ export async function restoreAllSessions(): Promise<void> {
     }
 }
 
+// ─── Resolve group names from WhatsApp ────────────────────────────────
+async function resolveGroupNames(tenantId: string, socket: WASocket): Promise<void> {
+    try {
+        const supabase = getSupabase();
+        // Find all group conversations without a name
+        const { data: namelessGroups } = await supabase
+            .from("conversations")
+            .select("id, phone_number")
+            .eq("tenant_id", tenantId)
+            .eq("is_group", true)
+            .is("contact_name", null);
+
+        if (!namelessGroups || namelessGroups.length === 0) return;
+
+        console.log(`[${tenantId}] 🏷️ Resolving names for ${namelessGroups.length} groups...`);
+        let resolved = 0;
+
+        for (const group of namelessGroups) {
+            try {
+                // Reconstruct the JID: phone_number + @g.us
+                const jid = group.phone_number + "@g.us";
+                const metadata = await socket.groupMetadata(jid);
+                if (metadata?.subject) {
+                    await supabase
+                        .from("conversations")
+                        .update({ contact_name: metadata.subject })
+                        .eq("id", group.id);
+                    resolved++;
+                }
+            } catch {
+                // Group might not exist anymore or access denied
+            }
+        }
+
+        console.log(`[${tenantId}] ✅ Resolved ${resolved}/${namelessGroups.length} group names`);
+    } catch (err) {
+        console.error(`[${tenantId}] Error resolving group names:`, err);
+    }
+}
+
 // ─── Internal: create Baileys socket ──────────────────────────────────
 async function createSession(tenantId: string): Promise<void> {
     const { state, saveCreds } = await useSupabaseAuthState(tenantId);
@@ -280,6 +320,9 @@ async function createSession(tenantId: string): Promise<void> {
 
             console.log(`[${tenantId}] ✅ WhatsApp connected (${phoneNumber})`);
             if (_qrCallback) _qrCallback(tenantId, null);
+
+            // After a short delay, resolve any group names that are missing
+            setTimeout(() => resolveGroupNames(tenantId, socket), 10000);
         }
 
         // Disconnected
@@ -429,6 +472,9 @@ async function createSession(tenantId: string): Promise<void> {
             }
 
             console.log(`[${tenantId}] ✅ History sync done: ${chatsSynced} chats, ${messagesSynced} messages saved`);
+
+            // Fetch actual group names for groups that don't have one yet
+            await resolveGroupNames(tenantId, socket);
         } catch (err) {
             console.error(`[${tenantId}] History sync error:`, err);
         }
