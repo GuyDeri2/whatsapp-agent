@@ -233,6 +233,7 @@ async function createSession(tenantId: string): Promise<void> {
         },
         printQRInTerminal: false,
         generateHighQualityLinkPreview: false,
+        syncFullHistory: true, // Sync ALL past conversations on connect
     });
 
     // Preserve retry count from previous session if it exists
@@ -325,14 +326,17 @@ async function createSession(tenantId: string): Promise<void> {
     // ── Event: history sync ──
     socket.ev.on("messaging-history.set", async ({ chats, messages, isLatest }) => {
         try {
-            console.log(`[${tenantId}] 📥 Received history sync (isLatest: ${isLatest}). Processing...`);
+            console.log(`[${tenantId}] 📥 History sync received: ${chats.length} chats, ${messages.length} messages (isLatest: ${isLatest})`);
             const supabase = getSupabase();
 
-            // Store recent chats to populate the sidebar conversations
+            let chatsSynced = 0;
+            let messagesSynced = 0;
+
+            // Process chats
             for (const chat of chats) {
                 if (!chat.id) continue;
-                // Only sync the last 30 recent chats to avoid overloading
                 const phoneNumber = chat.id.split("@")[0];
+                const isGroup = chat.id.endsWith("@g.us");
                 let contactName = chat.name || null;
 
                 const { data: conversation, error: convError } = await supabase
@@ -342,54 +346,89 @@ async function createSession(tenantId: string): Promise<void> {
                             tenant_id: tenantId,
                             phone_number: phoneNumber,
                             contact_name: contactName,
+                            is_group: isGroup,
                         },
                         { onConflict: "tenant_id,phone_number" }
                     )
                     .select("id")
                     .single();
 
-                if (convError || !conversation) continue;
-
-                // Sync messages for this chat if they exist in the history payload
-                const chatMessages = messages.filter((m) => m.key.remoteJid === chat.id);
-                // Keep only the latest 20 messages per chat
-                const recentMsgs = chatMessages.slice(-20);
-
-                for (const msg of recentMsgs) {
-                    if (!msg.message) continue;
-                    if (msg.key.remoteJid === "status@broadcast") continue;
-                    if (msg.message.protocolMessage) continue;
-
-                    const textContent =
-                        msg.message.conversation ||
-                        msg.message.extendedTextMessage?.text ||
-                        null;
-
-                    if (!textContent) continue;
-
-                    const isFromMe = msg.key.fromMe ?? false;
-                    const role = isFromMe ? "owner" : "user";
-                    const senderName = isFromMe ? "Owner" : (msg.pushName || null);
-
-                    const createdAt = new Date(
-                        (msg.messageTimestamp as number) * 1000 || Date.now()
-                    ).toISOString();
-
-                    // Insert the message if it doesn't already exist (we might not have the ID, but we just insert)
-                    // We'll use a simple insert and rely on supabase not failing hard (though dupes could happen if synced multiple times)
-                    // A better approach is upserting by message ID, but for now we just insert history
-                    await supabase.from("messages").insert({
-                        // Ideally we'd store the Baileys message ID to avoid duplicates
-                        conversation_id: conversation.id,
-                        role,
-                        content: textContent,
-                        sender_name: senderName,
-                        is_from_agent: false, // History from before connect defaults to human
-                        created_at: createdAt,
-                    }).select('id').single(); // Just fire and forget
+                if (convError || !conversation) {
+                    console.error(`[${tenantId}] Failed to upsert conversation for ${phoneNumber}:`, convError?.message);
+                    continue;
                 }
+                chatsSynced++;
             }
-            console.log(`[${tenantId}] ✅ History sync processed for ${chats.length} chats`);
+
+            // Process messages separately (they may belong to any chat)
+            for (const msg of messages) {
+                if (!msg.message) continue;
+                if (msg.key.remoteJid === "status@broadcast") continue;
+                if (msg.message.protocolMessage) continue;
+
+                const textContent =
+                    msg.message.conversation ||
+                    msg.message.extendedTextMessage?.text ||
+                    msg.message.imageMessage?.caption ||
+                    msg.message.videoMessage?.caption ||
+                    null;
+
+                if (!textContent) continue;
+
+                const remoteJid = msg.key.remoteJid!;
+                const phoneNumber = remoteJid.split("@")[0];
+                const isGroup = remoteJid.endsWith("@g.us");
+
+                // Ensure conversation exists
+                const { data: conversation } = await supabase
+                    .from("conversations")
+                    .upsert(
+                        {
+                            tenant_id: tenantId,
+                            phone_number: phoneNumber,
+                            is_group: isGroup,
+                        },
+                        { onConflict: "tenant_id,phone_number" }
+                    )
+                    .select("id")
+                    .single();
+
+                if (!conversation) continue;
+
+                const isFromMe = msg.key.fromMe ?? false;
+                const role = isFromMe ? "owner" : "user";
+                const senderName = isFromMe ? "Owner" : (msg.pushName || null);
+                const waMessageId = msg.key.id || null;
+
+                const createdAt = new Date(
+                    (msg.messageTimestamp as number) * 1000 || Date.now()
+                ).toISOString();
+
+                // Skip if message with this WA ID already exists
+                if (waMessageId) {
+                    const { data: existing } = await supabase
+                        .from("messages")
+                        .select("id")
+                        .eq("conversation_id", conversation.id)
+                        .eq("wa_message_id", waMessageId)
+                        .maybeSingle();
+                    if (existing) continue;
+                }
+
+                const { error: insertErr } = await supabase.from("messages").insert({
+                    conversation_id: conversation.id,
+                    role,
+                    content: textContent,
+                    sender_name: senderName,
+                    is_from_agent: false,
+                    created_at: createdAt,
+                    wa_message_id: waMessageId,
+                });
+
+                if (!insertErr) messagesSynced++;
+            }
+
+            console.log(`[${tenantId}] ✅ History sync done: ${chatsSynced} chats, ${messagesSynced} messages saved`);
         } catch (err) {
             console.error(`[${tenantId}] History sync error:`, err);
         }
