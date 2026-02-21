@@ -1,7 +1,7 @@
 /**
  * Per-tenant AI Agent.
  * Builds a dynamic system prompt from the tenant's business profile,
- * knowledge base, and learned Q&A pairs, then generates responses via OpenAI.
+ * knowledge base, and learned Q&A pairs, then generates responses via DeepSeek.
  */
 
 import OpenAI from "openai";
@@ -12,7 +12,11 @@ let _openai: OpenAI | null = null;
 let _supabase: SupabaseClient | null = null;
 
 function getOpenAI(): OpenAI {
-    if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    if (!_openai)
+        _openai = new OpenAI({
+            apiKey: process.env.DEEPSEEK_API_KEY!,
+            baseURL: "https://api.deepseek.com",
+        });
     return _openai;
 }
 
@@ -153,7 +157,7 @@ export async function generateReply(
     ];
 
     const completion = await getOpenAI().chat.completions.create({
-        model: "gpt-4",
+        model: "deepseek-chat",
         messages,
         max_tokens: 500,
         temperature: 0.7,
