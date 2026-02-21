@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/session-manager/node_modules
+/session-manager/dist
 /.pnp
 .pnp.*
 .yarn/*
