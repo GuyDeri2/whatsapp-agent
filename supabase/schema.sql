@@ -57,6 +57,9 @@ create table if not exists messages (
   conversation_id uuid not null references conversations(id) on delete cascade,
   role            text not null check (role in ('user', 'assistant', 'owner')),
   content         text not null,
+  media_url       text, -- URL to the media file in Supabase Storage
+  media_type      text, -- 'image', 'video', 'audio', 'document'
+  sender_name     text, -- name of the individual sender (used for group chats)
   is_from_agent   boolean not null default false, -- true if auto-replied by AI
   created_at      timestamptz not null default now()
 );

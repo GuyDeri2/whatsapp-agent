@@ -25,6 +25,7 @@ function getSupabase(): SupabaseClient {
 // ─── Types ────────────────────────────────────────────────────────────
 interface TenantConfig {
     agent_mode: "learning" | "active" | "paused";
+    agent_filter_mode: "all" | "whitelist" | "blacklist";
     whatsapp_phone: string | null;
 }
 
@@ -40,6 +41,9 @@ export async function handleIncomingMessage(
     messageText: string,
     isFromMe: boolean,
     pushName: string | null,
+    senderName: string | null,
+    mediaUrl: string | null,
+    mediaType: string | null,
     sendMessage: SendMessageFn
 ): Promise<void> {
     const supabase = getSupabase();
@@ -47,7 +51,7 @@ export async function handleIncomingMessage(
     // 1. Get tenant config
     const { data: tenant, error: tenantError } = await supabase
         .from("tenants")
-        .select("agent_mode, whatsapp_phone")
+        .select("agent_mode, agent_filter_mode, whatsapp_phone")
         .eq("id", tenantId)
         .single();
 
@@ -60,6 +64,7 @@ export async function handleIncomingMessage(
 
     // Extract clean phone number from JID (e.g., "972501234567@s.whatsapp.net" → "972501234567")
     const phoneNumber = remoteJid.split("@")[0];
+    const isGroupChat = remoteJid.endsWith("@g.us");
 
     // 2. Upsert conversation
     const { data: conversation, error: convError } = await supabase
@@ -69,6 +74,7 @@ export async function handleIncomingMessage(
                 tenant_id: tenantId,
                 phone_number: phoneNumber,
                 contact_name: pushName,
+                is_group: isGroupChat,
             },
             { onConflict: "tenant_id,phone_number" }
         )
@@ -90,7 +96,10 @@ export async function handleIncomingMessage(
         conversation_id: conversationId,
         role,
         content: messageText,
+        sender_name: senderName,
         is_from_agent: false,
+        media_url: mediaUrl,
+        media_type: mediaType,
     });
 
     if (msgError) {
@@ -106,6 +115,21 @@ export async function handleIncomingMessage(
         // Owner is replying — use this as a learning opportunity
         await learnFromOwnerReply(tenantId, conversationId, messageText);
         return;
+    }
+
+    // 5b. Check contact filtering rules
+    if (config.agent_mode === "active" && config.agent_filter_mode !== "all") {
+        const shouldRespond = await checkContactFilter(
+            tenantId,
+            phoneNumber,
+            config.agent_filter_mode
+        );
+        if (!shouldRespond) {
+            console.log(
+                `[${tenantId}] 🚫 Contact filtered out (${config.agent_filter_mode}): ${phoneNumber}`
+            );
+            return; // message is stored but agent won't respond
+        }
     }
 
     switch (config.agent_mode) {
@@ -127,6 +151,30 @@ export async function handleIncomingMessage(
         case "paused":
             console.log(`[${tenantId}] ⏸️ Paused mode — message stored silently`);
             break;
+    }
+}
+
+// ─── Contact filtering ────────────────────────────────────────────────
+async function checkContactFilter(
+    tenantId: string,
+    phoneNumber: string,
+    filterMode: "whitelist" | "blacklist"
+): Promise<boolean> {
+    const supabase = getSupabase();
+
+    const { data: rule } = await supabase
+        .from("contact_rules")
+        .select("rule_type")
+        .eq("tenant_id", tenantId)
+        .eq("phone_number", phoneNumber)
+        .single();
+
+    if (filterMode === "whitelist") {
+        // Only respond if the contact is explicitly allowed
+        return rule?.rule_type === "allow";
+    } else {
+        // Respond to everyone UNLESS explicitly blocked
+        return rule?.rule_type !== "block";
     }
 }
 

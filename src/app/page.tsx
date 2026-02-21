@@ -76,9 +76,9 @@ export default function Dashboard() {
   };
 
   const modeLabels: Record<string, { label: string; emoji: string; color: string }> = {
-    learning: { label: "Learning", emoji: "📚", color: "#f59e0b" },
-    active: { label: "Active", emoji: "🤖", color: "#10b981" },
-    paused: { label: "Paused", emoji: "⏸️", color: "#6b7280" },
+    learning: { label: "למידה", emoji: "📚", color: "#f59e0b" },
+    active: { label: "פעיל", emoji: "🤖", color: "#10b981" },
+    paused: { label: "מושהה", emoji: "⏸️", color: "#6b7280" },
   };
 
   return (
@@ -86,11 +86,11 @@ export default function Dashboard() {
       {/* Header */}
       <header className="dashboard-header">
         <div className="header-left">
-          <h1>🤖 WhatsApp Agent Platform</h1>
-          <span className="header-subtitle">Manage your AI agents</span>
+          <h1>🤖 פלטפורמת סוכן ווטסאפ</h1>
+          <span className="header-subtitle">נהל את סוכני ה-AI שלך</span>
         </div>
         <button className="btn btn-ghost" onClick={handleLogout}>
-          Sign Out
+          התנתק
         </button>
       </header>
 
@@ -98,45 +98,45 @@ export default function Dashboard() {
       <div className="stats-bar">
         <div className="stat-card">
           <span className="stat-number">{tenants.length}</span>
-          <span className="stat-label">Businesses</span>
+          <span className="stat-label">עסקים</span>
         </div>
         <div className="stat-card">
           <span className="stat-number">
             {tenants.filter((t) => t.whatsapp_connected).length}
           </span>
-          <span className="stat-label">Connected</span>
+          <span className="stat-label">מחוברים</span>
         </div>
         <div className="stat-card">
           <span className="stat-number">
             {tenants.filter((t) => t.agent_mode === "active").length}
           </span>
-          <span className="stat-label">Active Agents</span>
+          <span className="stat-label">סוכנים פעילים</span>
         </div>
       </div>
 
       {/* Tenant List */}
       <div className="tenants-section">
         <div className="section-header">
-          <h2>Your Businesses</h2>
+          <h2>העסקים שלך</h2>
           <button className="btn btn-primary" onClick={() => setShowForm(true)}>
-            + Add Business
+            + הוסף עסק
           </button>
         </div>
 
         {loading && (
           <div className="loading-state">
             <div className="spinner" />
-            <p>Loading businesses...</p>
+            <p>טוען עסקים...</p>
           </div>
         )}
 
         {!loading && tenants.length === 0 && !showForm && (
           <div className="empty-state-card">
             <div className="empty-icon">🏢</div>
-            <h3>No businesses yet</h3>
-            <p>Add your first business to get started with WhatsApp AI agents.</p>
+            <h3>אין עסקים עדיין</h3>
+            <p>הוסף את העסק הראשון שלך כדי להתחיל עם סוכני AI לווטסאפ.</p>
             <button className="btn btn-primary" onClick={() => setShowForm(true)}>
-              Add Your First Business
+              הוסף את העסק הראשון שלך
             </button>
           </div>
         )}
@@ -144,13 +144,13 @@ export default function Dashboard() {
         {/* New Business Form */}
         {showForm && (
           <div className="form-card">
-            <h3>Add New Business</h3>
+            <h3>הוסף עסק חדש</h3>
             <form onSubmit={handleCreate}>
               <div className="form-group">
-                <label>Business Name *</label>
+                <label>שם העסק *</label>
                 <input
                   type="text"
-                  placeholder="e.g., QuickShip Electronics"
+                  placeholder="לדוגמה: חנות אלקטרוניקה"
                   value={formData.business_name}
                   onChange={(e) =>
                     setFormData({ ...formData, business_name: e.target.value })
@@ -160,9 +160,9 @@ export default function Dashboard() {
               </div>
 
               <div className="form-group">
-                <label>Description</label>
+                <label>תיאור</label>
                 <textarea
-                  placeholder="What does your business do? e.g., We sell electronics and gadgets online..."
+                  placeholder="מה העסק שלך עושה? למשל: אנחנו מוכרים מוצרי אלקטרוניקה..."
                   value={formData.description}
                   onChange={(e) =>
                     setFormData({ ...formData, description: e.target.value })
@@ -172,9 +172,9 @@ export default function Dashboard() {
               </div>
 
               <div className="form-group">
-                <label>Products / Services</label>
+                <label>מוצרים / שירותים</label>
                 <textarea
-                  placeholder="What do you sell? e.g., Smartphones, laptops, accessories, headphones..."
+                  placeholder="מה אתם מוכרים? למשל: סמארטפונים, מחשבים ניידים, אביזרים..."
                   value={formData.products}
                   onChange={(e) =>
                     setFormData({ ...formData, products: e.target.value })
@@ -184,9 +184,9 @@ export default function Dashboard() {
               </div>
 
               <div className="form-group">
-                <label>Target Customers</label>
+                <label>לקוחות יעד</label>
                 <textarea
-                  placeholder="Who are your customers? e.g., Tech enthusiasts, small businesses..."
+                  placeholder="מי הלקוחות שלך? למשל: חובבי טכנולוגיה, עסקים קטנים..."
                   value={formData.target_customers}
                   onChange={(e) =>
                     setFormData({
@@ -204,14 +204,14 @@ export default function Dashboard() {
                   className="btn btn-ghost"
                   onClick={() => setShowForm(false)}
                 >
-                  Cancel
+                  ביטול
                 </button>
                 <button
                   type="submit"
                   className="btn btn-primary"
                   disabled={creating}
                 >
-                  {creating ? "Creating..." : "Create Business"}
+                  {creating ? "יוצר..." : "צור עסק"}
                 </button>
               </div>
             </form>
@@ -250,11 +250,11 @@ export default function Dashboard() {
                     />
                     <span>
                       {tenant.whatsapp_connected
-                        ? `Connected (${tenant.whatsapp_phone || "..."})`
-                        : "Not connected"}
+                        ? `מחובר (${tenant.whatsapp_phone || "..."})`
+                        : "לא מחובר"}
                     </span>
                   </div>
-                  <span className="card-arrow">→</span>
+                  <span className="card-arrow">←</span>
                 </div>
               </div>
             );

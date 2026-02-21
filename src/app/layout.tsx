@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "WhatsApp Agent — Business Dashboard",
+  title: "סוכן ווטסאפ — דשבורד עסקי",
   description:
-    "Real-time business dashboard for your WhatsApp AI customer support agent powered by QuickShip.",
+    "דשבורד עסקי לניהול סוכן AI לשירות לקוחות בוואטסאפ.",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="he" dir="rtl">
       <body>{children}</body>
     </html>
   );

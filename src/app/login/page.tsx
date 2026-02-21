@@ -36,15 +36,15 @@ export default function LoginPage() {
             <div className="login-card">
                 <div className="login-header">
                     <div className="login-icon">💬</div>
-                    <h1>WhatsApp Agent</h1>
-                    <p>Sign in to your business dashboard</p>
+                    <h1>סוכן ווטסאפ</h1>
+                    <p>התחבר לדשבורד העסקי שלך</p>
                 </div>
 
                 <form onSubmit={handleLogin} className="login-form">
                     {error && <div className="login-error">{error}</div>}
 
                     <div className="form-group">
-                        <label htmlFor="email">Email</label>
+                        <label htmlFor="email">אימייל</label>
                         <input
                             id="email"
                             type="email"
@@ -56,7 +56,7 @@ export default function LoginPage() {
                     </div>
 
                     <div className="form-group">
-                        <label htmlFor="password">Password</label>
+                        <label htmlFor="password">סיסמה</label>
                         <input
                             id="password"
                             type="password"
@@ -68,7 +68,7 @@ export default function LoginPage() {
                     </div>
 
                     <button type="submit" className="login-button" disabled={loading}>
-                        {loading ? "Signing in…" : "Sign In"}
+                        {loading ? "מתחבר…" : "התחבר"}
                     </button>
                 </form>
             </div>

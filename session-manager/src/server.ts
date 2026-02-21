@@ -14,6 +14,7 @@ import {
     getActiveSessions,
     restoreAllSessions,
     setQRUpdateCallback,
+    sendMessage,
 } from "./session-manager";
 
 const app = express();
@@ -86,6 +87,25 @@ app.get("/sessions/:tenantId/status", (req, res) => {
     const { tenantId } = req.params;
     const info = getSessionInfo(tenantId);
     res.json(info);
+});
+
+/** Send a message */
+app.post("/sessions/:tenantId/messages", async (req, res) => {
+    const { tenantId } = req.params;
+    const { jid, text } = req.body;
+
+    if (!jid || !text) {
+        res.status(400).json({ error: "Missing jid or text" });
+        return;
+    }
+
+    try {
+        const messageId = await sendMessage(tenantId, jid, text);
+        res.json({ success: true, messageId });
+    } catch (error: any) {
+        console.error(`Error sending message for ${tenantId}:`, error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 /** SSE endpoint for real-time QR code updates */
