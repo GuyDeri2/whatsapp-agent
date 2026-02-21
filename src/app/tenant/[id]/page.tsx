@@ -243,23 +243,31 @@ export default function TenantPage() {
 
     // ── Agent mode toggle ──
     const setAgentMode = async (mode: "learning" | "active" | "paused") => {
-        await fetch(`/api/tenants/${tenantId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ agent_mode: mode }),
-        });
-        await fetchTenant();
+        try {
+            await fetch(`/api/tenants/${tenantId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ agent_mode: mode }),
+            });
+            await fetchTenant();
+        } catch {
+            showToast("שגיאה בשינוי מצב הסוכן", "error");
+        }
     };
 
     // ── Agent filter mode toggle ──
     const setFilterMode = async (mode: "all" | "whitelist" | "blacklist") => {
-        await fetch(`/api/tenants/${tenantId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ agent_filter_mode: mode }),
-        });
-        await fetchTenant();
-        showToast(`מצב סינון שונה ל: ${filterLabels[mode]}`, "success");
+        try {
+            await fetch(`/api/tenants/${tenantId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ agent_filter_mode: mode }),
+            });
+            await fetchTenant();
+            showToast(`מצב סינון שונה ל: ${filterLabels[mode]}`, "success");
+        } catch {
+            showToast("שגיאה בשינוי מצב הסינון", "error");
+        }
     };
 
     // ── Add contact rule ──
@@ -382,15 +390,19 @@ export default function TenantPage() {
 
     // ── Disconnect WhatsApp ──
     const handleDisconnect = async () => {
-        await fetch(`/api/sessions/${tenantId}/stop`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ clearData: true }),
-        });
-        setConnectionStatus("disconnected");
-        setQrCode(null);
-        await fetchTenant();
-        showToast("ווטסאפ נותק", "success");
+        try {
+            await fetch(`/api/sessions/${tenantId}/stop`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ clearData: true }),
+            });
+            setConnectionStatus("disconnected");
+            setQrCode(null);
+            await fetchTenant();
+            showToast("ווטסאפ נותק", "success");
+        } catch {
+            showToast("שגיאה בניתוק ווטסאפ", "error");
+        }
     };
 
     const handleReconnect = async (clearAuth = false) => {
