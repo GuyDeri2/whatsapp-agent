@@ -106,6 +106,12 @@ export async function handleIncomingMessage(
         console.error(`[${tenantId}] Message insert error:`, msgError);
     }
 
+    // Touch conversation's updated_at so it sorts to the top
+    await supabase
+        .from("conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", conversationId);
+
     console.log(
         `[${tenantId}] ${role === "owner" ? "📤" : "📥"} ${phoneNumber}: ${messageText.substring(0, 80)}...`
     );

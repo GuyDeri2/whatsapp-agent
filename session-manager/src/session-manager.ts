@@ -422,6 +422,11 @@ async function createSession(tenantId: string): Promise<void> {
                 const isGroup = chat.id.endsWith("@g.us");
                 let contactName = chat.name || null;
 
+                // Use conversationTimestamp from WhatsApp for proper sorting
+                const chatTimestamp = chat.conversationTimestamp
+                    ? new Date((chat.conversationTimestamp as number) * 1000).toISOString()
+                    : new Date().toISOString();
+
                 const { data: conversation, error: convError } = await supabase
                     .from("conversations")
                     .upsert(
@@ -430,6 +435,7 @@ async function createSession(tenantId: string): Promise<void> {
                             phone_number: phoneNumber,
                             contact_name: contactName,
                             is_group: isGroup,
+                            updated_at: chatTimestamp,
                         },
                         { onConflict: "tenant_id,phone_number" }
                     )
@@ -654,6 +660,40 @@ async function createSession(tenantId: string): Promise<void> {
                 );
             } catch (err) {
                 console.error(`[${tenantId}] Message handler error:`, err);
+            }
+        }
+    });
+
+    // ── Event: contacts sync (provides real contact names) ──
+    socket.ev.on("contacts.upsert", async (contacts) => {
+        const supabase = getSupabase();
+        for (const contact of contacts) {
+            if (!contact.id) continue;
+            if (contact.id === "status@broadcast") continue;
+
+            const phoneNumber = contact.id.split("@")[0];
+            // contact.name = device contact name (what's in the phone book)
+            // contact.notify = WhatsApp push name (what the person set)
+            const contactName = contact.name || contact.notify || null;
+            if (!contactName) continue;
+
+            // Update the conversation's contact name if we have one
+            const { error } = await supabase
+                .from("conversations")
+                .update({ contact_name: contactName })
+                .eq("tenant_id", tenantId)
+                .eq("phone_number", phoneNumber)
+                .is("contact_name", null); // Only update if no name yet
+
+            if (!error) {
+                // Also update if current name is just the push name and we now have the device contact name
+                if (contact.name) {
+                    await supabase
+                        .from("conversations")
+                        .update({ contact_name: contact.name })
+                        .eq("tenant_id", tenantId)
+                        .eq("phone_number", phoneNumber);
+                }
             }
         }
     });
