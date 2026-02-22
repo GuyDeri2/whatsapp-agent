@@ -599,6 +599,10 @@ body {
   letter-spacing: 0.5px;
 }
 
+.conv-avatar-img {
+  object-fit: cover;
+}
+
 .conv-info {
   display: flex;
   flex-direction: column;
@@ -734,6 +738,8 @@ body {
 .bubble-content p {
   margin: 0;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .bubble-time {
@@ -1181,6 +1187,10 @@ body {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.5px;
+}
+
+.chat-header-avatar-img {
+  object-fit: cover;
 }
 
 /* RTL-aware bubble alignment */

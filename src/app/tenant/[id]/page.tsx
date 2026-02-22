@@ -27,6 +27,7 @@ interface Conversation {
     contact_name: string | null;
     is_group: boolean;
     updated_at: string;
+    profile_picture_url: string | null;
 }
 
 interface Message {
@@ -648,7 +649,15 @@ export default function TenantPage() {
                                     className={`conv-item ${selectedConvId === conv.id ? "active" : ""}`}
                                     onClick={() => selectConversation(conv)}
                                 >
-                                    <div className="conv-avatar" style={{ background: getAvatarColor(getDisplayName(conv)) }}>
+                                    {conv.profile_picture_url ? (
+                                        <img
+                                            src={conv.profile_picture_url}
+                                            alt={getDisplayName(conv)}
+                                            className="conv-avatar conv-avatar-img"
+                                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling!.removeAttribute('style'); }}
+                                        />
+                                    ) : null}
+                                    <div className="conv-avatar conv-avatar-initials" style={{ background: getAvatarColor(getDisplayName(conv)), display: conv.profile_picture_url ? 'none' : 'flex' }}>
                                         {getInitials(getDisplayName(conv), conv.is_group)}
                                     </div>
                                     <div className="conv-info">
@@ -682,7 +691,10 @@ export default function TenantPage() {
                                         return (
                                             <div className="chat-header-bar">
                                                 <div className="chat-header-info">
-                                                    <span className="chat-header-avatar" style={{ background: getAvatarColor(getDisplayName(conv)) }}>{getInitials(getDisplayName(conv), conv.is_group)}</span>
+                                                    {conv.profile_picture_url ? (
+                                                        <img src={conv.profile_picture_url} alt={getDisplayName(conv)} className="chat-header-avatar chat-header-avatar-img" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling!.removeAttribute('style'); }} />
+                                                    ) : null}
+                                                    <span className="chat-header-avatar" style={{ background: getAvatarColor(getDisplayName(conv)), display: conv.profile_picture_url ? 'none' : 'inline-flex' }}>{getInitials(getDisplayName(conv), conv.is_group)}</span>
                                                     <div>
                                                         <strong>{getDisplayName(conv)}</strong>
                                                         <span className="chat-header-phone">{conv.phone_number}</span>

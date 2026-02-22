@@ -259,6 +259,45 @@ async function resolveGroupNames(tenantId: string, socket: WASocket): Promise<vo
     }
 }
 
+// ─── Resolve profile pictures from WhatsApp ───────────────────────────
+async function resolveProfilePictures(tenantId: string, socket: WASocket): Promise<void> {
+    try {
+        const supabase = getSupabase();
+        // Find conversations without a profile picture
+        const { data: noPicConversations } = await supabase
+            .from("conversations")
+            .select("id, phone_number, is_group")
+            .eq("tenant_id", tenantId)
+            .is("profile_picture_url", null)
+            .limit(100);
+
+        if (!noPicConversations || noPicConversations.length === 0) return;
+
+        console.log(`[${tenantId}] 📸 Fetching profile pictures for ${noPicConversations.length} contacts...`);
+        let resolved = 0;
+
+        for (const conv of noPicConversations) {
+            try {
+                const jid = conv.phone_number + (conv.is_group ? "@g.us" : "@s.whatsapp.net");
+                const url = await socket.profilePictureUrl(jid, "image");
+                if (url) {
+                    await supabase
+                        .from("conversations")
+                        .update({ profile_picture_url: url })
+                        .eq("id", conv.id);
+                    resolved++;
+                }
+            } catch {
+                // User might have no profile picture or it's private
+            }
+        }
+
+        console.log(`[${tenantId}] ✅ Resolved ${resolved}/${noPicConversations.length} profile pictures`);
+    } catch (err) {
+        console.error(`[${tenantId}] Error resolving profile pictures:`, err);
+    }
+}
+
 // ─── Internal: create Baileys socket ──────────────────────────────────
 async function createSession(tenantId: string): Promise<void> {
     const { state, saveCreds } = await useSupabaseAuthState(tenantId);
@@ -323,6 +362,7 @@ async function createSession(tenantId: string): Promise<void> {
 
             // After a short delay, resolve any group names that are missing
             setTimeout(() => resolveGroupNames(tenantId, socket), 10000);
+            setTimeout(() => resolveProfilePictures(tenantId, socket), 15000);
         }
 
         // Disconnected
