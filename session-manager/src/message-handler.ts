@@ -66,24 +66,31 @@ export async function handleIncomingMessage(
     const phoneNumber = remoteJid.split("@")[0];
     const isGroupChat = remoteJid.endsWith("@g.us");
 
-    // 2. Upsert conversation
+    // 2. Upsert conversation (without contact_name to avoid overwriting existing names)
     const { data: conversation, error: convError } = await supabase
         .from("conversations")
         .upsert(
             {
                 tenant_id: tenantId,
                 phone_number: phoneNumber,
-                contact_name: pushName,
                 is_group: isGroupChat,
             },
-            { onConflict: "tenant_id,phone_number" }
+            { onConflict: "tenant_id,phone_number", ignoreDuplicates: false }
         )
-        .select("id")
+        .select("id, contact_name")
         .single();
 
     if (convError || !conversation) {
         console.error(`[${tenantId}] Conversation upsert error:`, convError);
         return;
+    }
+
+    // Update contact_name only if we have a new name and current is empty
+    if (pushName && !conversation.contact_name) {
+        await supabase
+            .from("conversations")
+            .update({ contact_name: pushName })
+            .eq("id", conversation.id);
     }
 
     const conversationId = conversation.id;

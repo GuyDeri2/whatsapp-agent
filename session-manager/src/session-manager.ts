@@ -514,7 +514,17 @@ async function createSession(tenantId: string): Promise<void> {
                     wa_message_id: waMessageId,
                 });
 
-                if (!insertErr) messagesSynced++;
+                if (!insertErr) {
+                    messagesSynced++;
+                    // If this message has a pushName and the conversation has no name, update it
+                    if (senderName && senderName !== "Owner" && !isFromMe) {
+                        await supabase
+                            .from("conversations")
+                            .update({ contact_name: senderName })
+                            .eq("id", conversation.id)
+                            .is("contact_name", null);
+                    }
+                }
             }
 
             console.log(`[${tenantId}] ✅ History sync done: ${chatsSynced} chats, ${messagesSynced} messages saved`);
