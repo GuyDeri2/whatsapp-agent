@@ -180,6 +180,27 @@ process.on("unhandledRejection", (reason: any) => {
     console.error("❌ Unhandled Rejection (process will NOT exit):", reason?.message || reason);
 });
 
+// ─── Graceful Shutdown ────────────────────────────────────────────────
+async function gracefulShutdown(signal: string) {
+    console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
+    const sessions = getActiveSessions();
+    console.log(`Closing ${sessions.length} active session(s)...`);
+
+    for (const tenantId of sessions) {
+        try {
+            await stopSession(tenantId, false); // false = keep auth data
+        } catch (err: any) {
+            console.error(`Error stopping session for ${tenantId}:`, err.message);
+        }
+    }
+
+    console.log("✅ All sessions closed cleanly. Exiting.");
+    process.exit(0);
+}
+
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+
 // ─── Start server ─────────────────────────────────────────────────────
 app.listen(PORT, async () => {
     console.log(`\n🚀 WhatsApp Session Manager running on port ${PORT}`);
