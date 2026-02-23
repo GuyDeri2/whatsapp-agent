@@ -175,12 +175,25 @@ async function checkContactFilter(
 ): Promise<boolean> {
     const supabase = getSupabase();
 
-    const { data: rule } = await supabase
+    // WhatsApp gives "972...", but user might have typed "0..." in UI
+    let localNumber = phoneNumber;
+    if (phoneNumber.startsWith("972")) {
+        localNumber = "0" + phoneNumber.substring(3);
+    }
+
+    // Use .in() to check both formats, and .limit(1) to avoid .single() crashing on duplicates
+    const { data: rules, error } = await supabase
         .from("contact_rules")
         .select("rule_type")
         .eq("tenant_id", tenantId)
-        .eq("phone_number", phoneNumber)
-        .single();
+        .in("phone_number", [phoneNumber, localNumber])
+        .limit(1);
+
+    if (error) {
+        console.error(`[${tenantId}] Error checking contact filter:`, error);
+    }
+
+    const rule = rules && rules.length > 0 ? rules[0] : null;
 
     if (filterMode === "whitelist") {
         // Only respond if the contact is explicitly allowed
