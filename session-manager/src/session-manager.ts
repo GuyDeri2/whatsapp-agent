@@ -197,24 +197,27 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
  * Restore all previously connected sessions on server start.
  */
 export async function restoreAllSessions(): Promise<void> {
-    const { data: tenants } = await getSupabase()
-        .from("tenants")
-        .select("id")
-        .eq("whatsapp_connected", true);
+    // Find all tenants that have saved WhatsApp auth state (creds)
+    const { data: sessionsWithCreds } = await getSupabase()
+        .from("whatsapp_sessions")
+        .select("tenant_id")
+        .eq("session_key", "creds");
 
-    if (!tenants || tenants.length === 0) {
+    if (!sessionsWithCreds || sessionsWithCreds.length === 0) {
         console.log("No sessions to restore");
         return;
     }
 
-    console.log(`Restoring ${tenants.length} session(s)...`);
-    for (const tenant of tenants) {
+    const uniqueTenants = [...new Set(sessionsWithCreds.map((s) => s.tenant_id))];
+
+    console.log(`Restoring ${uniqueTenants.length} session(s)...`);
+    for (const tenantId of uniqueTenants) {
         try {
-            await startSession(tenant.id);
+            await startSession(tenantId);
             // small delay between starts to avoid rate-limiting
             await new Promise((r) => setTimeout(r, 2000));
         } catch (err) {
-            console.error(`Failed to restore session for tenant ${tenant.id}:`, err);
+            console.error(`Failed to restore session for tenant ${tenantId}:`, err);
         }
     }
 }

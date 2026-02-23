@@ -68,9 +68,6 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
     if (!tenant) throw new Error(`Tenant ${tenantId} not found`);
     const t = tenant as TenantProfile;
 
-    // If tenant has a custom prompt override, use it
-    if (t.agent_prompt) return t.agent_prompt;
-
     // 2. Knowledge base
     const { data: knowledge } = await supabase
         .from("knowledge_base")
@@ -101,6 +98,11 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
         prompt += `\n\nTarget customers:\n${t.target_customers}`;
     }
 
+    // Tenant-Specific Custom Instructions
+    if (t.agent_prompt) {
+        prompt += `\n\n## הנחיות אישיות של העסק:\n${t.agent_prompt}`;
+    }
+
     if (knowledge && knowledge.length > 0) {
         prompt += "\n\nKnowledge Base:";
         for (const k of knowledge as KnowledgeEntry[]) {
@@ -119,7 +121,7 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
         }
     }
 
-    prompt += `\n\n## כללים חשובים (בלתי ניתנים לשינוי):
+    prompt += `\n\n## הנחיות סוכן כלליות (Global Agent Rules - בלתי ניתנים לשינוי):
 
 1. **אל תמציא מידע** — אם אתה לא יודע משהו, תגיד בפירוש: "אני לא בטוח לגבי זה, אני אבדוק מול הצוות ואחזור אליך". לעולם אל תמציא מחירים, זמינות, מדיניות או מידע שלא ניתן לך.
 
@@ -135,7 +137,7 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
 
 7. **אל תדביק קישורים מומצאים** — אם אתה לא יודע את הכתובת המדויקת, אל תמציא URL.
 
-8. **מידע מהידע שלך בלבד** — ענה רק על בסיס המידע שניתן לך למעלה (פרטי העסק, בסיס הידע, ודוגמאות). לכל שאלה שהמידע לא קיים אצלך — תאמר שאתה לא יודע.`;
+8. **מידע מהידע שלך בלבד** — השתמש קודם כל ב"הנחיות האישיות של העסק", בבסיס הידע, ובדוגמאות הבעלים. לכל שאלה שהמידע לא קיים שם — תאמר שאתה לא יודע.`;
 
     return prompt;
 }
