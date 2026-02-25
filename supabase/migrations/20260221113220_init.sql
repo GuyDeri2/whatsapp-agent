@@ -15,7 +15,7 @@ create table if not exists tenants (
   description   text,            -- what the business does
   products      text,            -- products/services offered
   target_customers text,         -- who the customers are
-  agent_mode    text not null default 'paused' check (agent_mode in ('learning', 'active', 'paused')),
+  agent_mode    text not null default 'learning' check (agent_mode in ('learning', 'active')),
   agent_prompt  text,            -- custom system prompt override (optional)
   whatsapp_connected boolean not null default false,
   whatsapp_phone text,           -- connected phone number

@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, useParams } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+
+import { ChatTab } from "@/components/tenant/ChatTab";
+import { SettingsTab } from "@/components/tenant/SettingsTab";
+import { ConnectTab } from "@/components/tenant/ConnectTab";
+import { ContactsTab } from "@/components/tenant/ContactsTab";
+import { CapabilitiesTab } from "@/components/tenant/CapabilitiesTab";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -15,7 +21,7 @@ interface Tenant {
     description: string | null;
     products: string | null;
     target_customers: string | null;
-    agent_mode: "learning" | "active" | "paused";
+    agent_mode: "learning" | "active";
     agent_filter_mode: "all" | "whitelist" | "blacklist";
     whatsapp_connected: boolean;
     whatsapp_phone: string | null;
@@ -55,14 +61,12 @@ interface ContactRule {
 /* Toast component                                                     */
 /* ------------------------------------------------------------------ */
 
-// Detect if text starts with RTL characters (Hebrew, Arabic)
 function isRTL(text: string): boolean {
     if (!text) return false;
     const firstChar = text.replace(/[\s\u200f\u200e\[\(]/g, '').charAt(0);
     return /[\u0590-\u05FF\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(firstChar);
 }
 
-// Generate a consistent color from a string (for avatars)
 const AVATAR_COLORS = [
     '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
     '#ec4899', '#f43f5e', '#ef4444', '#f97316',
@@ -80,7 +84,6 @@ function getAvatarColor(name: string): string {
 
 function getInitials(name: string, isGroup: boolean): string {
     if (!name) return isGroup ? '👥' : '?';
-    // For groups, take first letter. For people, take first+last initials.
     const parts = name.trim().split(/\s+/);
     if (parts.length >= 2) {
         return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -116,7 +119,7 @@ export default function TenantPage() {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
-    const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts">("chat");
+    const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities">("chat");
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [connectionStatus, setConnectionStatus] = useState<string>("unknown");
     const [saving, setSaving] = useState(false);
@@ -141,7 +144,8 @@ export default function TenantPage() {
     // Last messages cache
     const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
 
-    const bottomRef = useRef<HTMLDivElement>(null);
+    // Debounce ref for realtime events
+    const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const showToast = (message: string, type: "success" | "error") => {
         setToast({ message, type });
@@ -175,26 +179,30 @@ export default function TenantPage() {
         if (data) {
             setConversations(data);
 
-            // Fetch last message for each conversation
             const lastMsgMap: Record<string, string> = {};
-            for (const conv of data.slice(0, 20)) {
-                const { data: msgs } = await supabase
-                    .from("messages")
-                    .select("content, media_type")
-                    .eq("conversation_id", conv.id)
-                    .order("created_at", { ascending: false })
-                    .limit(1);
-                if (msgs && msgs.length > 0) {
-                    const m = msgs[0];
-                    if (m.media_type && (m.content === `[${m.media_type} received]` || !m.content)) {
-                        const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
-                        lastMsgMap[conv.id] = labels[m.media_type] || "📎 קובץ";
-                    } else {
-                        lastMsgMap[conv.id] = m.content?.substring(0, 50) || "";
+            // Only fetch previews for the top 15 to save DB bottleneck
+            for (const conv of data.slice(0, 15)) {
+                try {
+                    const { data: msgs } = await supabase
+                        .from("messages")
+                        .select("content, media_type")
+                        .eq("conversation_id", conv.id)
+                        .order("created_at", { ascending: false })
+                        .limit(1);
+
+                    if (msgs && msgs.length > 0) {
+                        const m = msgs[0];
+                        if (m.media_type && (m.content === `[${m.media_type} received]` || !m.content)) {
+                            const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
+                            lastMsgMap[conv.id] = labels[m.media_type] || "📎 קובץ";
+                        } else {
+                            lastMsgMap[conv.id] = m.content?.substring(0, 50) || "";
+                        }
                     }
-                }
+                } catch (e) { /* ignore single fails */ }
             }
-            setLastMessages(lastMsgMap);
+            // Safely merge so we don't wipe out older previews
+            setLastMessages(prev => ({ ...prev, ...lastMsgMap }));
         }
     }, [supabase, tenantId]);
 
@@ -230,6 +238,13 @@ export default function TenantPage() {
 
         const channels: RealtimeChannel[] = [];
 
+        const debouncedFetch = () => {
+            if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+            fetchTimeoutRef.current = setTimeout(() => {
+                fetchConversations();
+            }, 500); // Wait 500ms for bulk DB operations to settle
+        };
+
         const convChannel = supabase
             .channel(`conv-${tenantId}`)
             .on(
@@ -240,7 +255,20 @@ export default function TenantPage() {
                     table: "conversations",
                     filter: `tenant_id=eq.${tenantId}`,
                 },
-                () => fetchConversations()
+                (payload) => {
+                    if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
+                        const newConv = payload.new as Conversation;
+                        // Optimistically reorder and update UI instantly
+                        setConversations(prev => {
+                            const without = prev.filter(c => c.id !== newConv.id);
+                            // Insert at the top because it's updated or new!
+                            return [newConv, ...without].sort((a, b) =>
+                                new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                            );
+                        });
+                    }
+                    debouncedFetch();
+                }
             )
             .subscribe();
         channels.push(convChannel);
@@ -252,14 +280,27 @@ export default function TenantPage() {
                 { event: "INSERT", schema: "public", table: "messages" },
                 (payload) => {
                     const newMsg = payload.new as Message;
+
+                    // 1. Optimistically append message to active chat view
                     setMessages((prev) => {
-                        if (prev.length === 0) return prev;
-                        if (prev[0]?.conversation_id !== newMsg.conversation_id)
-                            return prev;
-                        if (prev.find((m) => m.id === newMsg.id)) return prev;
-                        return [...prev, newMsg];
+                        if (prev.length > 0 && prev[0]?.conversation_id === newMsg.conversation_id) {
+                            if (prev.find((m) => m.id === newMsg.id)) return prev;
+                            return [...prev, newMsg];
+                        }
+                        return prev;
                     });
-                    fetchConversations();
+
+                    // 2. Optimistically update Sidebar Preview instantly
+                    setLastMessages(prev => {
+                        let textPreview = newMsg.content?.substring(0, 50) || "";
+                        if (newMsg.media_type && (newMsg.content === `[${newMsg.media_type} received]` || !newMsg.content)) {
+                            const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
+                            textPreview = labels[newMsg.media_type] || "📎 קובץ";
+                        }
+                        return { ...prev, [newMsg.conversation_id]: textPreview };
+                    });
+
+                    debouncedFetch();
                 }
             )
             .subscribe();
@@ -267,13 +308,9 @@ export default function TenantPage() {
 
         return () => {
             channels.forEach((ch) => supabase.removeChannel(ch));
+            if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
         };
     }, [supabase, tenantId, fetchTenant, fetchConversations, fetchContactRules]);
-
-    // ── Auto-scroll ──
-    useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
 
     // ── Agent mode toggle ──
     const setAgentMode = async (mode: "learning" | "active" | "paused") => {
@@ -506,8 +543,13 @@ export default function TenantPage() {
     };
 
     // ── Helpers ──
-    const formatPhone = (phone: string) =>
-        phone.length > 6 ? `+${phone.slice(0, 3)}-***-${phone.slice(-4)}` : phone;
+    const formatPhone = (phone: string) => {
+        if (!phone) return "";
+        if (phone.startsWith("972") && phone.length === 12) {
+            return `0${phone.substring(3, 5)}-${phone.substring(5, 8)}-${phone.substring(8)}`;
+        }
+        return `+${phone}`;
+    };
 
     const formatTime = (ts: string) =>
         new Date(ts).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
@@ -535,12 +577,14 @@ export default function TenantPage() {
         blacklist: "כולם חוץ מחסומים",
     };
 
-    // ── Filtered conversations ──
-    const filteredConversations = conversations.filter(conv => {
-        if (!searchQuery) return true;
-        const q = searchQuery.toLowerCase();
-        return conv.contact_name?.toLowerCase().includes(q) || conv.phone_number.includes(q);
-    });
+    // ── Filtered conversations (Optimized) ──
+    const filteredConversations = useMemo(() => {
+        return conversations.filter(conv => {
+            if (!searchQuery) return true;
+            const q = searchQuery.toLowerCase();
+            return conv.contact_name?.toLowerCase().includes(q) || conv.phone_number.includes(q);
+        });
+    }, [conversations, searchQuery]);
 
     // ── Render media ──
     const renderMedia = (msg: Message) => {
@@ -571,12 +615,35 @@ export default function TenantPage() {
         return true;
     };
 
-    if (!tenant) return <div className="loading-state"><div className="spinner" /></div>;
+    // Skeleton Loader for initial state
+    if (!tenant) {
+        return (
+            <div className="tenant-page">
+                <header className="tenant-header" style={{ opacity: 0.6 }}>
+                    <div style={{ width: 60, height: 24, background: 'var(--bg-card)', borderRadius: 4 }} />
+                    <div className="tenant-title" style={{ gap: 16 }}>
+                        <div style={{ width: 200, height: 28, background: 'var(--bg-glass)', borderRadius: 8 }} />
+                        <div style={{ width: 80, height: 24, background: 'var(--bg-glass)', borderRadius: 12 }} />
+                    </div>
+                </header>
+                <nav className="tab-nav" style={{ opacity: 0.6 }}>
+                    <div style={{ width: 100, height: 40, background: 'var(--bg-glass)', margin: '0 12px' }} />
+                    <div style={{ width: 140, height: 40, background: 'var(--bg-glass)', margin: '0 12px' }} />
+                    <div style={{ width: 120, height: 40, background: 'var(--bg-glass)', margin: '0 12px' }} />
+                </nav>
+                <div className="tab-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div className="loading-state">
+                        <div className="spinner" />
+                        <p style={{ marginTop: 16 }}>טוען נתוני עסק...</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const modeConfig = {
         learning: { label: "למידה", emoji: "📚", color: "#f59e0b" },
         active: { label: "פעיל", emoji: "🤖", color: "#10b981" },
-        paused: { label: "מושהה", emoji: "⏸️", color: "#6b7280" },
     };
 
     return (
@@ -594,7 +661,7 @@ export default function TenantPage() {
                     <span className={`status-dot ${tenant.whatsapp_connected ? "connected" : "disconnected"}`} />
                 </div>
                 <div className="mode-switcher">
-                    {(["paused", "learning", "active"] as const).map((mode) => (
+                    {(["learning", "active"] as const).map((mode) => (
                         <button
                             key={mode}
                             className={`mode-btn ${tenant.agent_mode === mode ? "active" : ""}`}
@@ -618,368 +685,85 @@ export default function TenantPage() {
                 <button className={`tab ${activeTab === "connect" ? "active" : ""}`} onClick={() => setActiveTab("connect")}>
                     📱 חיבור ווטסאפ
                 </button>
+                <button className={`tab ${activeTab === "capabilities" ? "active" : ""}`} onClick={() => setActiveTab("capabilities")}>
+                    🧠 יכולות סוכן
+                </button>
                 <button className={`tab ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}>
                     ⚙️ הגדרות
                 </button>
             </nav>
 
             <div className="tab-content">
-                {/* ── Chat Tab ── */}
                 {activeTab === "chat" && (
-                    <div className="chat-layout">
-                        <aside className="chat-sidebar">
-                            <h3>שיחות</h3>
-                            <div className="search-box">
-                                <input
-                                    type="text"
-                                    placeholder="🔍 חפש שיחה..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="search-input"
-                                />
-                            </div>
-                            {filteredConversations.length === 0 && (
-                                <div className="empty-mini">
-                                    <p>{searchQuery ? "לא נמצאו תוצאות" : "אין שיחות עדיין"}</p>
-                                </div>
-                            )}
-                            {filteredConversations.map((conv) => (
-                                <button
-                                    key={conv.id}
-                                    className={`conv-item ${selectedConvId === conv.id ? "active" : ""}`}
-                                    onClick={() => selectConversation(conv)}
-                                >
-                                    {conv.profile_picture_url ? (
-                                        <img
-                                            src={conv.profile_picture_url}
-                                            alt={getDisplayName(conv)}
-                                            className="conv-avatar conv-avatar-img"
-                                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling!.removeAttribute('style'); }}
-                                        />
-                                    ) : null}
-                                    <div className="conv-avatar conv-avatar-initials" style={{ background: getAvatarColor(getDisplayName(conv)), display: conv.profile_picture_url ? 'none' : 'flex' }}>
-                                        {getInitials(getDisplayName(conv), conv.is_group)}
-                                    </div>
-                                    <div className="conv-info">
-                                        <span className="conv-name">{getDisplayName(conv)}</span>
-                                        {!conv.is_group && conv.contact_name && (
-                                            <span className="conv-phone-sub">{formatPhone(conv.phone_number)}</span>
-                                        )}
-                                        {lastMessages[conv.id] && (
-                                            <span className="conv-preview">{lastMessages[conv.id]}</span>
-                                        )}
-                                        <span className="conv-time">{formatDate(conv.updated_at)}</span>
-                                    </div>
-                                </button>
-                            ))}
-                        </aside>
-
-                        <main className="chat-main">
-                            {!selectedConvId ? (
-                                <div className="empty-chat">
-                                    <div className="empty-chat-icon">💬</div>
-                                    <h2>בחר שיחה</h2>
-                                    <p>בחר שיחה מהרשימה כדי לצפות בהודעות</p>
-                                </div>
-                            ) : (
-                                <>
-                                    {/* Chat header with contact actions */}
-                                    {(() => {
-                                        const conv = conversations.find(c => c.id === selectedConvId);
-                                        if (!conv) return null;
-                                        const existingRule = contactRules.find(r => r.phone_number === conv.phone_number);
-                                        return (
-                                            <div className="chat-header-bar">
-                                                <div className="chat-header-info">
-                                                    {conv.profile_picture_url ? (
-                                                        <img src={conv.profile_picture_url} alt={getDisplayName(conv)} className="chat-header-avatar chat-header-avatar-img" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling!.removeAttribute('style'); }} />
-                                                    ) : null}
-                                                    <span className="chat-header-avatar" style={{ background: getAvatarColor(getDisplayName(conv)), display: conv.profile_picture_url ? 'none' : 'inline-flex' }}>{getInitials(getDisplayName(conv), conv.is_group)}</span>
-                                                    <div>
-                                                        <strong>{getDisplayName(conv)}</strong>
-                                                        <span className="chat-header-phone">{conv.phone_number}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="chat-header-actions">
-                                                    {existingRule ? (
-                                                        <span className={`rule-badge rule-${existingRule.rule_type}`}>
-                                                            {existingRule.rule_type === "allow" ? "✅ ברשימה לבנה" : "🚫 חסום"}
-                                                        </span>
-                                                    ) : (
-                                                        <>
-                                                            <button className="btn btn-ghost btn-sm" onClick={() => handleAddFromConversation(conv, "allow")} title="הוסף לרשימה לבנה">
-                                                                ✅ אפשר
-                                                            </button>
-                                                            <button className="btn btn-ghost btn-sm" onClick={() => handleAddFromConversation(conv, "block")} title="חסום">
-                                                                🚫 חסום
-                                                            </button>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-
-                                    <div className="messages-list">
-                                        {messages.map((msg) => (
-                                            <div
-                                                key={msg.id}
-                                                className={`message-bubble ${msg.role} ${msg.is_from_agent ? "from-agent" : ""}`}
-                                            >
-                                                <div className="bubble-content" dir={isRTL(msg.content) ? "rtl" : "ltr"}>
-                                                    {msg.is_from_agent && <span className="agent-badge">🤖 AI</span>}
-                                                    {msg.role === "owner" && <span className="owner-badge">👤 בעלים</span>}
-                                                    {msg.role === "user" && (
-                                                        <span className="sender-name-badge">{msg.sender_name || "לקוח"}</span>
-                                                    )}
-                                                    {renderMedia(msg)}
-                                                    {shouldShowText(msg) && <p>{msg.content}</p>}
-                                                    <span className="bubble-time">{formatTime(msg.created_at)}</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                        <div ref={bottomRef} />
-                                    </div>
-                                    <div className="chat-input-area">
-                                        <form onSubmit={handleSendMessage} className="chat-input-form">
-                                            <textarea
-                                                value={newMessage}
-                                                onChange={(e) => setNewMessage(e.target.value)}
-                                                onKeyDown={handleKeyDown}
-                                                placeholder="הקלד הודעה..."
-                                                disabled={isSending || tenant.agent_mode === "active"}
-                                                rows={1}
-                                            />
-                                            <button
-                                                type="submit"
-                                                className="btn btn-primary"
-                                                disabled={!newMessage.trim() || isSending || tenant.agent_mode === "active"}
-                                            >
-                                                {isSending ? "..." : "שלח"}
-                                            </button>
-                                        </form>
-                                        {tenant.agent_mode === "active" && (
-                                            <div className="agent-active-warning">
-                                                ⚠️ הסוכן פעיל. השהה את הסוכן כדי לענות ידנית.
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </main>
-                    </div>
+                    <ChatTab
+                        tenant={tenant}
+                        conversations={conversations}
+                        filteredConversations={filteredConversations}
+                        selectedConvId={selectedConvId}
+                        messages={messages}
+                        searchQuery={searchQuery}
+                        setSearchQuery={setSearchQuery}
+                        selectConversation={selectConversation}
+                        getDisplayName={getDisplayName}
+                        getAvatarColor={getAvatarColor}
+                        getInitials={getInitials}
+                        formatPhone={formatPhone}
+                        lastMessages={lastMessages}
+                        formatDate={formatDate}
+                        formatTime={formatTime}
+                        contactRules={contactRules}
+                        handleAddFromConversation={handleAddFromConversation}
+                        isRTL={isRTL}
+                        renderMedia={renderMedia}
+                        shouldShowText={shouldShowText}
+                        newMessage={newMessage}
+                        setNewMessage={setNewMessage}
+                        handleKeyDown={handleKeyDown}
+                        handleSendMessage={handleSendMessage}
+                        isSending={isSending}
+                    />
                 )}
 
-                {/* ── Contacts Tab ── */}
                 {activeTab === "contacts" && (
-                    <div className="settings-section">
-                        <div className="settings-form">
-                            <h2>👥 סינון אנשי קשר</h2>
-                            <p style={{ color: "var(--text-secondary)", marginBottom: 20, fontSize: 14, lineHeight: 1.8 }}>
-                                כאן אתה קובע <strong>למי הבוט יענה אוטומטית</strong> כשהוא במצב &quot;פעיל&quot;.<br />
-                                📥 כל ההודעות תמיד נשמרות ומוצגות לך — הסינון משפיע <strong>רק</strong> על האם הבוט שולח תשובה אוטומטית או לא.
-                            </p>
-
-                            {/* Filter mode selector */}
-                            <div className="filter-mode-selector">
-                                <label style={{ display: "block", marginBottom: 12, fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>למי הבוט יענה?</label>
-                                <div className="mode-switcher" style={{ marginBottom: 24 }}>
-                                    {(["all", "whitelist", "blacklist"] as const).map((mode) => (
-                                        <button
-                                            key={mode}
-                                            className={`mode-btn ${tenant.agent_filter_mode === mode ? "active" : ""}`}
-                                            onClick={() => setFilterMode(mode)}
-                                            style={tenant.agent_filter_mode === mode ? { backgroundColor: "var(--accent)" } : {}}
-                                        >
-                                            {mode === "all" ? "🌐" : mode === "whitelist" ? "✅" : "🚫"} {filterLabels[mode]}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Add new rule */}
-                            {tenant.agent_filter_mode !== "all" && (
-                                <>
-                                    <form onSubmit={handleAddRule} className="contact-rule-form">
-                                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-                                            <div className="form-group" style={{ flex: 1, minWidth: 150 }}>
-                                                <label>מספר טלפון</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="972501234567"
-                                                    value={newRulePhone}
-                                                    onChange={(e) => setNewRulePhone(e.target.value)}
-                                                    required
-                                                />
-                                            </div>
-                                            <div className="form-group" style={{ flex: 1, minWidth: 150 }}>
-                                                <label>שם (אופציונלי)</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="שם איש הקשר"
-                                                    value={newRuleName}
-                                                    onChange={(e) => setNewRuleName(e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="form-group" style={{ minWidth: 120 }}>
-                                                <label>סוג</label>
-                                                <select
-                                                    value={newRuleType}
-                                                    onChange={(e) => setNewRuleType(e.target.value as "allow" | "block")}
-                                                    style={{
-                                                        width: "100%",
-                                                        padding: "12px 16px",
-                                                        background: "rgba(0,0,0,0.3)",
-                                                        border: "1px solid var(--border)",
-                                                        borderRadius: "var(--radius-sm)",
-                                                        color: "var(--text-primary)",
-                                                        fontFamily: "inherit",
-                                                        fontSize: 14,
-                                                    }}
-                                                >
-                                                    <option value="allow">✅ אפשר</option>
-                                                    <option value="block">🚫 חסום</option>
-                                                </select>
-                                            </div>
-                                            <button type="submit" className="btn btn-primary" style={{ marginBottom: 20 }}>
-                                                הוסף
-                                            </button>
-                                        </div>
-                                    </form>
-
-                                    {/* Quick add from conversations */}
-                                    <div style={{ marginBottom: 24 }}>
-                                        <h3 style={{ fontSize: 14, marginBottom: 12, color: "var(--text-secondary)" }}>הוסף מהירה מרשימת השיחות</h3>
-                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                                            {conversations.slice(0, 10).map((conv) => {
-                                                const existingRule = contactRules.find(r => r.phone_number === conv.phone_number);
-                                                if (existingRule) return null;
-                                                return (
-                                                    <button
-                                                        key={conv.id}
-                                                        className="btn btn-ghost"
-                                                        style={{ fontSize: 12 }}
-                                                        onClick={() => handleAddFromConversation(
-                                                            conv,
-                                                            tenant.agent_filter_mode === "whitelist" ? "allow" : "block"
-                                                        )}
-                                                    >
-                                                        {tenant.agent_filter_mode === "whitelist" ? "✅" : "🚫"} {getDisplayName(conv)}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    {/* Current rules */}
-                                    <h3 style={{ fontSize: 14, marginBottom: 12, color: "var(--text-secondary)" }}>
-                                        {contactRules.length > 0 ? `כללים פעילים (${contactRules.length})` : "אין כללים עדיין"}
-                                    </h3>
-                                    {contactRules.map((rule) => (
-                                        <div key={rule.id} className="contact-rule-item">
-                                            <span className={`rule-badge rule-${rule.rule_type}`}>
-                                                {rule.rule_type === "allow" ? "✅ מאושר" : "🚫 חסום"}
-                                            </span>
-                                            <div style={{ flex: 1 }}>
-                                                <strong>{rule.contact_name || rule.phone_number}</strong>
-                                                {rule.contact_name && (
-                                                    <span style={{ color: "var(--text-muted)", marginRight: 8, fontSize: 12 }}>
-                                                        {rule.phone_number}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteRule(rule.id)}>
-                                                🗑️
-                                            </button>
-                                        </div>
-                                    ))}
-                                </>
-                            )}
-                        </div>
-                    </div>
+                    <ContactsTab
+                        tenant={tenant}
+                        contactRules={contactRules}
+                        newRulePhone={newRulePhone}
+                        setNewRulePhone={setNewRulePhone}
+                        newRuleName={newRuleName}
+                        setNewRuleName={setNewRuleName}
+                        newRuleType={newRuleType}
+                        setNewRuleType={setNewRuleType}
+                        setFilterMode={setFilterMode}
+                        handleAddRule={handleAddRule}
+                        handleDeleteRule={handleDeleteRule}
+                        filterLabels={filterLabels}
+                    />
                 )}
 
-                {/* ── Connect Tab ── */}
                 {activeTab === "connect" && (
-                    <div className="connect-section">
-                        {tenant.whatsapp_connected ? (
-                            <div className="connected-card">
-                                <div className="connected-icon">✅</div>
-                                <h2>ווטסאפ מחובר</h2>
-                                <p>מחובר ל: <strong>{tenant.whatsapp_phone}</strong></p>
-                                <p className="connected-info">
-                                    הסוכן שלך{" "}
-                                    {tenant.agent_mode === "active" ? "עונה באופן אוטומטי להודעות"
-                                        : tenant.agent_mode === "learning" ? "צופה ולומד מהתשובות שלך"
-                                            : "מושהה ולא מעבד הודעות"}.
-                                </p>
-                                <button className="btn btn-danger" onClick={handleDisconnect}>נתק ווטסאפ</button>
-                                <button className="btn btn-secondary" onClick={() => handleReconnect(false)} style={{ marginRight: 8 }}>🔄 חבר מחדש</button>
-                                <button className="btn btn-secondary" onClick={() => handleReconnect(true)} style={{ marginRight: 8 }}>📱 סרוק QR מחדש</button>
-                            </div>
-                        ) : (
-                            <div className="connect-card">
-                                <h2>חבר את הווטסאפ שלך</h2>
-                                <p>סרוק את קוד ה-QR כדי לחבר את המספר העסקי.</p>
-                                {connectionStatus === "connecting" && !qrCode && (
-                                    <div className="qr-loading"><div className="spinner" /><p>מייצר קוד QR...</p></div>
-                                )}
-                                {qrCode && (
-                                    <div className="qr-container">
-                                        <img src={qrCode} alt="QR Code" className="qr-image" />
-                                        <p className="qr-hint">פתח ווטסאפ → הגדרות → מכשירים מקושרים → קשר מכשיר</p>
-                                    </div>
-                                )}
-                                {connectionStatus !== "connecting" && connectionStatus !== "waiting_scan" && (
-                                    <button className="btn btn-primary btn-large" onClick={handleConnect}>📱 צור קוד QR</button>
-                                )}
-                            </div>
-                        )}
-                    </div>
+                    <ConnectTab
+                        tenant={tenant}
+                        connectionStatus={connectionStatus}
+                        qrCode={qrCode}
+                        handleConnect={handleConnect}
+                        handleReconnect={handleReconnect}
+                        handleDisconnect={handleDisconnect}
+                    />
                 )}
 
-                {/* ── Settings Tab ── */}
-                {activeTab === "settings" && (
-                    <div className="settings-section">
-                        <form onSubmit={handleSaveSettings} className="settings-form">
-                            <h2>פרופיל עסקי</h2>
-                            <div className="form-group">
-                                <label>שם העסק</label>
-                                <input type="text" value={editForm.business_name} onChange={(e) => setEditForm({ ...editForm, business_name: e.target.value })} required />
-                            </div>
-                            <div className="form-group">
-                                <label>תיאור</label>
-                                <textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={4} placeholder="תאר את העסק שלך..." />
-                            </div>
-                            <div className="form-group">
-                                <label>מוצרים / שירותים</label>
-                                <textarea value={editForm.products} onChange={(e) => setEditForm({ ...editForm, products: e.target.value })} rows={4} placeholder="מה אתם מוכרים?" />
-                            </div>
-                            <div className="form-group">
-                                <label>לקוחות יעד</label>
-                                <textarea value={editForm.target_customers} onChange={(e) => setEditForm({ ...editForm, target_customers: e.target.value })} rows={3} placeholder="מי הלקוחות שלך?" />
-                            </div>
-                            <button type="submit" className="btn btn-primary" disabled={saving}>
-                                {saving ? "שומר..." : "שמור הגדרות"}
-                            </button>
-                        </form>
+                {activeTab === "capabilities" && (
+                    <CapabilitiesTab tenant={tenant} />
+                )}
 
-                        <div className="danger-zone">
-                            <h3>⚠️ אזור מסוכן</h3>
-                            <p>מחיקת העסק תסיר את כל הנתונים ותנתק את הווטסאפ.</p>
-                            <button
-                                className="btn btn-danger"
-                                onClick={async () => {
-                                    if (confirm("האם אתה בטוח? פעולה זו תמחק את הכל לצמיתות.")) {
-                                        await fetch(`/api/tenants/${tenantId}`, { method: "DELETE" });
-                                        router.push("/");
-                                    }
-                                }}
-                            >
-                                מחק עסק
-                            </button>
-                        </div>
-                    </div>
+                {activeTab === "settings" && (
+                    <SettingsTab
+                        tenant={tenant}
+                        editForm={editForm}
+                        setEditForm={setEditForm}
+                        handleSaveSettings={handleSaveSettings}
+                        saving={saving}
+                    />
                 )}
             </div>
         </div>

@@ -15,7 +15,7 @@ import {
     downloadMediaMessage,
     WASocket,
 } from "@whiskeysockets/baileys";
-import type { proto } from "@whiskeysockets/baileys";
+import { proto } from "@whiskeysockets/baileys";
 import QRCode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -39,6 +39,48 @@ type QRUpdateCallback = (tenantId: string, qrDataUrl: string | null) => void;
 const sessions = new Map<string, SessionInfo>();
 const MAX_RETRIES = 5;
 const MAX_PREKEY_ERRORS = 10; // after this many PreKeyErrors, clear session and reconnect
+
+/** Memory cache for phonebook contacts */
+const tenantContactsCache = new Map<string, Map<string, string>>();
+
+export function getCachedContactName(tenantId: string, phoneNumber: string): string | null {
+    const cache = tenantContactsCache.get(tenantId);
+    return cache ? (cache.get(phoneNumber) || null) : null;
+}
+
+/** Save contacts cache to DB */
+async function saveContactsToDB(tenantId: string) {
+    const cache = tenantContactsCache.get(tenantId);
+    if (!cache || cache.size === 0) return;
+    try {
+        await getSupabase().from("whatsapp_sessions").upsert(
+            { tenant_id: tenantId, session_key: "contacts", session_data: Object.fromEntries(cache) },
+            { onConflict: "tenant_id,session_key" }
+        );
+    } catch (err) {
+        console.error(`[${tenantId}] Failed to save contacts to DB:`, err);
+    }
+}
+
+/** Load contacts cache from DB */
+async function loadContactsFromDB(tenantId: string) {
+    try {
+        const { data } = await getSupabase()
+            .from("whatsapp_sessions")
+            .select("session_data")
+            .eq("tenant_id", tenantId)
+            .eq("session_key", "contacts")
+            .single();
+
+        if (data?.session_data) {
+            const cacheMap = new Map<string, string>(Object.entries(data.session_data));
+            tenantContactsCache.set(tenantId, cacheMap);
+            console.log(`[${tenantId}] 📇 Loaded ${cacheMap.size} contacts from database into RAM.`);
+        }
+    } catch (err) {
+        // Normal if 'contacts' session_key doesn't exist yet
+    }
+}
 
 let _supabase: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
@@ -170,11 +212,11 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
     const supabase = getSupabase();
     const phoneNumber = jid.split("@")[0];
 
-    // Ensure conversation exists
+    // Ensure conversation exists and update its timestamp
     const { data: conversation, error: convError } = await supabase
         .from("conversations")
         .upsert(
-            { tenant_id: tenantId, phone_number: phoneNumber },
+            { tenant_id: tenantId, phone_number: phoneNumber, updated_at: new Date().toISOString() },
             { onConflict: "tenant_id,phone_number" }
         )
         .select("id")
@@ -315,7 +357,7 @@ async function createSession(tenantId: string): Promise<void> {
         },
         printQRInTerminal: false,
         generateHighQualityLinkPreview: false,
-        syncFullHistory: true, // Sync ALL past conversations on connect
+        syncFullHistory: false, // Turned off to prevent massive history sync bottlenecks
     });
 
     // Preserve retry count from previous session if it exists
@@ -329,6 +371,9 @@ async function createSession(tenantId: string): Promise<void> {
         preKeyErrors: 0,
     };
     sessions.set(tenantId, sessionInfo);
+
+    // 2. Load contacts from persistent storage immediately so incoming messages map properly
+    await loadContactsFromDB(tenantId);
 
     // ── Event: connection update ──
     socket.ev.on("connection.update", async (update) => {
@@ -430,18 +475,22 @@ async function createSession(tenantId: string): Promise<void> {
                     ? new Date((chat.conversationTimestamp as number) * 1000).toISOString()
                     : new Date().toISOString();
 
+                // Upsert conversation to keep it alive AND update timestamp
+                const upsertData: any = {
+                    tenant_id: tenantId,
+                    phone_number: phoneNumber,
+                    is_group: isGroup,
+                    updated_at: chatTimestamp,
+                };
+
+                // Only payload contact_name if it exists, so we don't overwrite existing names with null
+                if (contactName) {
+                    upsertData.contact_name = contactName;
+                }
+
                 const { data: conversation, error: convError } = await supabase
                     .from("conversations")
-                    .upsert(
-                        {
-                            tenant_id: tenantId,
-                            phone_number: phoneNumber,
-                            contact_name: contactName,
-                            is_group: isGroup,
-                            updated_at: chatTimestamp,
-                        },
-                        { onConflict: "tenant_id,phone_number" }
-                    )
+                    .upsert(upsertData, { onConflict: "tenant_id,phone_number" })
                     .select("id")
                     .single();
 
@@ -541,12 +590,37 @@ async function createSession(tenantId: string): Promise<void> {
 
     // ── Event: incoming messages ──
     socket.ev.on("messages.upsert", async (upsert) => {
+        const sessionInfo = sessions.get(tenantId);
+
         for (const msg of upsert.messages) {
             // Skip status broadcasts and protocol messages
             if (msg.key.remoteJid === "status@broadcast") continue;
             if (msg.message?.protocolMessage) continue;
-            // Skip messages with no content (failed decryption produces empty msg)
-            if (msg.messageStubType && !msg.message) continue;
+
+            // Check for decryption failures (CIPHERTEXT stub or missing message entirely)
+            if (!msg.message) {
+                if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
+                    if (sessionInfo) {
+                        sessionInfo.preKeyErrors++;
+                        console.warn(`[${tenantId}] ⚠️ Decryption error (PreKey) detected. Count: ${sessionInfo.preKeyErrors}/${MAX_PREKEY_ERRORS}`);
+
+                        if (sessionInfo.preKeyErrors >= MAX_PREKEY_ERRORS) {
+                            console.error(`[${tenantId}] 🚨 Max PreKey errors reached. Session crypto corrupted. Force wiping auth state!`);
+
+                            // Immediately disconnect and clear corrupted keys
+                            // This stops silent message loss and forces user to rescan QR
+                            stopSession(tenantId, true);
+                            return; // Stop processing this batch further because session is dead
+                        }
+                    }
+                }
+                continue; // Skip processing since there's no content
+            }
+
+            // Successful decryption — reset error counter
+            if (sessionInfo && sessionInfo.preKeyErrors > 0) {
+                sessionInfo.preKeyErrors = 0;
+            }
 
             // Extract text content and media
             let textContent =
@@ -644,9 +718,15 @@ async function createSession(tenantId: string): Promise<void> {
             let contactName = msg.pushName ?? null;
             let senderName = msg.pushName ?? null;
 
+            const participantPhone = msg.key.participant ? msg.key.participant.split("@")[0] : null;
+            const lookupPhone = participantPhone || remoteJid.split("@")[0];
+            const cachedName = getCachedContactName(tenantId, lookupPhone);
+
             // If it's a group chat, try to fetch the group name (subject)
-            // The sender's name (pushName) stays as the senderName
             if (remoteJid.endsWith("@g.us")) {
+                if (!isFromMe) {
+                    senderName = cachedName || msg.pushName || participantPhone || "Unknown";
+                }
                 try {
                     const metadata = await socket.groupMetadata(remoteJid);
                     if (metadata.subject) {
@@ -657,6 +737,10 @@ async function createSession(tenantId: string): Promise<void> {
                 }
             } else if (isFromMe) {
                 senderName = "Owner";
+            } else {
+                // 1-to-1 chats: default to phonebook cached name
+                contactName = cachedName || msg.pushName || null;
+                senderName = cachedName || msg.pushName || lookupPhone;
             }
 
             try {
@@ -680,6 +764,13 @@ async function createSession(tenantId: string): Promise<void> {
     // ── Event: contacts sync (provides real contact names) ──
     socket.ev.on("contacts.upsert", async (contacts) => {
         const supabase = getSupabase();
+
+        let cache = tenantContactsCache.get(tenantId);
+        if (!cache) {
+            cache = new Map<string, string>();
+            tenantContactsCache.set(tenantId, cache);
+        }
+
         for (const contact of contacts) {
             if (!contact.id) continue;
             if (contact.id === "status@broadcast") continue;
@@ -689,6 +780,9 @@ async function createSession(tenantId: string): Promise<void> {
             // contact.notify = WhatsApp push name (what the person set)
             const contactName = contact.name || contact.notify || null;
             if (!contactName) continue;
+
+            // Save to RAM dictionary
+            cache.set(phoneNumber, contactName);
 
             // Update the conversation's contact name if we have one
             const { error } = await supabase
@@ -709,5 +803,46 @@ async function createSession(tenantId: string): Promise<void> {
                 }
             }
         }
+        // Commit RAM dictionary back to database persistent storage
+        await saveContactsToDB(tenantId);
+    });
+
+    // ── Event: contacts update (e.g. contact renamed in phone book) ──
+    socket.ev.on("contacts.update", async (updates) => {
+        const supabase = getSupabase();
+
+        let cache = tenantContactsCache.get(tenantId);
+        if (!cache) {
+            cache = new Map<string, string>();
+            tenantContactsCache.set(tenantId, cache);
+        }
+
+        for (const update of updates) {
+            if (!update.id) continue;
+            if (update.id === "status@broadcast") continue;
+
+            const phoneNumber = update.id.split("@")[0];
+            const contactName = update.name || update.notify || null;
+
+            if (!contactName) continue;
+
+            // Cache it in RAM
+            cache.set(phoneNumber, contactName);
+
+            // Update the conversation's contact name forcefully since the user changed it in their phonebook
+            const { error } = await supabase
+                .from("conversations")
+                .update({ contact_name: contactName })
+                .eq("tenant_id", tenantId)
+                .eq("phone_number", phoneNumber);
+
+            if (error) {
+                console.error(`[${tenantId}] Failed to update contact name from contacts.update:`, error.message);
+            } else {
+                console.log(`[${tenantId}] 🔄 Contact updated from phonebook: ${phoneNumber} -> ${contactName}`);
+            }
+        }
+        // Commit RAM dictionary back to database persistent storage
+        await saveContactsToDB(tenantId);
     });
 }

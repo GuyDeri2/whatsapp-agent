@@ -125,8 +125,7 @@ export async function handleIncomingMessage(
 
     // 5. Route based on agent mode
     if (isFromMe) {
-        // Owner is replying — use this as a learning opportunity
-        await learnFromOwnerReply(tenantId, conversationId, messageText);
+        // Owner is replying — we just let it be stored. Batch learning will process it later.
         return;
     }
 
@@ -236,38 +235,3 @@ async function handleActiveMode(
     }
 }
 
-// ─── Learn from owner reply ───────────────────────────────────────────
-async function learnFromOwnerReply(
-    tenantId: string,
-    conversationId: string,
-    ownerReply: string
-): Promise<void> {
-    const supabase = getSupabase();
-
-    // Find the most recent customer message in this conversation
-    const { data: lastCustomerMsg } = await supabase
-        .from("messages")
-        .select("content")
-        .eq("conversation_id", conversationId)
-        .eq("role", "user")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
-
-    if (!lastCustomerMsg) return;
-
-    // Store as a learning pair
-    const { error } = await supabase.from("agent_learnings").insert({
-        tenant_id: tenantId,
-        conversation_id: conversationId,
-        customer_message: lastCustomerMsg.content,
-        owner_reply: ownerReply,
-        approved: false, // owner needs to approve before AI uses it
-    });
-
-    if (error) {
-        console.error(`[${tenantId}] Learning insert error:`, error);
-    } else {
-        console.log(`[${tenantId}] 📝 Learned from owner reply`);
-    }
-}

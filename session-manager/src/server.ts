@@ -17,8 +17,10 @@ import {
     sendMessage,
     reconnectSession,
 } from "./session-manager";
+import { runBatchLearning } from "./learning-engine";
 
 const app = express();
+// Default port for the session manager (dashboard runs on 3000)
 const PORT = parseInt(process.env.PORT || "3001", 10);
 
 // ─── Middleware ────────────────────────────────────────────────────────
@@ -169,6 +171,19 @@ app.post("/sessions/:tenantId/reconnect", async (req, res) => {
     }
 });
 
+/** Trigger batch learning for a given tenant */
+app.post("/sessions/:tenantId/learn", async (req, res) => {
+    const { tenantId } = req.params;
+    const hours = parseInt(req.body?.hours || "24", 10);
+    try {
+        const result = await runBatchLearning(tenantId, hours);
+        res.json(result);
+    } catch (error: any) {
+        console.error(`Error running learning for ${tenantId}:`, error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ─── Global crash protection ─────────────────────────────────────────
 // Baileys WebSocket can throw unhandled errors that crash the process.
 // These handlers log the error but keep the server alive.
@@ -202,11 +217,50 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
 // ─── Start server ─────────────────────────────────────────────────────
-app.listen(PORT, async () => {
-    console.log(`\n🚀 WhatsApp Session Manager running on port ${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+app.listen(PORT, HOST, async () => {
+    console.log(`\n🚀 WhatsApp Session Manager running on http://${HOST}:${PORT}`);
     console.log(`   Health: http://localhost:${PORT}/health`);
     console.log(`   Sessions: http://localhost:${PORT}/sessions\n`);
 
     // Restore any previously connected sessions
     await restoreAllSessions();
+});
+
+import cron from "node-cron";
+import { createClient } from "@supabase/supabase-js";
+
+// Run every night at 02:00 server time
+cron.schedule("0 2 * * *", async () => {
+    console.log("⏰ Running daily batch learning for all tenants in 'learning' mode...");
+    try {
+        const supabase = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Find all tenants that have agent_mode = 'learning' or 'active'
+        const { data: tenants, error } = await supabase
+            .from("tenants")
+            .select("id")
+            .in("agent_mode", ["learning", "active"]);
+
+        if (error || !tenants) {
+            console.error("Failed to query tenants for daily learning:", error);
+            return;
+        }
+
+        console.log(`Found ${tenants.length} tenants in learning/active mode.`);
+
+        for (const t of tenants) {
+            try {
+                // Read the last 24 hours of history
+                await runBatchLearning(t.id, 24);
+            } catch (err: any) {
+                console.error(`[${t.id}] failed daily learning:`, err.message);
+            }
+        }
+    } catch (err) {
+        console.error("Fatal error during daily cron job:", err);
+    }
 });
