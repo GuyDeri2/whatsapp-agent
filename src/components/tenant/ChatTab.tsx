@@ -260,9 +260,9 @@ export function ChatTab({
                                         {msg.role === "owner" && (
                                             <span className="owner-badge">👤 בעלים</span>
                                         )}
-                                        {msg.role === "user" && (
+                                        {msg.role === "user" && conversations.find((c) => c.id === selectedConvId)?.is_group && (
                                             <span className="sender-name-badge">
-                                                {msg.sender_name || (conversations.find((c) => c.id === selectedConvId)?.is_group ? "משתתף בקבוצה" : "לקוח")}
+                                                {msg.sender_name || "משתתף בקבוצה"}
                                             </span>
                                         )}
                                         {renderMedia(msg)}

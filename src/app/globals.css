@@ -677,12 +677,12 @@ body {
 }
 
 .message-bubble.user {
-  align-self: flex-end;
+  align-self: flex-start;
 }
 
 .message-bubble.assistant,
 .message-bubble.owner {
-  align-self: flex-start;
+  align-self: flex-end;
 }
 
 .bubble-content {
@@ -694,21 +694,21 @@ body {
 }
 
 .message-bubble.user .bubble-content {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-bottom-right-radius: 4px;
+  background: #202c33; /* WhatsApp dark mode user bubble */
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-top-left-radius: 4px;
 }
 
 .message-bubble.assistant .bubble-content {
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-bottom-left-radius: 4px;
+  background: #005c4b; /* WhatsApp dark mode owner bubble */
+  border: 1px solid rgba(0, 92, 75, 0.3);
+  border-top-right-radius: 4px;
 }
 
 .message-bubble.owner .bubble-content {
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-bottom-left-radius: 4px;
+  background: #005c4b; /* WhatsApp dark mode owner bubble */
+  border: 1px solid rgba(0, 92, 75, 0.3);
+  border-top-right-radius: 4px;
 }
 
 .agent-badge,
