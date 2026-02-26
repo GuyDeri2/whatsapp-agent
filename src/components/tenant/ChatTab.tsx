@@ -25,6 +25,7 @@ interface Message {
     created_at: string;
     media_url?: string | null;
     media_type?: string | null;
+    status?: "sent" | "delivered" | "read" | "failed";
 }
 
 interface ContactRule {
@@ -267,9 +268,30 @@ export function ChatTab({
                                         )}
                                         {renderMedia(msg)}
                                         {shouldShowText(msg) && <p>{msg.content}</p>}
-                                        <span className="bubble-time">
-                                            {formatTime(msg.created_at)}
-                                        </span>
+                                        <div className="bubble-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', marginTop: '4px' }}>
+                                            <span className="bubble-time">
+                                                {formatTime(msg.created_at)}
+                                            </span>
+                                            {(msg.role === "owner" || msg.role === "assistant") && msg.status && (
+                                                <span className="message-status-tick" style={{ display: 'flex', alignItems: 'center' }}>
+                                                    {msg.status === "sent" && (
+                                                        <svg viewBox="0 0 16 15" width="16" height="15" fill="var(--text-muted)">
+                                                            <path d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88a.32.32 0 0 1-.484.032L1.892 7.72a.366.366 0 0 0-.516.005l-.423.433a.364.364 0 0 0 .011.524l3.12 2.753c.153.135.385.118.514-.037l6.241-8.02a.362.362 0 0 0-.056-.508z"></path>
+                                                        </svg>
+                                                    )}
+                                                    {msg.status === "delivered" && (
+                                                        <svg viewBox="0 0 16 15" width="16" height="15" fill="var(--text-muted)">
+                                                            <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88a.32.32 0 0 1-.484.032l-.358-.325a.32.32 0 0 0-.484.032l-.378.48a.418.418 0 0 0 .036.54l1.32 1.267c.143.14.361.125.484-.033l6.272-8.048a.365.365 0 0 0-.064-.51zM10.665 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.321 9.88a.32.32 0 0 1-.484.032L1.646 7.72a.366.366 0 0 0-.516.005l-.423.433a.364.364 0 0 0 .011.524l3.12 2.753c.153.135.385.118.514-.037l6.327-8.168a.362.362 0 0 0-.014-.513z"></path>
+                                                        </svg>
+                                                    )}
+                                                    {msg.status === "read" && (
+                                                        <svg viewBox="0 0 16 15" width="16" height="15" fill="#53bdeb">
+                                                            <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88a.32.32 0 0 1-.484.032l-.358-.325a.32.32 0 0 0-.484.032l-.378.48a.418.418 0 0 0 .036.54l1.32 1.267c.143.14.361.125.484-.033l6.272-8.048a.365.365 0 0 0-.064-.51zM10.665 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.321 9.88a.32.32 0 0 1-.484.032L1.646 7.72a.366.366 0 0 0-.516.005l-.423.433a.364.364 0 0 0 .011.524l3.12 2.753c.153.135.385.118.514-.037l6.327-8.168a.362.362 0 0 0-.014-.513z"></path>
+                                                        </svg>
+                                                    )}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             ))}

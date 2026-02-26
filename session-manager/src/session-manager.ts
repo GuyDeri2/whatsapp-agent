@@ -196,9 +196,6 @@ export function getActiveSessions(): string[] {
     return Array.from(sessions.keys());
 }
 
-/**
- * Send a message via an active session.
- */
 export async function sendMessage(tenantId: string, jid: string, text: string): Promise<string> {
     const session = sessions.get(tenantId);
     if (!session || session.status !== "connected") {
@@ -207,6 +204,7 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
 
     // 1. Send via Baileys
     const sentMsg = await session.socket.sendMessage(jid, { text });
+    const waMessageId = sentMsg?.key?.id || "unknown";
 
     // 2. Save to DB as owner message
     const supabase = getSupabase();
@@ -229,10 +227,12 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
             content: text,
             sender_name: "Owner",
             is_from_agent: false,
+            wa_message_id: waMessageId !== "unknown" ? waMessageId : null,
+            status: "sent"
         });
     }
 
-    return sentMsg?.key?.id || "unknown";
+    return waMessageId;
 }
 
 /**
@@ -758,6 +758,42 @@ async function createSession(tenantId: string): Promise<void> {
                 );
             } catch (err) {
                 console.error(`[${tenantId}] Message handler error:`, err);
+            }
+        }
+    });
+
+    // ── Event: messages update (Delivery / Read receipts) ──
+    socket.ev.on("messages.update", async (events) => {
+        const supabase = getSupabase();
+
+        for (const { key, update } of events) {
+            if (!key.id || !update.status) continue;
+
+            const baileyStatus = update.status;
+            let finalStatus: string | null = null;
+
+            // Map proto.WebMessageInfo.Status to our DB status
+            // ERROR: 0, PENDING: 1, SERVER_ACK: 2, DELIVERY_ACK: 3, READ: 4, PLAYED: 5
+            if (baileyStatus === proto.WebMessageInfo.Status.SERVER_ACK) {
+                finalStatus = "sent";
+            } else if (baileyStatus === proto.WebMessageInfo.Status.DELIVERY_ACK) {
+                finalStatus = "delivered";
+            } else if (baileyStatus === proto.WebMessageInfo.Status.READ) {
+                finalStatus = "read";
+            }
+
+            if (finalStatus) {
+                // We only really care about outgoing message statuses for ticks
+                const { error } = await supabase
+                    .from("messages")
+                    .update({ status: finalStatus })
+                    .eq("wa_message_id", key.id);
+
+                if (error) {
+                    console.error(`[${tenantId}] Failed to update status for ${key.id} to ${finalStatus}`, error);
+                } else {
+                    console.log(`[${tenantId}] 🎫 Message ${key.id} status updated to ${finalStatus}`);
+                }
             }
         }
     });

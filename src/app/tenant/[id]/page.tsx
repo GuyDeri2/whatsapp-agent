@@ -277,30 +277,37 @@ export default function TenantPage() {
             .channel(`msg-${tenantId}`)
             .on(
                 "postgres_changes",
-                { event: "INSERT", schema: "public", table: "messages" },
+                { event: "*", schema: "public", table: "messages" },
                 (payload) => {
-                    const newMsg = payload.new as Message;
+                    if (payload.eventType === "INSERT") {
+                        const newMsg = payload.new as Message;
 
-                    // 1. Optimistically append message to active chat view
-                    setMessages((prev) => {
-                        if (prev.length > 0 && prev[0]?.conversation_id === newMsg.conversation_id) {
-                            if (prev.find((m) => m.id === newMsg.id)) return prev;
-                            return [...prev, newMsg];
-                        }
-                        return prev;
-                    });
+                        // 1. Optimistically append message to active chat view
+                        setMessages((prev) => {
+                            if (prev.length > 0 && prev[0]?.conversation_id === newMsg.conversation_id) {
+                                if (prev.find((m) => m.id === newMsg.id)) return prev;
+                                return [...prev, newMsg];
+                            }
+                            return prev;
+                        });
 
-                    // 2. Optimistically update Sidebar Preview instantly
-                    setLastMessages(prev => {
-                        let textPreview = newMsg.content?.substring(0, 50) || "";
-                        if (newMsg.media_type && (newMsg.content === `[${newMsg.media_type} received]` || !newMsg.content)) {
-                            const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
-                            textPreview = labels[newMsg.media_type] || "📎 קובץ";
-                        }
-                        return { ...prev, [newMsg.conversation_id]: textPreview };
-                    });
+                        // 2. Optimistically update Sidebar Preview instantly
+                        setLastMessages(prev => {
+                            let textPreview = newMsg.content?.substring(0, 50) || "";
+                            if (newMsg.media_type && (newMsg.content === `[${newMsg.media_type} received]` || !newMsg.content)) {
+                                const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
+                                textPreview = labels[newMsg.media_type] || "📎 קובץ";
+                            }
+                            return { ...prev, [newMsg.conversation_id]: textPreview };
+                        });
 
-                    debouncedFetch();
+                        debouncedFetch();
+                    } else if (payload.eventType === "UPDATE") {
+                        const updatedMsg = payload.new as Message;
+                        setMessages((prev) =>
+                            prev.map((msg) => (msg.id === updatedMsg.id ? updatedMsg : msg))
+                        );
+                    }
                 }
             )
             .subscribe();
