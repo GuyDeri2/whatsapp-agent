@@ -358,6 +358,7 @@ async function createSession(tenantId: string): Promise<void> {
         printQRInTerminal: false,
         generateHighQualityLinkPreview: false,
         syncFullHistory: false, // Turned off to prevent massive history sync bottlenecks
+        markOnlineOnConnect: false, // Stop continuous "Sync completed" notifications
     });
 
     // Preserve retry count from previous session if it exists
