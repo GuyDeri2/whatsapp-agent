@@ -163,18 +163,33 @@ export async function handleIncomingMessage(
         `[${tenantId}] ${role === "owner" ? "📤" : "📥"} ${phoneNumber}: ${messageText.substring(0, 80)}...`
     );
 
+    const debounceKey = `${tenantId}_${conversationId}`;
+
     // 6. Route based on agent mode (only for incoming user messages)
     if (isFromMe) {
-        // Owner is replying — we just let it be stored. Batch learning will process it later.
+        // Owner is replying — clear any pending AI logic for this conversation
+        if (debounceTimers[debounceKey]) {
+            clearTimeout(debounceTimers[debounceKey]);
+            delete debounceTimers[debounceKey];
+            console.log(`[${tenantId}] 🛑 Owner replied — cancelled pending AI debounce reply.`);
+        }
         return;
     }
 
     if (conversation.is_paused) {
+        if (debounceTimers[debounceKey]) {
+            clearTimeout(debounceTimers[debounceKey]);
+            delete debounceTimers[debounceKey];
+        }
         console.log(`[${tenantId}] ⏸️ Conversation is paused (handoff) — skipping AI reply: ${phoneNumber}`);
         return;
     }
 
     if (conversation.is_saved_contact && config.agent_respond_to_saved_contacts === false) {
+        if (debounceTimers[debounceKey]) {
+            clearTimeout(debounceTimers[debounceKey]);
+            delete debounceTimers[debounceKey];
+        }
         console.log(`[${tenantId}] 📇 Saved contact filter active — skipping AI reply: ${phoneNumber}`);
         return;
     }
@@ -210,7 +225,6 @@ export async function handleIncomingMessage(
             }
 
             // --- DEBOUNCE LOGIC ---
-            const debounceKey = `${tenantId}_${conversationId}`;
             if (debounceTimers[debounceKey]) {
                 clearTimeout(debounceTimers[debounceKey]);
                 console.log(`[${tenantId}] ⏳ Debouncing rapid message from ${phoneNumber}...`);
