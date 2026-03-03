@@ -22,6 +22,9 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
     const [editForm, setEditForm] = useState<{ question: string; answer: string; category: string }>({ question: "", answer: "", category: "general" });
     const [isAdding, setIsAdding] = useState(false);
 
+    const [unanswered, setUnanswered] = useState<any[]>([]);
+    const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+
     const fetchLearnings = async () => {
         if (!tenant?.id) return;
         setLoading(true);
@@ -40,6 +43,14 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
 
     useEffect(() => {
         fetchLearnings();
+        if (tenant?.id) {
+            fetch(`/api/tenants/${tenant.id}/unanswered-questions`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.questions) setUnanswered(data.questions);
+                })
+                .catch(err => console.error(err));
+        }
     }, [tenant?.id, supabase]);
 
     const handleSaveEdit = async (id: string) => {
@@ -95,6 +106,50 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                     <p className="text-sm" style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
                         כאן מרוכזות כל היכולות האוטומטיות שהסוכן למד לבד, או שאתה הוספת ידנית. מה שרשום כאן - חקוק בסלע של הסוכן.
                     </p>
+
+                    {/* Unanswered Questions Widget */}
+                    {unanswered.filter(q => !dismissedIds.includes(q.id)).length > 0 && (
+                        <div className="knowledge-card" style={{ padding: "16px", background: "var(--bg-glass)", borderRadius: "8px", border: "1px solid var(--accent)", marginBottom: "24px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
+                                <h3 style={{ margin: 0, color: "var(--accent)" }}>💡 הזדמנויות למידה</h3>
+                                <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>שאלות שהסוכן לא ידע לענות עליהן לאחרונה</span>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "300px", overflowY: "auto", paddingRight: "4px" }}>
+                                {unanswered.filter(q => !dismissedIds.includes(q.id)).map(q => (
+                                    <div key={q.id} style={{ padding: "12px", borderRadius: "6px", background: "var(--bg-secondary)", borderLeft: "4px solid var(--warning)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                        <div>
+                                            <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                                                נשאל ע"י {q.contact} ב-{new Date(q.date).toLocaleDateString("he-IL")}
+                                            </div>
+                                            <strong style={{ fontSize: "14px", color: "#fff" }}>"{q.user_question}"</strong>
+                                        </div>
+                                        <div style={{ display: "flex", gap: "8px" }}>
+                                            <button
+                                                className="btn btn-primary"
+                                                style={{ padding: "4px 8px", fontSize: "12px" }}
+                                                onClick={() => {
+                                                    setEditForm({ question: q.user_question, answer: "", category: "שאלות פתוחות" });
+                                                    setIsAdding(true);
+                                                    setDismissedIds(prev => [...prev, q.id]);
+                                                    // Auto scroll to the add form
+                                                    setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
+                                                }}
+                                            >
+                                                ✍️ הוסף תשובה
+                                            </button>
+                                            <button
+                                                className="btn btn-ghost"
+                                                style={{ padding: "4px 8px", fontSize: "12px" }}
+                                                onClick={() => setDismissedIds(prev => [...prev, q.id])}
+                                            >
+                                                ✕ התעלם
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     <div className="knowledge-card" style={{ padding: "16px", background: "var(--bg-glass)", borderRadius: "8px", border: "1px solid var(--border)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>

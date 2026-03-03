@@ -694,19 +694,22 @@ body {
 }
 
 .message-bubble.user .bubble-content {
-  background: #202c33; /* WhatsApp dark mode user bubble */
+  background: #202c33;
+  /* WhatsApp dark mode user bubble */
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-top-left-radius: 4px;
 }
 
 .message-bubble.assistant .bubble-content {
-  background: #005c4b; /* WhatsApp dark mode owner bubble */
+  background: #005c4b;
+  /* WhatsApp dark mode owner bubble */
   border: 1px solid rgba(0, 92, 75, 0.3);
   border-top-right-radius: 4px;
 }
 
 .message-bubble.owner .bubble-content {
-  background: #005c4b; /* WhatsApp dark mode owner bubble */
+  background: #005c4b;
+  /* WhatsApp dark mode owner bubble */
   border: 1px solid rgba(0, 92, 75, 0.3);
   border-top-right-radius: 4px;
 }
@@ -1496,4 +1499,82 @@ body {
   padding: 32px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* ─── Photo Lightbox ───────────────────────────────────────────────── */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+  cursor: pointer;
+}
+
+.lightbox-img {
+  max-width: 80vw;
+  max-height: 80vh;
+  border-radius: 12px;
+  object-fit: contain;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  cursor: default;
+  animation: lightboxZoomIn 0.25s ease;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+@keyframes lightboxZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ─── Edit Name Button ─────────────────────────────────────────────── */
+.btn-edit-name {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  margin-right: 4px;
+  opacity: 0.5;
+  transition: all var(--transition);
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.btn-edit-name:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
 }

@@ -20,8 +20,9 @@ import QRCode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
-import { useSupabaseAuthState, clearSessionData } from "./session-store";
+import { useSupabaseAuthState, clearSessionData, flushCacheToDB } from "./session-store";
 import { handleIncomingMessage } from "./message-handler";
+import { transcribeAudioBuffer } from "./transcribe";
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface SessionInfo {
@@ -59,6 +60,42 @@ async function saveContactsToDB(tenantId: string) {
         );
     } catch (err) {
         console.error(`[${tenantId}] Failed to save contacts to DB:`, err);
+    }
+}
+
+/** Sync the RAM contact cache to the conversations table retroactively */
+async function syncCachedContactsToDB(tenantId: string) {
+    const cache = tenantContactsCache.get(tenantId);
+    if (!cache || cache.size === 0) return;
+
+    try {
+        const supabase = getSupabase();
+        const { data: conversations } = await supabase
+            .from("conversations")
+            .select("id, phone_number, contact_name, is_saved_contact")
+            .eq("tenant_id", tenantId);
+
+        if (!conversations) return;
+
+        let updatedCount = 0;
+        for (const conv of conversations) {
+            const cachedName = cache.get(conv.phone_number);
+            if (cachedName) {
+                // If it's in the phonebook, update name and ensure it's marked as saved
+                if (conv.contact_name !== cachedName || !conv.is_saved_contact) {
+                    await supabase
+                        .from("conversations")
+                        .update({ contact_name: cachedName, is_saved_contact: true })
+                        .eq("id", conv.id);
+                    updatedCount++;
+                }
+            }
+        }
+        if (updatedCount > 0) {
+            console.log(`[${tenantId}] 🔄 Retroactively synced ${updatedCount} existing contacts from cache to DB.`);
+        }
+    } catch (err) {
+        console.error(`[${tenantId}] Error syncing cached contacts to DB:`, err);
     }
 }
 
@@ -134,13 +171,18 @@ export async function stopSession(
 ): Promise<void> {
     const session = sessions.get(tenantId);
     if (session) {
-        try {
-            await session.socket.logout();
-        } catch {
+        if (clearData) {
+            // User explicitly wants to disconnect — logout invalidates the session
+            try { await session.socket.logout(); } catch { /* ignore */ }
+        } else {
+            // Server shutdown / routine stop — just close the socket, KEEP auth valid
             try { session.socket.end(undefined); } catch { /* ignore */ }
         }
         sessions.delete(tenantId);
     }
+
+    // Flush any pending cache writes to DB so creds are fully saved
+    await flushCacheToDB(tenantId);
 
     if (clearData) {
         await clearSessionData(tenantId);
@@ -152,19 +194,35 @@ export async function stopSession(
         .update({ whatsapp_connected: false })
         .eq("id", tenantId);
 
-    console.log(`[${tenantId}] Session stopped`);
+    console.log(`[${tenantId}] Session stopped (clearData: ${clearData})`);
 }
 
 /**
  * Force-reconnect: stop session, optionally clear auth, and restart.
  */
+// Track last reconnect time per tenant to prevent spam
+const lastReconnectTime = new Map<string, number>();
+const RECONNECT_COOLDOWN_MS = 30000; // 30 seconds minimum between reconnects
+
 export async function reconnectSession(
     tenantId: string,
     clearAuth = false
 ): Promise<void> {
+    // Prevent rapid reconnect spam that causes notification floods
+    const now = Date.now();
+    const lastTime = lastReconnectTime.get(tenantId) || 0;
+    if (now - lastTime < RECONNECT_COOLDOWN_MS) {
+        const waitSec = Math.ceil((RECONNECT_COOLDOWN_MS - (now - lastTime)) / 1000);
+        console.log(`[${tenantId}] ⏳ Reconnect cooldown — wait ${waitSec}s before trying again`);
+        throw new Error(`Reconnect cooldown active. Try again in ${waitSec} seconds.`);
+    }
+    lastReconnectTime.set(tenantId, now);
+
     console.log(`[${tenantId}] 🔄 Force reconnecting (clearAuth: ${clearAuth})...`);
     const session = sessions.get(tenantId);
     if (session) {
+        // Flush pending writes before disconnecting
+        await flushCacheToDB(tenantId);
         try { session.socket.end(undefined); } catch { /* ignore */ }
         sessions.delete(tenantId);
     }
@@ -175,7 +233,8 @@ export async function reconnectSession(
         .from("tenants")
         .update({ whatsapp_connected: false })
         .eq("id", tenantId);
-    await new Promise((r) => setTimeout(r, 2000));
+    // Wait 5 seconds to let WhatsApp server settle
+    await new Promise((r) => setTimeout(r, 5000));
     await startSession(tenantId);
 }
 
@@ -223,6 +282,7 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
     if (conversation && !convError) {
         await supabase.from("messages").insert({
             conversation_id: conversation.id,
+            tenant_id: tenantId,
             role: "owner",
             content: text,
             sender_name: "Owner",
@@ -304,24 +364,58 @@ async function resolveGroupNames(tenantId: string, socket: WASocket): Promise<vo
     }
 }
 
-// ─── Resolve profile pictures from WhatsApp ───────────────────────────
-async function resolveProfilePictures(tenantId: string, socket: WASocket): Promise<void> {
+// ─── Fetch a single profile picture (on-demand for new conversations) ──
+async function fetchProfilePicture(
+    tenantId: string,
+    socket: WASocket,
+    conversationId: string,
+    phoneNumber: string,
+    isGroup: boolean
+): Promise<void> {
+    try {
+        const jid = phoneNumber + (isGroup ? "@g.us" : "@s.whatsapp.net");
+        const url = await socket.profilePictureUrl(jid, "image");
+        if (url) {
+            await getSupabase()
+                .from("conversations")
+                .update({ profile_picture_url: url })
+                .eq("id", conversationId);
+        }
+    } catch {
+        // Private profile picture or no picture set — this is normal
+    }
+}
+
+// ─── Resolve profile pictures from WhatsApp (batch) ───────────────────
+async function resolveProfilePictures(
+    tenantId: string,
+    socket: WASocket,
+    refreshStale = false
+): Promise<void> {
     try {
         const supabase = getSupabase();
-        // Find conversations without a profile picture
-        const { data: noPicConversations } = await supabase
+        let query = supabase
             .from("conversations")
             .select("id, phone_number, is_group")
-            .eq("tenant_id", tenantId)
-            .is("profile_picture_url", null)
-            .limit(100);
+            .eq("tenant_id", tenantId);
 
-        if (!noPicConversations || noPicConversations.length === 0) return;
+        if (refreshStale) {
+            // Refresh mode: re-fetch ALL pictures (URLs expire over time)
+            console.log(`[${tenantId}] 📸 Refreshing ALL profile pictures...`);
+        } else {
+            // Initial mode: only fetch missing pictures
+            query = query.is("profile_picture_url", null);
+        }
 
-        console.log(`[${tenantId}] 📸 Fetching profile pictures for ${noPicConversations.length} contacts...`);
+        const { data: conversations } = await query;
+
+        if (!conversations || conversations.length === 0) return;
+
+        console.log(`[${tenantId}] 📸 Fetching profile pictures for ${conversations.length} contacts...`);
         let resolved = 0;
+        let failed = 0;
 
-        for (const conv of noPicConversations) {
+        for (const conv of conversations) {
             try {
                 const jid = conv.phone_number + (conv.is_group ? "@g.us" : "@s.whatsapp.net");
                 const url = await socket.profilePictureUrl(jid, "image");
@@ -332,12 +426,20 @@ async function resolveProfilePictures(tenantId: string, socket: WASocket): Promi
                         .eq("id", conv.id);
                     resolved++;
                 }
-            } catch {
-                // User might have no profile picture or it's private
+            } catch (err: any) {
+                failed++;
+                const statusCode = err?.output?.statusCode || err?.statusCode || 'unknown';
+                const msg = err?.message || String(err);
+                // Suppress noisy expected errors (401, 404, or 500 with specific Baileys messages)
+                if (statusCode !== 404 && statusCode !== 401 && !msg.includes('item-not-found') && !msg.includes('not-authorized')) {
+                    console.warn(`[${tenantId}] 📸 Failed [${statusCode}] ${conv.phone_number}: ${msg}`);
+                }
             }
+            // Small delay between calls to avoid WhatsApp rate-limiting
+            await new Promise(r => setTimeout(r, 200));
         }
 
-        console.log(`[${tenantId}] ✅ Resolved ${resolved}/${noPicConversations.length} profile pictures`);
+        console.log(`[${tenantId}] ✅ Profile pictures: ${resolved} resolved, ${failed} failed (of ${conversations.length})`);
     } catch (err) {
         console.error(`[${tenantId}] Error resolving profile pictures:`, err);
     }
@@ -409,9 +511,19 @@ async function createSession(tenantId: string): Promise<void> {
             console.log(`[${tenantId}] ✅ WhatsApp connected (${phoneNumber})`);
             if (_qrCallback) _qrCallback(tenantId, null);
 
-            // After a short delay, resolve any group names that are missing
+            // After a short delay, resolve any group names and profile pictures
             setTimeout(() => resolveGroupNames(tenantId, socket), 10000);
+            setTimeout(() => syncCachedContactsToDB(tenantId), 12000); // Retroactively fix missing names
             setTimeout(() => resolveProfilePictures(tenantId, socket), 15000);
+
+            // Periodic refresh: re-fetch profile pictures every 6 hours (URLs expire)
+            const SIX_HOURS = 6 * 60 * 60 * 1000;
+            setInterval(() => {
+                const session = sessions.get(tenantId);
+                if (session?.status === "connected") {
+                    resolveProfilePictures(tenantId, socket, true);
+                }
+            }, SIX_HOURS);
         }
 
         // Disconnected
@@ -429,8 +541,10 @@ async function createSession(tenantId: string): Promise<void> {
 
             if (shouldReconnect) {
                 sessionInfo.retryCount++;
-                // Use exponential backoff: 3s, 6s, 12s, 24s, 30s (capped)
-                const delay = Math.min(3000 * Math.pow(2, sessionInfo.retryCount - 1), 30000);
+                // Flush cache before reconnect to prevent data loss
+                await flushCacheToDB(tenantId);
+                // Use exponential backoff: 5s, 10s, 20s, 40s, 60s (capped)
+                const delay = Math.min(5000 * Math.pow(2, sessionInfo.retryCount - 1), 60000);
                 console.log(
                     `[${tenantId}] ♻️ Reconnecting in ${delay / 1000}s (attempt ${sessionInfo.retryCount}/${MAX_RETRIES})...`
                 );
@@ -559,6 +673,7 @@ async function createSession(tenantId: string): Promise<void> {
 
                 const { error: insertErr } = await supabase.from("messages").insert({
                     conversation_id: conversation.id,
+                    tenant_id: tenantId,
                     role,
                     content: textContent,
                     sender_name: senderName,
@@ -598,6 +713,16 @@ async function createSession(tenantId: string): Promise<void> {
             if (msg.key.remoteJid === "status@broadcast") continue;
             if (msg.message?.protocolMessage) continue;
 
+            // ── Skip outgoing echo-backs ──
+            // When WE send a message (via sendMessage() or AI agent), Baileys
+            // fires messages.upsert again with isFromMe=true.  Those messages
+            // are already saved to the DB at send-time, so processing them
+            // again creates duplicates.  Skip them entirely.
+            const isFromMe = msg.key.fromMe ?? false;
+            if (isFromMe) {
+                continue;
+            }
+
             // Check for decryption failures (CIPHERTEXT stub or missing message entirely)
             if (!msg.message) {
                 if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
@@ -623,18 +748,10 @@ async function createSession(tenantId: string): Promise<void> {
                 sessionInfo.preKeyErrors = 0;
             }
 
+            // Extract wa_message_id for dedup
+            const waMessageId = msg.key.id || null;
+
             // Extract text content and media
-            let textContent =
-                msg.message?.conversation ||
-                msg.message?.extendedTextMessage?.text ||
-                msg.message?.imageMessage?.caption ||
-                msg.message?.videoMessage?.caption ||
-                msg.message?.documentMessage?.caption ||
-                "";
-
-            let mediaUrl: string | null = null;
-            let mediaType: string | null = null;
-
             // Check if message has media
             const hasMedia = !!(
                 msg.message?.imageMessage ||
@@ -643,6 +760,26 @@ async function createSession(tenantId: string): Promise<void> {
                 msg.message?.documentMessage ||
                 msg.message?.stickerMessage
             );
+
+            let mediaUrl: string | null = null;
+            let mediaType: string | null = null;
+
+            // Extract text or fallback to media description
+            let textContent =
+                msg.message?.conversation ||
+                msg.message?.extendedTextMessage?.text ||
+                msg.message?.imageMessage?.caption ||
+                msg.message?.videoMessage?.caption ||
+                msg.message?.documentMessage?.caption ||
+                "";
+
+            if (!textContent && hasMedia) {
+                if (msg.message?.imageMessage) textContent = "[Image received]";
+                else if (msg.message?.videoMessage) textContent = "[Video received]";
+                else if (msg.message?.audioMessage) textContent = "[Voice message received]";
+                else if (msg.message?.documentMessage) textContent = "[Document received]";
+                else if (msg.message?.stickerMessage) textContent = "[Sticker received]";
+            }
 
             if (hasMedia) {
                 try {
@@ -706,6 +843,21 @@ async function createSession(tenantId: string): Promise<void> {
                         if (!textContent) {
                             textContent = `[${mediaType} received]`;
                         }
+
+                        // If it's an audio message, try to transcribe it with Whisper API
+                        if (mediaType === "audio") {
+                            console.log(`[${tenantId}] 🎙️ Attempting to transcribe audio message...`);
+                            const transcription = await transcribeAudioBuffer(buffer as Buffer, msg.message?.audioMessage?.mimetype || undefined);
+                            if (transcription) {
+                                console.log(`[${tenantId}] 📝 Transcription success: "${transcription.substring(0, 50)}..."`);
+                                // Append transcription to whatever caption existed (if any)
+                                textContent = textContent === `[${mediaType} received]`
+                                    ? `[🎤 Voice Note]: ${transcription}`
+                                    : `${textContent}\n\n[🎤 Voice Note]: ${transcription}`;
+                            } else {
+                                console.log(`[${tenantId}] ⚠️ Transcription returned empty or failed.`);
+                            }
+                        }
                     }
                 } catch (err) {
                     console.error(`[${tenantId}] Media processing error:`, err);
@@ -715,7 +867,6 @@ async function createSession(tenantId: string): Promise<void> {
             if (!textContent && !mediaUrl) continue;
 
             const remoteJid = msg.key.remoteJid!;
-            const isFromMe = msg.key.fromMe ?? false;
             let contactName = msg.pushName ?? null;
             let senderName = msg.pushName ?? null;
 
@@ -725,9 +876,7 @@ async function createSession(tenantId: string): Promise<void> {
 
             // If it's a group chat, try to fetch the group name (subject)
             if (remoteJid.endsWith("@g.us")) {
-                if (!isFromMe) {
-                    senderName = cachedName || msg.pushName || participantPhone || "Unknown";
-                }
+                senderName = cachedName || msg.pushName || participantPhone || "Unknown";
                 try {
                     const metadata = await socket.groupMetadata(remoteJid);
                     if (metadata.subject) {
@@ -736,12 +885,24 @@ async function createSession(tenantId: string): Promise<void> {
                 } catch (err) {
                     console.error(`[${tenantId}] Could not fetch group metadata:`, err);
                 }
-            } else if (isFromMe) {
-                senderName = "Owner";
             } else {
                 // 1-to-1 chats: default to phonebook cached name
                 contactName = cachedName || msg.pushName || null;
                 senderName = cachedName || msg.pushName || lookupPhone;
+            }
+
+            let isMentioned = false;
+            const botJid = socket.user?.id ? socket.user.id.split(':')[0] + "@s.whatsapp.net" : null;
+            if (botJid) {
+                const mentionedJidList = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+                if (mentionedJidList.includes(botJid)) {
+                    isMentioned = true;
+                }
+            }
+            // If still not explicitly mentioned, check if the text contains the bot's phone number
+            if (!isMentioned && botJid && remoteJid.endsWith("@g.us")) {
+                const rawPhone = botJid.split('@')[0];
+                if (textContent.includes(rawPhone)) isMentioned = true;
             }
 
             try {
@@ -749,13 +910,29 @@ async function createSession(tenantId: string): Promise<void> {
                     tenantId,
                     remoteJid,
                     textContent,
-                    isFromMe,
+                    false, // isFromMe is always false here (we skip isFromMe above)
                     contactName,
                     senderName,
                     mediaUrl,
                     mediaType,
-                    socket.sendMessage.bind(socket)
+                    waMessageId,
+                    socket.sendMessage.bind(socket),
+                    isMentioned
                 );
+
+                // On-demand: fetch profile picture for this conversation if missing
+                const phoneNumber = remoteJid.split("@")[0];
+                const isGroup = remoteJid.endsWith("@g.us");
+                const { data: conv } = await getSupabase()
+                    .from("conversations")
+                    .select("id, profile_picture_url")
+                    .eq("tenant_id", tenantId)
+                    .eq("phone_number", phoneNumber)
+                    .maybeSingle();
+                if (conv && !conv.profile_picture_url) {
+                    // Fire-and-forget: don't block message processing
+                    fetchProfilePicture(tenantId, socket, conv.id, phoneNumber, isGroup);
+                }
             } catch (err) {
                 console.error(`[${tenantId}] Message handler error:`, err);
             }
@@ -808,38 +985,55 @@ async function createSession(tenantId: string): Promise<void> {
             tenantContactsCache.set(tenantId, cache);
         }
 
+        console.log(`[${tenantId}] 📇 contacts.upsert received: ${contacts.length} contacts`);
+        let withPhonebook = 0;
+        let withPushOnly = 0;
+        let noName = 0;
+
         for (const contact of contacts) {
             if (!contact.id) continue;
             if (contact.id === "status@broadcast") continue;
 
             const phoneNumber = contact.id.split("@")[0];
-            // contact.name = device contact name (what's in the phone book)
-            // contact.notify = WhatsApp push name (what the person set)
-            const contactName = contact.name || contact.notify || null;
-            if (!contactName) continue;
+            // contact.name = device contact name (what's in the phone book) — HIGHEST PRIORITY
+            // contact.notify = WhatsApp push name (what the person set) — fallback
+            const phonebookName = contact.name || null;
+            const pushName = contact.notify || null;
+            const bestName = phonebookName || pushName;
 
-            // Save to RAM dictionary
-            cache.set(phoneNumber, contactName);
+            // Debug: log contacts that have phonebook names
+            if (phonebookName) {
+                withPhonebook++;
+            } else if (pushName) {
+                withPushOnly++;
+            } else {
+                noName++;
+                continue;
+            }
 
-            // Update the conversation's contact name if we have one
-            const { error } = await supabase
-                .from("conversations")
-                .update({ contact_name: contactName })
-                .eq("tenant_id", tenantId)
-                .eq("phone_number", phoneNumber)
-                .is("contact_name", null); // Only update if no name yet
+            // Save to RAM dictionary (phonebook name preferred)
+            cache.set(phoneNumber, bestName!);
 
-            if (!error) {
-                // Also update if current name is just the push name and we now have the device contact name
-                if (contact.name) {
-                    await supabase
-                        .from("conversations")
-                        .update({ contact_name: contact.name })
-                        .eq("tenant_id", tenantId)
-                        .eq("phone_number", phoneNumber);
-                }
+            if (phonebookName) {
+                // Phonebook name available — ALWAYS overwrite, it's the highest priority source
+                // (even manually-set names get overwritten by phonebook names)
+                await supabase
+                    .from("conversations")
+                    .update({ contact_name: phonebookName, is_saved_contact: true })
+                    .eq("tenant_id", tenantId)
+                    .eq("phone_number", phoneNumber);
+            } else if (pushName) {
+                // Only pushName — set it only if no name exists yet AND not manually set
+                await supabase
+                    .from("conversations")
+                    .update({ contact_name: pushName })
+                    .eq("tenant_id", tenantId)
+                    .eq("phone_number", phoneNumber)
+                    .is("contact_name", null)
+                    .or("name_manually_set.is.null,name_manually_set.eq.false");
             }
         }
+        console.log(`[${tenantId}] 📇 contacts.upsert summary: ${withPhonebook} phonebook, ${withPushOnly} pushName only, ${noName} no name`);
         // Commit RAM dictionary back to database persistent storage
         await saveContactsToDB(tenantId);
     });
@@ -859,24 +1053,33 @@ async function createSession(tenantId: string): Promise<void> {
             if (update.id === "status@broadcast") continue;
 
             const phoneNumber = update.id.split("@")[0];
-            const contactName = update.name || update.notify || null;
+            const phonebookName = update.name || null;  // Device contact name — HIGH priority
+            const pushName = update.notify || null;       // WhatsApp push name — LOW priority
 
-            if (!contactName) continue;
+            if (phonebookName) {
+                // Phonebook name — ALWAYS overwrite, this is the highest priority source
+                cache.set(phoneNumber, phonebookName);
+                const { error } = await supabase
+                    .from("conversations")
+                    .update({ contact_name: phonebookName, is_saved_contact: true })
+                    .eq("tenant_id", tenantId)
+                    .eq("phone_number", phoneNumber);
 
-            // Cache it in RAM
-            cache.set(phoneNumber, contactName);
-
-            // Update the conversation's contact name forcefully since the user changed it in their phonebook
-            const { error } = await supabase
-                .from("conversations")
-                .update({ contact_name: contactName })
-                .eq("tenant_id", tenantId)
-                .eq("phone_number", phoneNumber);
-
-            if (error) {
-                console.error(`[${tenantId}] Failed to update contact name from contacts.update:`, error.message);
-            } else {
-                console.log(`[${tenantId}] 🔄 Contact updated from phonebook: ${phoneNumber} -> ${contactName}`);
+                if (error) {
+                    console.error(`[${tenantId}] Failed to update contact name:`, error.message);
+                } else {
+                    console.log(`[${tenantId}] 📇 Contact updated (phonebook): ${phoneNumber} -> ${phonebookName}`);
+                }
+            } else if (pushName) {
+                // Push name — only set if contact_name is currently null AND not manually set
+                cache.set(phoneNumber, pushName);
+                await supabase
+                    .from("conversations")
+                    .update({ contact_name: pushName })
+                    .eq("tenant_id", tenantId)
+                    .eq("phone_number", phoneNumber)
+                    .is("contact_name", null)
+                    .or("name_manually_set.is.null,name_manually_set.eq.false");
             }
         }
         // Commit RAM dictionary back to database persistent storage

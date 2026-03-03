@@ -21,8 +21,9 @@ interface Tenant {
     description: string | null;
     products: string | null;
     target_customers: string | null;
-    agent_mode: "learning" | "active";
+    agent_mode: "learning" | "active" | "paused";
     agent_filter_mode: "all" | "whitelist" | "blacklist";
+    agent_respond_to_saved_contacts: boolean;
     whatsapp_connected: boolean;
     whatsapp_phone: string | null;
 }
@@ -32,6 +33,7 @@ interface Conversation {
     phone_number: string;
     contact_name: string | null;
     is_group: boolean;
+    is_paused?: boolean;
     updated_at: string;
     profile_picture_url: string | null;
 }
@@ -128,6 +130,7 @@ export default function TenantPage() {
         description: "",
         products: "",
         target_customers: "",
+        agent_respond_to_saved_contacts: true,
     });
 
     const [newMessage, setNewMessage] = useState("");
@@ -146,7 +149,8 @@ export default function TenantPage() {
 
     // Debounce ref for realtime events
     const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
+    // Track selected conversation id in a ref so realtime callbacks always see current value
+    const selectedConvIdRef = useRef<string | null>(null);
     const showToast = (message: string, type: "success" | "error") => {
         setToast({ message, type });
     };
@@ -165,6 +169,7 @@ export default function TenantPage() {
                 description: data.description || "",
                 products: data.products || "",
                 target_customers: data.target_customers || "",
+                agent_respond_to_saved_contacts: data.agent_respond_to_saved_contacts ?? true,
             });
         }
     }, [supabase, tenantId]);
@@ -180,8 +185,8 @@ export default function TenantPage() {
             setConversations(data);
 
             const lastMsgMap: Record<string, string> = {};
-            // Only fetch previews for the top 15 to save DB bottleneck
-            for (const conv of data.slice(0, 15)) {
+            // Only fetch previews for the top 30 to save DB bottleneck
+            for (const conv of data.slice(0, 30)) {
                 try {
                     const { data: msgs } = await supabase
                         .from("messages")
@@ -219,6 +224,12 @@ export default function TenantPage() {
         [supabase]
     );
 
+    // Ref to always have the latest fetchMessages in realtime callbacks (avoids stale closure)
+    const fetchMessagesRef = useRef(fetchMessages);
+    useEffect(() => {
+        fetchMessagesRef.current = fetchMessages;
+    }, [fetchMessages]);
+
     // ── Fetch contact rules ──
     const fetchContactRules = useCallback(async () => {
         try {
@@ -242,7 +253,11 @@ export default function TenantPage() {
             if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
             fetchTimeoutRef.current = setTimeout(() => {
                 fetchConversations();
-            }, 500); // Wait 500ms for bulk DB operations to settle
+                // Re-sync messages for the currently open conversation to ensure DB consistency
+                if (selectedConvIdRef.current) {
+                    fetchMessagesRef.current(selectedConvIdRef.current);
+                }
+            }, 200); // Wait 200ms for bulk DB operations to settle
         };
 
         const convChannel = supabase
@@ -277,19 +292,24 @@ export default function TenantPage() {
             .channel(`msg-${tenantId}`)
             .on(
                 "postgres_changes",
-                { event: "*", schema: "public", table: "messages" },
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "messages",
+                    filter: `tenant_id=eq.${tenantId}`,
+                },
                 (payload) => {
                     if (payload.eventType === "INSERT") {
                         const newMsg = payload.new as Message;
+                        const msgTime = newMsg.created_at || new Date().toISOString();
 
                         // 1. Optimistically append message to active chat view
-                        setMessages((prev) => {
-                            if (prev.length > 0 && prev[0]?.conversation_id === newMsg.conversation_id) {
+                        if (newMsg.conversation_id === selectedConvIdRef.current) {
+                            setMessages((prev) => {
                                 if (prev.find((m) => m.id === newMsg.id)) return prev;
                                 return [...prev, newMsg];
-                            }
-                            return prev;
-                        });
+                            });
+                        }
 
                         // 2. Optimistically update Sidebar Preview instantly
                         setLastMessages(prev => {
@@ -299,6 +319,16 @@ export default function TenantPage() {
                                 textPreview = labels[newMsg.media_type] || "📎 קובץ";
                             }
                             return { ...prev, [newMsg.conversation_id]: textPreview };
+                        });
+
+                        // 3. Immediately bubble the conversation to the top —
+                        //    don't wait for the DB updated_at to propagate
+                        setConversations(prev => {
+                            const idx = prev.findIndex(c => c.id === newMsg.conversation_id);
+                            if (idx === -1) return prev;
+                            const updated = { ...prev[idx], updated_at: msgTime };
+                            const rest = prev.filter(c => c.id !== newMsg.conversation_id);
+                            return [updated, ...rest];
                         });
 
                         debouncedFetch();
@@ -313,9 +343,30 @@ export default function TenantPage() {
             .subscribe();
         channels.push(msgChannel);
 
+        // ── Refresh when tab regains focus ──
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                fetchConversations();
+                if (selectedConvIdRef.current) {
+                    fetchMessagesRef.current(selectedConvIdRef.current);
+                }
+            }
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        // ── Periodic polling fallback (every 30s) ──
+        const pollingInterval = setInterval(() => {
+            fetchConversations();
+            if (selectedConvIdRef.current) {
+                fetchMessagesRef.current(selectedConvIdRef.current);
+            }
+        }, 30000);
+
         return () => {
             channels.forEach((ch) => supabase.removeChannel(ch));
             if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+            clearInterval(pollingInterval);
         };
     }, [supabase, tenantId, fetchTenant, fetchConversations, fetchContactRules]);
 
@@ -404,6 +455,24 @@ export default function TenantPage() {
         if (res.ok) {
             await fetchContactRules();
             showToast("כלל הוסר", "success");
+        }
+    };
+
+    // ── Toggle AI Pause for a single conversation ──
+    const handleTogglePause = async (convId: string, currentPausedState: boolean) => {
+        const res = await fetch(`/api/tenants/${tenantId}/conversations/${convId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ is_paused: !currentPausedState }),
+        });
+
+        if (res.ok) {
+            setConversations((prev) =>
+                prev.map((c) => (c.id === convId ? { ...c, is_paused: !currentPausedState } : c))
+            );
+            showToast(!currentPausedState ? "ה-AI הושהה עבור שיחה זו" : "ה-AI הופעל מחדש עבור שיחה זו", "success");
+        } else {
+            showToast("שגיאה בעדכון הסטטוס", "error");
         }
     };
 
@@ -510,7 +579,10 @@ export default function TenantPage() {
     // ── Select conversation ──
     const selectConversation = (conv: Conversation) => {
         setSelectedConvId(conv.id);
+        selectedConvIdRef.current = conv.id;
+        setMessages([]); // Clear stale messages immediately before fetching
         fetchMessages(conv.id);
+        fetchConversations(); // Refresh sidebar to show latest previews
     };
 
     // ── Send message ──
@@ -564,7 +636,10 @@ export default function TenantPage() {
     const formatDate = (ts: string) => {
         const d = new Date(ts);
         const today = new Date();
-        if (d.toDateString() === today.toDateString()) return "היום";
+        if (d.toDateString() === today.toDateString()) {
+            // Today → show HH:MM like real WhatsApp
+            return d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+        }
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
         if (d.toDateString() === yesterday.toDateString()) return "אתמול";
@@ -651,6 +726,7 @@ export default function TenantPage() {
     const modeConfig = {
         learning: { label: "למידה", emoji: "📚", color: "#f59e0b" },
         active: { label: "פעיל", emoji: "🤖", color: "#10b981" },
+        paused: { label: "מושהה", emoji: "⏸️", color: "#6b7280" },
     };
 
     return (
@@ -665,7 +741,28 @@ export default function TenantPage() {
                     <span className="mode-badge" style={{ backgroundColor: modeConfig[tenant.agent_mode].color }}>
                         {modeConfig[tenant.agent_mode].emoji} {modeConfig[tenant.agent_mode].label}
                     </span>
-                    <span className={`status-dot ${tenant.whatsapp_connected ? "connected" : "disconnected"}`} />
+                    <button
+                        className={`status-badge ${tenant.whatsapp_connected ? "status-badge-connected" : "status-badge-disconnected"}`}
+                        onClick={() => setActiveTab("connect")}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '4px 10px',
+                            background: tenant.whatsapp_connected ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                            color: tenant.whatsapp_connected ? '#4ade80' : '#f87171',
+                            border: `1px solid ${tenant.whatsapp_connected ? '#22c55e' : '#ef4444'}`,
+                            borderRadius: '16px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            marginRight: '8px'
+                        }}
+                    >
+                        <span className={`status-dot ${tenant.whatsapp_connected ? "connected" : "disconnected"}`} style={{ margin: 0, width: '8px', height: '8px' }} />
+                        {tenant.whatsapp_connected ? 'ווטסאפ מחובר' : 'ווטסאפ מנותק'}
+                    </button>
                 </div>
                 <div className="mode-switcher">
                     {(["learning", "active"] as const).map((mode) => (
@@ -728,6 +825,26 @@ export default function TenantPage() {
                         handleKeyDown={handleKeyDown}
                         handleSendMessage={handleSendMessage}
                         isSending={isSending}
+                        onUpdateContactName={async (conversationId, newName) => {
+                            try {
+                                const res = await fetch(`/api/tenants/${tenant.id}/conversations/${conversationId}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ contact_name: newName }),
+                                });
+                                if (!res.ok) throw new Error("Failed to update name");
+                                // Update local state immediately
+                                setConversations((prev) =>
+                                    prev.map((c) =>
+                                        c.id === conversationId ? { ...c, contact_name: newName } : c
+                                    )
+                                );
+                            } catch (err) {
+                                console.error("Failed to update contact name:", err);
+                                alert("שגיאה בעדכון שם איש הקשר");
+                            }
+                        }}
+                        onTogglePause={handleTogglePause}
                     />
                 )}
 

@@ -2,9 +2,13 @@
  * Supabase-backed auth state store for Baileys with In-Memory Cache & Batch Sync.
  * Solves "PreKeyError" corruption by instantly resolving crypto key reads/writes 
  * in memory, while persisting to Supabase in robust periodic batches holding the Event Loop steady.
+ * 
+ * 🔒 Security: session_data is encrypted at rest using AES-256-GCM when
+ *    SESSION_ENCRYPTION_KEY is set in environment variables.
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 import {
     AuthenticationCreds,
     AuthenticationState,
@@ -24,6 +28,45 @@ function getSupabase(): SupabaseClient {
         );
     }
     return _supabase;
+}
+
+// ─── Encryption helpers (AES-256-GCM) ─────────────────────────────────
+const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY || null;
+const ALGORITHM = "aes-256-gcm";
+
+function getEncryptionKeyBuffer(): Buffer | null {
+    if (!ENCRYPTION_KEY) return null;
+    // Key must be exactly 32 bytes for AES-256. SHA-256 hash ensures correct length.
+    return crypto.createHash("sha256").update(ENCRYPTION_KEY).digest();
+}
+
+function encryptData(plaintext: string): { encrypted: string; iv: string; tag: string } {
+    const keyBuf = getEncryptionKeyBuffer();
+    if (!keyBuf) throw new Error("No encryption key");
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ALGORITHM, keyBuf, iv);
+    let encrypted = cipher.update(plaintext, "utf8", "base64");
+    encrypted += cipher.final("base64");
+    const tag = cipher.getAuthTag().toString("base64");
+    return { encrypted, iv: iv.toString("base64"), tag };
+}
+
+function decryptData(encObj: { encrypted: string; iv: string; tag: string }): string {
+    const keyBuf = getEncryptionKeyBuffer();
+    if (!keyBuf) throw new Error("No encryption key");
+    const decipher = crypto.createDecipheriv(
+        ALGORITHM,
+        keyBuf,
+        Buffer.from(encObj.iv, "base64")
+    );
+    decipher.setAuthTag(Buffer.from(encObj.tag, "base64"));
+    let decrypted = decipher.update(encObj.encrypted, "base64", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+}
+
+function isEncryptedPayload(data: any): boolean {
+    return data && typeof data === "object" && "encrypted" in data && "iv" in data && "tag" in data;
 }
 
 // ─── Global State Caches ──────────────────────────────────────────────
@@ -52,7 +95,7 @@ function markDirty(tenantId: string, key: string) {
 }
 
 // ─── Batch DB Flush Worker ────────────────────────────────────────────
-async function flushCacheToDB(tenantId: string) {
+export async function flushCacheToDB(tenantId: string) {
     const dirtySet = dirtyKeys.get(tenantId);
     if (!dirtySet || dirtySet.size === 0) return;
 
@@ -67,10 +110,15 @@ async function flushCacheToDB(tenantId: string) {
 
     for (const key of keysToSync) {
         if (cache.has(key)) {
+            const rawJson = JSON.stringify(cache.get(key), BufferJSON.replacer);
+            // Encrypt if encryption key is configured
+            const session_data = ENCRYPTION_KEY
+                ? encryptData(rawJson)
+                : JSON.parse(rawJson);
             upsertPayload.push({
                 tenant_id: tenantId,
                 session_key: key,
-                session_data: JSON.parse(JSON.stringify(cache.get(key), BufferJSON.replacer)),
+                session_data,
             });
         } else {
             deleteKeys.push(key);
@@ -125,7 +173,18 @@ export async function useSupabaseAuthState(
         console.error(`[${tenantId}] Error loading existing session keys:`, error);
     } else if (allRows) {
         for (const row of allRows) {
-            cache.set(row.session_key, JSON.parse(JSON.stringify(row.session_data), BufferJSON.reviver));
+            let parsed: any;
+            if (isEncryptedPayload(row.session_data)) {
+                // Decrypt encrypted data
+                const decryptedJson = decryptData(row.session_data);
+                parsed = JSON.parse(decryptedJson, BufferJSON.reviver);
+            } else {
+                // Legacy unencrypted data — read as-is, will be encrypted on next flush
+                parsed = JSON.parse(JSON.stringify(row.session_data), BufferJSON.reviver);
+                // Mark as dirty so it gets encrypted on next sync cycle
+                markDirty(tenantId, row.session_key);
+            }
+            cache.set(row.session_key, parsed);
         }
         console.log(`[${tenantId}] ✅ Loaded ${allRows.length} keys into RAM cache.`);
     }

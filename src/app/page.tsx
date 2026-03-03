@@ -12,7 +12,7 @@ interface Tenant {
   id: string;
   business_name: string;
   description: string | null;
-  agent_mode: "learning" | "active";
+  agent_mode: "learning" | "active" | "paused";
   whatsapp_connected: boolean;
   whatsapp_phone: string | null;
   created_at: string;
@@ -78,6 +78,7 @@ export default function Dashboard() {
   const modeLabels: Record<string, { label: string; emoji: string; color: string }> = {
     learning: { label: "למידה", emoji: "📚", color: "#f59e0b" },
     active: { label: "פעיל", emoji: "🤖", color: "#10b981" },
+    paused: { label: "מושהה", emoji: "⏸️", color: "#6b7280" },
   };
 
   return (

@@ -6,7 +6,7 @@ interface Tenant {
     description: string | null;
     products: string | null;
     target_customers: string | null;
-    agent_mode: "learning" | "active";
+    agent_mode: "learning" | "active" | "paused";
 }
 
 interface SettingsTabProps {
@@ -16,6 +16,7 @@ interface SettingsTabProps {
         description: string;
         products: string;
         target_customers: string;
+        agent_respond_to_saved_contacts: boolean;
     };
     setEditForm: React.Dispatch<React.SetStateAction<any>>;
     handleSaveSettings: (e: React.FormEvent) => Promise<void>;
@@ -84,6 +85,25 @@ export function SettingsTab({
                             rows={3}
                             placeholder="למשל: זוגות צעירים לפני קניית דירה..."
                         />
+                    </div>
+
+                    <div className="form-group" style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "16px", marginBottom: "24px" }}>
+                        <input
+                            type="checkbox"
+                            id="respond_to_saved"
+                            checked={editForm.agent_respond_to_saved_contacts}
+                            onChange={(e) =>
+                                setEditForm({ ...editForm, agent_respond_to_saved_contacts: e.target.checked })
+                            }
+                            style={{ width: "20px", height: "20px", cursor: "pointer" }}
+                        />
+                        <label htmlFor="respond_to_saved" style={{ margin: 0, cursor: "pointer" }}>
+                            <strong>הגב גם לאנשי קשר שמורים</strong>
+                            <br />
+                            <span style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: "normal" }}>
+                                אם כבוי, הסוכן יתעלם מלקוחות שמורים בטלפון שלך ויגיב רק ללידים חדשים שאנחנו לא מכירים.
+                            </span>
+                        </label>
                     </div>
 
                     <button type="submit" className="btn btn-primary" disabled={saving}>

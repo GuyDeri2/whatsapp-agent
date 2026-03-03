@@ -22,11 +22,31 @@ function getSupabase(): SupabaseClient {
     return _supabase;
 }
 
+// ─── Rate limiting ────────────────────────────────────────────────────
+const replyTimestamps = new Map<string, number[]>();
+const MAX_REPLIES_PER_MINUTE = 15;
+
+// ─── Debouncing ───────────────────────────────────────────────────────
+const debounceTimers: Record<string, NodeJS.Timeout> = {};
+const DEBOUNCE_DELAY_MS = 3500; // 3.5 seconds
+
+function isRateLimited(conversationId: string): boolean {
+    const now = Date.now();
+    const timestamps = replyTimestamps.get(conversationId) ?? [];
+    // Keep only timestamps from the last 60 seconds
+    const recent = timestamps.filter((t) => now - t < 60000);
+    replyTimestamps.set(conversationId, recent);
+    if (recent.length >= MAX_REPLIES_PER_MINUTE) return true;
+    recent.push(now);
+    return false;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────
 interface TenantConfig {
     agent_mode: "learning" | "active" | "paused";
     agent_filter_mode: "all" | "whitelist" | "blacklist";
     whatsapp_phone: string | null;
+    agent_respond_to_saved_contacts: boolean;
 }
 
 type SendMessageFn = (
@@ -44,14 +64,16 @@ export async function handleIncomingMessage(
     senderName: string | null,
     mediaUrl: string | null,
     mediaType: string | null,
-    sendMessage: SendMessageFn
+    waMessageId: string | null,
+    sendMessage: SendMessageFn,
+    isMentioned: boolean = false
 ): Promise<void> {
     const supabase = getSupabase();
 
     // 1. Get tenant config
     const { data: tenant, error: tenantError } = await supabase
         .from("tenants")
-        .select("agent_mode, agent_filter_mode, whatsapp_phone")
+        .select("agent_mode, agent_filter_mode, whatsapp_phone, agent_respond_to_saved_contacts")
         .eq("id", tenantId)
         .single();
 
@@ -77,7 +99,7 @@ export async function handleIncomingMessage(
             },
             { onConflict: "tenant_id,phone_number", ignoreDuplicates: false }
         )
-        .select("id, contact_name")
+        .select("id, contact_name, is_paused, is_saved_contact")
         .single();
 
     if (convError || !conversation) {
@@ -85,7 +107,9 @@ export async function handleIncomingMessage(
         return;
     }
 
-    // Update contact_name only if we have a new name and current is empty
+    // Only set contact_name from pushName if no name exists yet.
+    // Phonebook names (set by contacts.upsert) take priority — we never
+    // overwrite them with a pushName (the user's self-chosen WA name).
     if (pushName && !conversation.contact_name) {
         await supabase
             .from("conversations")
@@ -98,15 +122,31 @@ export async function handleIncomingMessage(
     // 3. Determine role
     const role = isFromMe ? "owner" : "user";
 
-    // 4. Store the message
+    // 4. Dedup check — skip if a message with this wa_message_id already exists
+    if (waMessageId) {
+        const { data: existing } = await supabase
+            .from("messages")
+            .select("id")
+            .eq("conversation_id", conversationId)
+            .eq("wa_message_id", waMessageId)
+            .maybeSingle();
+        if (existing) {
+            console.log(`[${tenantId}] ⏭️ Skipping duplicate message (wa_message_id: ${waMessageId})`);
+            return;
+        }
+    }
+
+    // 5. Store the message
     const { error: msgError } = await supabase.from("messages").insert({
         conversation_id: conversationId,
+        tenant_id: tenantId,
         role,
         content: messageText,
         sender_name: senderName,
         is_from_agent: false,
         media_url: mediaUrl,
         media_type: mediaType,
+        wa_message_id: waMessageId,
     });
 
     if (msgError) {
@@ -123,9 +163,19 @@ export async function handleIncomingMessage(
         `[${tenantId}] ${role === "owner" ? "📤" : "📥"} ${phoneNumber}: ${messageText.substring(0, 80)}...`
     );
 
-    // 5. Route based on agent mode
+    // 6. Route based on agent mode (only for incoming user messages)
     if (isFromMe) {
         // Owner is replying — we just let it be stored. Batch learning will process it later.
+        return;
+    }
+
+    if (conversation.is_paused) {
+        console.log(`[${tenantId}] ⏸️ Conversation is paused (handoff) — skipping AI reply: ${phoneNumber}`);
+        return;
+    }
+
+    if (conversation.is_saved_contact && config.agent_respond_to_saved_contacts === false) {
+        console.log(`[${tenantId}] 📇 Saved contact filter active — skipping AI reply: ${phoneNumber}`);
         return;
     }
 
@@ -146,13 +196,37 @@ export async function handleIncomingMessage(
 
     switch (config.agent_mode) {
         case "active":
-            await handleActiveMode(
-                tenantId,
-                conversationId,
-                remoteJid,
-                messageText,
-                sendMessage
-            );
+            // Group chat protection: only reply if explicitly mentioned
+            const isGroupChat = remoteJid.endsWith("@g.us");
+            if (isGroupChat && !isMentioned) {
+                console.log(`[${tenantId}] 🔇 Ignored group message (bot not explicitly mentioned): ${phoneNumber}`);
+                return;
+            }
+
+            // Rate limit: max 15 AI replies per minute per conversation
+            if (isRateLimited(conversationId)) {
+                console.log(`[${tenantId}] ⏱️ Rate limited — skipping AI reply for ${phoneNumber}`);
+                return;
+            }
+
+            // --- DEBOUNCE LOGIC ---
+            const debounceKey = `${tenantId}_${conversationId}`;
+            if (debounceTimers[debounceKey]) {
+                clearTimeout(debounceTimers[debounceKey]);
+                console.log(`[${tenantId}] ⏳ Debouncing rapid message from ${phoneNumber}...`);
+            }
+
+            debounceTimers[debounceKey] = setTimeout(async () => {
+                delete debounceTimers[debounceKey];
+                await handleActiveMode(
+                    tenantId,
+                    conversationId,
+                    remoteJid,
+                    messageText, // this messageText is just the latest trigger, history will contain all
+                    sendMessage
+                );
+            }, DEBOUNCE_DELAY_MS);
+
             break;
 
         case "learning":
@@ -216,16 +290,33 @@ async function handleActiveMode(
 
         const aiReply = await generateReply(tenantId, conversationId, messageText);
 
-        // Store AI reply
+        // Auto-pause if AI decides to handoff
+        if (
+            aiReply.includes("אעביר את השיחה לצוות שלנו") ||
+            aiReply.includes("אעביר לטיפול אנושי") ||
+            aiReply.includes("יחזרו אליך בהקדם")
+        ) {
+            console.log(`[${tenantId}] 🛑 Handoff detected! Auto-pausing conversation ${conversationId}`);
+            await getSupabase()
+                .from("conversations")
+                .update({ is_paused: true })
+                .eq("id", conversationId);
+        }
+
+        // Send via WhatsApp first to get the wa_message_id
+        const sentMsg = await sendMessage(remoteJid, { text: aiReply });
+        const aiWaMessageId = sentMsg?.key?.id || null;
+
+        // Store AI reply with wa_message_id so the echo-back from Baileys is deduped
         await getSupabase().from("messages").insert({
             conversation_id: conversationId,
+            tenant_id: tenantId,
             role: "assistant",
             content: aiReply,
             is_from_agent: true,
+            wa_message_id: aiWaMessageId,
+            status: "sent",
         });
-
-        // Send via WhatsApp
-        await sendMessage(remoteJid, { text: aiReply });
 
         console.log(
             `[${tenantId}] ✅ AI reply sent: ${aiReply.substring(0, 80)}...`
