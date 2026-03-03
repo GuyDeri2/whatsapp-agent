@@ -7,10 +7,16 @@ import OpenAI, { toFile } from "openai";
 const writeFileAsync = promisify(fs.writeFile);
 const unlinkAsync = promisify(fs.unlink);
 
-const groq = new OpenAI({
-    apiKey: process.env.GROQ_API_KEY,
-    baseURL: "https://api.groq.com/openai/v1",
-});
+let _groq: OpenAI | null = null;
+function getGroq(): OpenAI {
+    if (!_groq) {
+        _groq = new OpenAI({
+            apiKey: process.env.GROQ_API_KEY,
+            baseURL: "https://api.groq.com/openai/v1",
+        });
+    }
+    return _groq;
+}
 
 /**
  * Transcribes an audio buffer using Groq's fast Whisper API.
@@ -39,7 +45,7 @@ export async function transcribeAudioBuffer(buffer: Buffer, mimetype?: string): 
         await writeFileAsync(tempFilePath, buffer);
 
         // 2. Send to Groq Whisper API
-        const translation = await groq.audio.transcriptions.create({
+        const translation = await getGroq().audio.transcriptions.create({
             file: fs.createReadStream(tempFilePath),
             model: "whisper-large-v3", // Groq's high-speed Whisper model
             prompt: "Transcribe the audio accurately. The language may be Hebrew or English. If Hebrew, ensure proper formatting and direction.",

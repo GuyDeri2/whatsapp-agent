@@ -243,14 +243,20 @@ export async function useSupabaseAuthState(
     };
 }
 
-// ─── Cleanup: remove all session data for a tenant ────────────────────
-export async function clearSessionData(tenantId: string): Promise<void> {
-    // 1. Stop background worker
+// ─── Cleanup Background Sync ──────────────────────────────────────────
+export function stopBackgroundSync(tenantId: string): void {
     const interval = flushIntervals.get(tenantId);
     if (interval) {
         clearInterval(interval);
         flushIntervals.delete(tenantId);
+        console.log(`[${tenantId}] ⏹️ Background sync interval stopped.`);
     }
+}
+
+// ─── Cleanup: remove all session data for a tenant ────────────────────
+export async function clearSessionData(tenantId: string): Promise<void> {
+    // 1. Stop background worker
+    stopBackgroundSync(tenantId);
 
     // 2. Clear local RAM caches
     if (sessionCache.has(tenantId)) sessionCache.get(tenantId)!.clear();

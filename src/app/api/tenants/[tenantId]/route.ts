@@ -71,6 +71,23 @@ export async function DELETE(
 
     const { tenantId } = await params;
 
+    // Stop and clear the session on the session manager before deleting
+    try {
+        await fetch(
+            `${process.env.SESSION_MANAGER_URL || "http://localhost:3001"}/sessions/${tenantId}/stop`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${process.env.SESSION_MANAGER_SECRET || ""}`,
+                },
+                body: JSON.stringify({ clearData: true }),
+            }
+        );
+    } catch (e) {
+        console.error("Failed to stop session manager on tenant delete", e);
+    }
+
     const { error } = await supabase
         .from("tenants")
         .delete()

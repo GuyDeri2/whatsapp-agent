@@ -20,7 +20,7 @@ import QRCode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
-import { useSupabaseAuthState, clearSessionData, flushCacheToDB } from "./session-store";
+import { useSupabaseAuthState, clearSessionData, flushCacheToDB, stopBackgroundSync } from "./session-store";
 import { handleIncomingMessage } from "./message-handler";
 import { transcribeAudioBuffer } from "./transcribe";
 
@@ -183,9 +183,11 @@ export async function stopSession(
 
     // Flush any pending cache writes to DB so creds are fully saved
     await flushCacheToDB(tenantId);
+    stopBackgroundSync(tenantId);
 
     if (clearData) {
         await clearSessionData(tenantId);
+        tenantContactsCache.delete(tenantId); // Clear contact RAM map too
     }
 
     // Update tenant status
@@ -223,11 +225,13 @@ export async function reconnectSession(
     if (session) {
         // Flush pending writes before disconnecting
         await flushCacheToDB(tenantId);
+        stopBackgroundSync(tenantId);
         try { session.socket.end(undefined); } catch { /* ignore */ }
         sessions.delete(tenantId);
     }
     if (clearAuth) {
         await clearSessionData(tenantId);
+        tenantContactsCache.delete(tenantId);
     }
     await getSupabase()
         .from("tenants")
