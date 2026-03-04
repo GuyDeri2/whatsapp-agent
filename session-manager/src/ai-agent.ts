@@ -155,15 +155,42 @@ export async function generateReply(
     // Load conversation history (last 20 messages, skip owner personal messages)
     const { data: rawHistory } = await supabase
         .from("messages")
-        .select("role, content")
+        .select("role, content, created_at")
         .eq("conversation_id", conversationId)
         .in("role", ["user", "assistant"]) // Exclude 'owner' personal messages
         .order("created_at", { ascending: false })
         .limit(20);
 
-    const history = rawHistory ? rawHistory.reverse() : [];
+    let history: ChatMessage[] = [];
+    if (rawHistory && rawHistory.length > 0) {
+        // Evaluate the history from newest to oldest to find where the 40-minute gap lies
+        const FORTY_MINUTES_MS = 40 * 60 * 1000;
+        let cutOffIndex = rawHistory.length;
 
-    const systemPrompt = await buildSystemPrompt(tenantId);
+        for (let i = 0; i < rawHistory.length - 1; i++) {
+            const currentMsgDate = new Date(rawHistory[i].created_at);
+            const prevMsgDate = new Date(rawHistory[i + 1].created_at);
+            
+            // If the gap between the older message and the newer message is > 40 minutes,
+            // we cut off the history right before the older message.
+            if (currentMsgDate.getTime() - prevMsgDate.getTime() > FORTY_MINUTES_MS) {
+                cutOffIndex = i + 1; // Include the current message, but nothing older
+                break;
+            }
+        }
+        
+        // Slice the valid recent messages and reverse so they are chronological
+        history = rawHistory.slice(0, cutOffIndex).reverse() as unknown as ChatMessage[];
+    }
+
+    let systemPrompt = await buildSystemPrompt(tenantId);
+
+    // If history only contains the current incoming message (or is entirely empty),
+    // it's effectively a "new" conversation from the AI's contextual perspective.
+    const isNewConversation = history.length <= 1;
+    if (isNewConversation) {
+        systemPrompt += `\n\n[הנחיית מערכת חשובה: זוהי שיחה חדשה לגמרי עם הלקוח (או שעבר פער זמן משמעותי). **גלה יוזמה!** עליך להציג את עצמך קודם כל בתור העוזר הווירטואלי של העסק, נהל יחס חם, ושאל איך תוכל לעזור היום לפני או תוך כדי מענה לשאלה שלו.]`;
+    }
 
     const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: systemPrompt },

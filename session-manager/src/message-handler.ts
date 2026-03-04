@@ -89,6 +89,7 @@ export async function handleIncomingMessage(
     const isGroupChat = remoteJid.endsWith("@g.us");
 
     // 2. Upsert conversation (without contact_name to avoid overwriting existing names)
+    // We fetch updated_at as well so we can check for the 40-minute timeout
     const { data: conversation, error: convError } = await supabase
         .from("conversations")
         .upsert(
@@ -99,7 +100,7 @@ export async function handleIncomingMessage(
             },
             { onConflict: "tenant_id,phone_number", ignoreDuplicates: false }
         )
-        .select("id, contact_name, is_paused, is_saved_contact")
+        .select("id, contact_name, is_paused, is_saved_contact, updated_at")
         .single();
 
     if (convError || !conversation) {
@@ -174,6 +175,22 @@ export async function handleIncomingMessage(
             console.log(`[${tenantId}] 🛑 Owner replied — cancelled pending AI debounce reply.`);
         }
         return;
+    }
+
+    // Auto-unpause if it's been > 40 minutes since the last message
+    if (conversation.is_paused) {
+        const FORTY_MINUTES_MS = 40 * 60 * 1000;
+        const lastUpdated = new Date(conversation.updated_at || Date.now()).getTime();
+        const now = Date.now();
+
+        if (now - lastUpdated > FORTY_MINUTES_MS) {
+            console.log(`[${tenantId}] ⏱️ $> 40 mins passed. Auto-unpausing conversation ${conversationId}`);
+            conversation.is_paused = false;
+            await supabase
+                .from("conversations")
+                .update({ is_paused: false })
+                .eq("id", conversationId);
+        }
     }
 
     if (conversation.is_paused) {
