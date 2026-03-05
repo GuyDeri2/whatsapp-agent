@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "../../../../../lib/supabase/server";
 
 const SESSION_MANAGER_URL =
     process.env.SESSION_MANAGER_URL || "http://localhost:3001";

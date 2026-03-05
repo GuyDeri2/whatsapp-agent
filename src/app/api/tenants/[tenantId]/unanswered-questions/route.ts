@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "../../../../../lib/supabase/server";
 
 // GET /api/tenants/[tenantId]/unanswered-questions
 export async function GET(
