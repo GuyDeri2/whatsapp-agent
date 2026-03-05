@@ -84,39 +84,124 @@ export abstract class BaseAgent {
     const start = Date.now();
     const systemPrompt = this.buildSystemPrompt();
 
-    const userMessage = [
-      `**Task:** ${task.instruction}`,
-      task.context ? `**Context:** ${task.context}` : null,
-      `**Priority:** ${task.priority}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
+    // Setup tools
+    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+      {
+        type: "function",
+        function: {
+          name: "execute_cli_command",
+          description: "Execute a command line (CLI) instruction in the project root folder. Use this to deploy, test, lint, or run scripts. The command will run in a real shell environment. You will receive the standard output and standard error.",
+          parameters: {
+            type: "object",
+            properties: {
+              command: {
+                type: "string",
+                description: "The exact shell command to execute, e.g. 'vercel deploy --prod' or 'npm run check'.",
+              },
+            },
+            required: ["command"],
+          },
+        },
+      },
+    ];
+
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: [
+          `**Task:** ${task.instruction}`,
+          task.context ? `**Context:** ${task.context}` : null,
+          `**Priority:** ${task.priority}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      },
+    ];
+
+    let finalOutput = '';
+    let success = true;
+    let toolCallCount = 0;
+    const MAX_TOOL_CALLS = 10; // Prevent infinite loops
 
     try {
-      const completion = await getAI().chat.completions.create({
-        model: LLM_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        max_tokens: 2500,
-        temperature: 0.7,
-      });
+      while (true) {
+        if (toolCallCount >= MAX_TOOL_CALLS) {
+          finalOutput += "\n[System Error]: Reached maximum number of tool iterations. Exiting early.";
+          success = false;
+          break;
+        }
 
-      const output = completion.choices[0]?.message?.content?.trim() ?? '';
+        const completion = await getAI().chat.completions.create({
+          model: LLM_MODEL,
+          messages,
+          max_tokens: 2500,
+          temperature: 0.7,
+          tools,
+        });
+
+        const msg = completion.choices[0]?.message;
+        if (!msg) break;
+
+        // Save assistant message exactly as-is to conversation history
+        messages.push(msg);
+
+        // Scenario 1: Model completely finished and wants to explicitly reply with string text
+        if (!msg.tool_calls || msg.tool_calls.length === 0) {
+          finalOutput = msg.content ?? '';
+          break; // Done
+        }
+
+        // Scenario 2: Model wants to execute a CLI tool
+        toolCallCount++;
+        for (const toolCall of msg.tool_calls) {
+          if (toolCall.function.name === 'execute_cli_command') {
+            const { command } = JSON.parse(toolCall.function.arguments);
+            let toolStatus = "Success";
+            let toolOutput = "";
+            let exitCode = 0;
+
+            try {
+              // Execute the shell command
+              // Using execSync so we immediately block and get the output back.
+              // Restricting CWD effectively to workspace root using relative parent mapping.
+              const execSync = require('child_process').execSync;
+              const result = execSync(command, {
+                cwd: path.resolve(__dirname, '..'), // The parent of the agents/ folder (which is the main WhatsApp agent root)
+                encoding: 'utf-8',
+                timeout: 30000, // 30 second strict timeout
+                stdio: 'pipe'  // Capture stdout/err
+              });
+              toolOutput = result;
+            } catch (error: any) {
+              // ExecSync throws if the process exits with non-zero.
+              toolStatus = "Error/Failed";
+              exitCode = error.status || 1;
+              toolOutput = (error.stdout || '') + '\n' + (error.stderr || '') + '\n' + (error.message || '');
+            }
+
+            // Return the tool response exactly formatted back to the assistant
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: `Status: ${toolStatus}\nExit Code: ${exitCode}\nOutput:\n${toolOutput}`
+            });
+          }
+        }
+      } // End while loop
 
       return {
         taskId: task.taskId,
         role: this.role,
-        output,
-        success: true,
+        output: finalOutput,
+        success,
         durationMs: Date.now() - start,
       };
     } catch (err: any) {
       return {
         taskId: task.taskId,
         role: this.role,
-        output: '',
+        output: finalOutput,
         success: false,
         error: err.message,
         durationMs: Date.now() - start,

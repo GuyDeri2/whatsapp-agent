@@ -40,3 +40,6 @@ The plan correctly identified the core issue and required fixes, but should have
 
 ## Planning Pattern (2026-03-02)
 The plan correctly identified the core requirement but could have been more specific about the exact WhatsApp Web hierarchy (saved → push → phone, with verified names as special case). Good agent selection covering all aspects. Next time, include explicit acceptance criteria: 'Display must match WhatsApp Web exactly when viewed side-by-side with same WhatsApp account.' Also specify RTL requirements upfront for Hebrew support.
+
+## Planning Pattern (2026-03-05)
+For simple CLI verification tasks like this, the PM plan was appropriately minimal (XS effort). However, the PM should ensure agents have clear context about the project stack to avoid making assumptions. For future similar tasks, consider including brief stack context in the plan.

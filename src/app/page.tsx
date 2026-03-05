@@ -18,6 +18,11 @@ interface Tenant {
   created_at: string;
 }
 
+interface Profile {
+  role: "client" | "admin";
+  subscription_status: "trial" | "active" | "past_due" | "canceled";
+}
+
 /* ------------------------------------------------------------------ */
 /* Page component                                                      */
 /* ------------------------------------------------------------------ */
@@ -27,6 +32,7 @@ export default function Dashboard() {
   const router = useRouter();
 
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
@@ -41,6 +47,7 @@ export default function Dashboard() {
     const res = await fetch("/api/tenants");
     const data = await res.json();
     if (data.tenants) setTenants(data.tenants);
+    if (data.profile) setProfile(data.profile);
     setLoading(false);
   }, []);
 
@@ -89,9 +96,24 @@ export default function Dashboard() {
           <h1>🤖 פלטפורמת סוכן ווטסאפ</h1>
           <span className="header-subtitle">נהל את סוכני ה-AI שלך</span>
         </div>
-        <button className="btn btn-ghost" onClick={handleLogout}>
-          התנתק
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          {profile && (
+            <span className={`status-badge ${profile.subscription_status}`} style={{ fontSize: "12px", padding: "4px 10px" }}>
+              {profile.subscription_status === "trial" && "תקופת ניסיון"}
+              {profile.subscription_status === "active" && "מנוי פעיל"}
+              {profile.subscription_status === "past_due" && "בפיגור תשלום"}
+              {profile.subscription_status === "canceled" && "מנוי בוטל"}
+            </span>
+          )}
+          {profile?.role === "admin" && (
+            <button className="btn btn-primary" onClick={() => router.push("/admin")}>
+              ניהול מערכת
+            </button>
+          )}
+          <button className="btn btn-ghost" onClick={handleLogout}>
+            התנתק
+          </button>
+        </div>
       </header>
 
       {/* Stats Bar */}

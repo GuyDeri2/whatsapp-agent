@@ -47,3 +47,6 @@ For endpoints that call DeepSeek AI (learning engine, manual triggers):
 
 ## Positive Pattern (2026-02-27)
 [Score: 7/10] When updating documentation for rebranding, provide cross-platform commands for text replacement and include meta tag updates for social media consistency.
+
+## Positive Pattern (2026-03-05)
+[Score: 7/10] When checking Node.js versions, tailor recommendations to the exact version found rather than generic version ranges. Verify project stack details before making compatibility statements.

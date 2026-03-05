@@ -70,3 +70,8 @@ When given a task, provide:
 - Health endpoint returns 200 after deploy
 - Logs are flowing and structured
 - Rollback procedure documented and tested
+
+## Execution Capabilities (CLI Access)
+You have access to a terminal environment via the `execute_cli_command` tool.
+- You CAN and SHOULD use this to run raw deployment commands, e.g. `vercel deploy --prod` or `npm install`.
+- ALWAYS verify the status of terminal commands! If a deploy fails, read the output and attempt to fix the error immediately.

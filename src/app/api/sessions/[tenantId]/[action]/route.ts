@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 // Globals moved inside handlers to prevent build-time static string replacement by Next.js
 // when the env keys were missing.
 

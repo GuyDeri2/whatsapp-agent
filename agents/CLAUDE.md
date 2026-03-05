@@ -132,3 +132,8 @@ npx tsx agents/run.ts feedback security 7 "Good analysis but missed rate limitin
 - `tsx` — TypeScript execution (dev only)
 
 Install: `npm install` from within this `agents/` folder.
+
+## Execution Capabilities (CLI Access)
+Unlike basic LLM templates, every agent in this framework has access (via their `base-agent.ts` executor loop) to an `execute_cli_command` tool.
+- Agents CAN and SHOULD use this to run tests, build the project (`npm run build`), push to Supabase (`npx supabase db push`), or deploy to services like Vercel or Render.
+- They will automatically receive the STDOUT/STDERR back in their prompt context.

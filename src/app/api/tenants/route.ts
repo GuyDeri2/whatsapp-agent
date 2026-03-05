@@ -24,7 +24,13 @@ export async function GET() {
     if (error)
         return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ tenants });
+    const { data: profile } = await supabase
+        .from("profiles")
+        .select("role, subscription_status")
+        .eq("id", user.id)
+        .single();
+
+    return NextResponse.json({ tenants, profile });
 }
 
 // POST /api/tenants — create a new tenant
