@@ -3,7 +3,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "../../../../../../lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 
 // PATCH /api/tenants/[tenantId]/conversations/[conversationId]
 export async function PATCH(

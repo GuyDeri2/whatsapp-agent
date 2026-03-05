@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import OpenAI from "openai";
-import { getSupabaseAdmin } from "../../../lib/supabase/admin";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 // ---------------------------------------------------------------------------
 // Helpers
