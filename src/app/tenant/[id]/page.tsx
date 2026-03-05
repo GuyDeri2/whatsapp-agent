@@ -530,7 +530,8 @@ export default function TenantPage() {
             setTimeout(() => clearInterval(interval), 120000);
         } catch (err: any) {
             console.error(err);
-            showToast("שגיאה - השרת בכתובת localhost:3001 לא זמין", "error");
+            const errMsg = err.message || "שגיאה בחיבור לשרת";
+            showToast(`שגיאה: ${errMsg}`, "error");
             setConnectionStatus("disconnected");
         }
     };
@@ -571,7 +572,8 @@ export default function TenantPage() {
             showToast(clearAuth ? "נוצר QR חדש — סרוק שוב" : "מתחבר מחדש...", "success");
         } catch (err: any) {
             console.error(err);
-            showToast("שגיאה בהתחברות מחדש - יכול להיות שהשרת לא פעיל", "error");
+            const errMsg = err.message || "שגיאה בחיבור לשרת";
+            showToast(`שגיאה בהתחברות מחדש: ${errMsg}`, "error");
             setConnectionStatus("disconnected");
         }
     };

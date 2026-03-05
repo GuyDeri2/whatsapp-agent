@@ -6,9 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-const SESSION_MANAGER_URL =
-    process.env.SESSION_MANAGER_URL || "http://localhost:3001";
-const SESSION_MANAGER_SECRET = process.env.SESSION_MANAGER_SECRET || "";
+// Globals moved inside handlers to prevent build-time static string replacement by Next.js
+// when the env keys were missing.
 
 async function getAuthenticatedUser() {
     const supabase = await createClient();
@@ -30,6 +29,9 @@ export async function POST(
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { tenantId, action } = await params;
+
+    const SESSION_MANAGER_URL = process.env.SESSION_MANAGER_URL || "http://localhost:3001";
+    const SESSION_MANAGER_SECRET = process.env.SESSION_MANAGER_SECRET || "";
 
     // Verify user owns this tenant
     const supabase = await createClient();
@@ -70,6 +72,9 @@ export async function GET(
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { tenantId, action } = await params;
+
+    const SESSION_MANAGER_URL = process.env.SESSION_MANAGER_URL || "http://localhost:3001";
+    const SESSION_MANAGER_SECRET = process.env.SESSION_MANAGER_SECRET || "";
 
     const response = await fetch(
         `${SESSION_MANAGER_URL}/sessions/${tenantId}/${action}`,
