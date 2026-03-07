@@ -286,5 +286,11 @@ export async function clearSessionData(tenantId: string): Promise<void> {
         .delete()
         .eq("tenant_id", tenantId);
 
+    // 4. Wipe all conversations (and cascaded messages)
+    await getSupabase()
+        .from("conversations")
+        .delete()
+        .eq("tenant_id", tenantId);
+
     console.log(`[${tenantId}] 🧹 Session data completely wiped.`);
 }

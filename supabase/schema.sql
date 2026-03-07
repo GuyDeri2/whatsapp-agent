@@ -203,8 +203,14 @@ create policy "Users can manage own tenant learnings"
   with check (tenant_id in (select id from tenants where owner_id = auth.uid()));
 
 -- -------------------------------------------
--- 9. Enable Realtime
+-- 10. Profiles (Added 2026-03-05)
 -- -------------------------------------------
-alter publication supabase_realtime add table tenants;
-alter publication supabase_realtime add table conversations;
-alter publication supabase_realtime add table messages;
+create table if not exists profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'client' CHECK (role IN ('client', 'admin')),
+    subscription_status TEXT NOT NULL DEFAULT 'trial' CHECK (subscription_status IN ('trial', 'active', 'past_due', 'canceled')),
+    approval_status TEXT NOT NULL DEFAULT 'pending' CHECK (approval_status IN ('pending', 'approved', 'rejected')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-export default function LoginPage() {
+export default function RegisterPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
@@ -13,20 +13,25 @@ export default function LoginPage() {
     const router = useRouter();
     const supabase = createClient();
 
-    const handleLogin = async (e: React.FormEvent) => {
+    const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
 
-        const { error } = await supabase.auth.signInWithPassword({
+        const { error } = await supabase.auth.signUp({
             email,
             password,
+            options: {
+                emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+            }
         });
 
         if (error) {
             setError(error.message);
             setLoading(false);
         } else {
+            // Usually requires email confirmation, but we redirect them anyway
+            // Middleware will catch them and send to /pending-approval
             router.push("/dashboard");
             router.refresh();
         }
@@ -43,15 +48,15 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="login-container">
+        <div className="login-container" style={{ direction: "rtl" }}>
             <div className="login-card">
                 <div className="login-header">
-                    <div className="login-icon">💬</div>
-                    <h1>סוכן ווטסאפ</h1>
-                    <p>התחבר לדשבורד העסקי שלך</p>
+                    <div className="login-icon">🚀</div>
+                    <h1>הרשמה חינם</h1>
+                    <p>הצטרף והתחל לבנות את הסוכנים שלך</p>
                 </div>
 
-                <form onSubmit={handleLogin} className="login-form">
+                <form onSubmit={handleRegister} className="login-form">
                     {error && <div className="login-error">{error}</div>}
 
                     <div className="form-group">
@@ -66,25 +71,23 @@ export default function LoginPage() {
                         />
                     </div>
 
-                    <div className="form-group" style={{ marginBottom: "0.5rem" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <label htmlFor="password">סיסמה</label>
-                            <Link href="/forgot-password" style={{ fontSize: "0.85rem", color: "#2563eb", textDecoration: "none" }}>שכחת סיסמה?</Link>
-                        </div>
+                    <div className="form-group">
+                        <label htmlFor="password">סיסמה</label>
                         <input
                             id="password"
                             type="password"
-                            placeholder="••••••••"
+                            placeholder="מינימום 6 תווים"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
+                            minLength={6}
                         />
                     </div>
 
                     <button type="submit" className="login-button" disabled={loading}>
-                        {loading ? "מתחבר…" : "התחבר"}
+                        {loading ? "נרשם…" : "הירשם עכשיו"}
                     </button>
-
+                    
                     <div style={{ margin: "1.5rem 0", display: "flex", alignItems: "center", textAlign: "center", color: "#94a3b8" }}>
                         <div style={{ flex: 1, borderTop: "1px solid #e2e8f0" }}></div>
                         <span style={{ padding: "0 10px", fontSize: "0.9rem" }}>או</span>
@@ -116,7 +119,7 @@ export default function LoginPage() {
                 </form>
 
                 <div style={{ marginTop: "2rem", textAlign: "center", fontSize: "0.95rem", color: "#64748b" }}>
-                    אין לך חשבון? <Link href="/register" style={{ color: "#2563eb", textDecoration: "none", fontWeight: "600" }}>הירשם חינם</Link>
+                    כבר יש לך חשבון? <Link href="/login" style={{ color: "#2563eb", textDecoration: "none", fontWeight: "600" }}>התחבר כאן</Link>
                 </div>
             </div>
         </div>

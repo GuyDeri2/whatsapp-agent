@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -61,8 +62,14 @@ export default async function AdminDashboard() {
                 </div>
             </div>
 
-            <div className="section-header" style={{ marginTop: "40px" }}>
+            <div className="section-header" style={{ marginTop: "40px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h2>ניהול לקוחות</h2>
+                <Link 
+                    href="/admin/approvals" 
+                    style={{ padding: "0.5rem 1rem", backgroundColor: "#2563eb", color: "white", textDecoration: "none", borderRadius: "6px", fontSize: "0.9rem", fontWeight: "500" }}
+                >
+                    אישור משתמשים חדשים &rarr;
+                </Link>
             </div>
 
             <div className="admin-table-container">
