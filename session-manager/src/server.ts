@@ -216,6 +216,20 @@ async function gracefulShutdown(signal: string) {
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
+// ─── Temporary Admin API Key Ingestion ────────────────────────────────
+app.post("/admin/set-key", (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${process.env.SESSION_MANAGER_SECRET}`) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+    const { key } = req.body;
+    if (key) {
+        process.env.DEEPSEEK_API_KEY = key;
+        return res.json({ success: true, message: "DeepSeek API key updated in memory." });
+    }
+    return res.status(400).json({ error: "Missing key" });
+});
+
 // ─── Start server ─────────────────────────────────────────────────────
 const HOST = process.env.HOST || "0.0.0.0";
 app.listen(PORT, HOST, async () => {
