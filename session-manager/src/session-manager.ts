@@ -493,6 +493,12 @@ async function createSession(tenantId: string): Promise<void> {
         generateHighQualityLinkPreview: false,
         syncFullHistory: false, // Turned off to prevent massive history sync bottlenecks
         markOnlineOnConnect: false, // Stop continuous "Sync completed" notifications
+        keepAliveIntervalMs: 15_000, // Explicit 15s ping to prevent silent WebSocket drops (fixes message delays)
+        getMessage: async (key) => {
+            return {
+                conversation: "hello"
+            }
+        }
     });
 
     // Preserve retry count from previous session if it exists
