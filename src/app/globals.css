@@ -537,7 +537,8 @@ body {
 /* Tab Content */
 .tab-content {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ─── Chat Layout ───────────────────────────────────────────────── */
@@ -760,8 +761,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 500px;
-  padding: 40px;
+  min-height: 100%;
+  padding: 40px 24px;
 }
 
 .connection-card {
