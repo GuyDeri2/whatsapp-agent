@@ -26,8 +26,9 @@ function getSupabase(): SupabaseClient {
 const replyTimestamps = new Map<string, number[]>();
 const MAX_REPLIES_PER_MINUTE = 15;
 
-// ─── Debouncing ───────────────────────────────────────────────────────
+// ─── Debouncing & Concurrency Locks ───────────────────────────────────
 const debounceTimers: Record<string, NodeJS.Timeout> = {};
+const activeGenerations = new Set<string>(); // Lock to prevent concurrent AI generation for the same conversation
 const DEBOUNCE_DELAY_MS = 2000; // 2 seconds — responsive but still batches rapid messages
 
 export function clearPendingAiReply(tenantId: string, conversationId: string): void {
@@ -268,13 +269,26 @@ export async function handleIncomingMessage(
 
             debounceTimers[debounceKey] = setTimeout(async () => {
                 delete debounceTimers[debounceKey];
-                await handleActiveMode(
-                    tenantId,
-                    conversationId,
-                    remoteJid,
-                    messageText, // this messageText is just the latest trigger, history will contain all
-                    sendMessage
-                );
+
+                // If AI is already actively typing/generating for this chat, don't start a second parallel generation.
+                // The current generation will pick up the context anyway.
+                if (activeGenerations.has(debounceKey)) {
+                    console.log(`[${tenantId}] 🔒 AI is already generating a reply for ${phoneNumber}, dropping duplicate trigger.`);
+                    return;
+                }
+
+                activeGenerations.add(debounceKey);
+                try {
+                    await handleActiveMode(
+                        tenantId,
+                        conversationId,
+                        remoteJid,
+                        messageText, // this messageText is just the latest trigger, history will contain all
+                        sendMessage
+                    );
+                } finally {
+                    activeGenerations.delete(debounceKey);
+                }
             }, DEBOUNCE_DELAY_MS);
 
             break;
