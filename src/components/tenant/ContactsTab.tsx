@@ -43,6 +43,17 @@ export function ContactsTab({
     handleDeleteRule,
     filterLabels,
 }: ContactsTabProps) {
+    // Format phone for display
+    const formatPhone = (phone: string) => {
+        if (!phone) return "";
+        if (phone.includes("-")) return "קבוצה";
+        if (phone.startsWith("972") && phone.length === 12)
+            return `0${phone.substring(3, 5)}-${phone.substring(5, 8)}-${phone.substring(8)}`;
+        if (phone.startsWith("972") && phone.length === 11)
+            return `0${phone.substring(3, 4)}-${phone.substring(4, 7)}-${phone.substring(7)}`;
+        return `+${phone}`;
+    };
+
     return (
         <div className="settings-section">
             <div className="settings-form">
@@ -102,7 +113,7 @@ export function ContactsTab({
                         <div className="form-row">
                             <input
                                 type="text"
-                                placeholder="מספר טלפון (חובה)"
+                                placeholder="מספר טלפון (למשל 0526991415 או +972526991415)"
                                 value={newRulePhone}
                                 onChange={(e) => setNewRulePhone(e.target.value)}
                                 required
@@ -145,7 +156,7 @@ export function ContactsTab({
                                     >
                                         {rule.rule_type === "allow" ? "✅" : "🚫"}
                                     </span>
-                                    <strong>{rule.phone_number}</strong>
+                                    <strong>{formatPhone(rule.phone_number)}</strong>
                                     {rule.contact_name && (
                                         <span className="rule-name">- {rule.contact_name}</span>
                                     )}

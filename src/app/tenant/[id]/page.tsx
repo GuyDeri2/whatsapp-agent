@@ -408,7 +408,7 @@ export default function TenantPage() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                phone_number: newRulePhone.replace(/[^0-9]/g, ""),
+                phone_number: normalizePhone(newRulePhone),
                 contact_name: newRuleName || null,
                 rule_type: newRuleType,
             }),
@@ -624,11 +624,53 @@ export default function TenantPage() {
     };
 
     // ── Helpers ──
+
+    /**
+     * Normalize any Israeli phone format to the WhatsApp-native "972..." format.
+     * Handles: 05x..., +97252..., 972-52-..., etc.
+     * Returns digits-only. Non-Israeli numbers remain stripped of non-digits.
+     */
+    const normalizePhone = (input: string): string => {
+        // Strip everything except digits
+        const digits = input.replace(/[^0-9]/g, "");
+        // Israeli local → international: 05xxxxxxxx → 9725xxxxxxxx
+        if (digits.startsWith("0") && digits.length === 10) {
+            return "972" + digits.substring(1);
+        }
+        return digits;
+    };
+
+    /**
+     * Format a phone number for beautiful display in the UI.
+     * - Israeli cells (972 + 9 digits):  052-699-1415
+     * - Israeli landlines (972 + 8 digits): 02-123-4567
+     * - Group JIDs (contain "-"):  hide the raw ID entirely
+     * - Other international:  +1 (203) 634-0427  or just +XXXXX
+     */
     const formatPhone = (phone: string) => {
         if (!phone) return "";
+
+        // Groups have a hyphen in the JID like "120363404274395120"
+        // but contact_name is the real group name — if we get here it means
+        // there's no name, so just show a generic label
+        if (phone.includes("-")) return "קבוצה";
+
+        // Israeli mobile: 972 + 9 digits = 12 chars total (e.g. 972526991415)
         if (phone.startsWith("972") && phone.length === 12) {
             return `0${phone.substring(3, 5)}-${phone.substring(5, 8)}-${phone.substring(8)}`;
         }
+
+        // Israeli landline: 972 + 8 digits = 11 chars total (e.g. 97221234567)
+        if (phone.startsWith("972") && phone.length === 11) {
+            return `0${phone.substring(3, 4)}-${phone.substring(4, 7)}-${phone.substring(7)}`;
+        }
+
+        // US numbers: 1 + 10 digits = 11 chars
+        if (phone.startsWith("1") && phone.length === 11) {
+            return `+1 (${phone.substring(1, 4)}) ${phone.substring(4, 7)}-${phone.substring(7)}`;
+        }
+
+        // Fallback: just prefix with +
         return `+${phone}`;
     };
 

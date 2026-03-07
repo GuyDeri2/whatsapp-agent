@@ -240,7 +240,7 @@ export function ChatTab({
                                                     </button>
                                                 )}
                                                 <span className="chat-header-phone">
-                                                    {conv.phone_number}
+                                                    {formatPhone(conv.phone_number)}
                                                 </span>
                                             </div>
                                         </div>
