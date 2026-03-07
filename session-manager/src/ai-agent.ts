@@ -140,7 +140,7 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
 // ─── Sanitize user input ──────────────────────────────────────────────
 function sanitizeInput(text: string): string {
     // Collapse repeated characters (e.g. "אחחיייייי" → "אחחיי")
-    let sanitized = text.replace(/(.)\\1{3,}/g, "$1$1$1");
+    let sanitized = text.replace(/(.)\1{3,}/g, "$1$1$1");
     // Trim to 500 chars max
     if (sanitized.length > 500) sanitized = sanitized.substring(0, 500);
     return sanitized.trim();
@@ -172,7 +172,7 @@ export async function generateReply(
         for (let i = 0; i < rawHistory.length - 1; i++) {
             const currentMsgDate = new Date(rawHistory[i].created_at);
             const prevMsgDate = new Date(rawHistory[i + 1].created_at);
-            
+
             // If the gap between the older message and the newer message is > 40 minutes,
             // we cut off the history right before the older message.
             if (currentMsgDate.getTime() - prevMsgDate.getTime() > FORTY_MINUTES_MS) {
@@ -180,7 +180,7 @@ export async function generateReply(
                 break;
             }
         }
-        
+
         // Slice the valid recent messages and reverse so they are chronological
         history = rawHistory.slice(0, cutOffIndex).reverse() as unknown as ChatMessage[];
     }

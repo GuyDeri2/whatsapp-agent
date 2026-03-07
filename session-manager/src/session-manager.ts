@@ -41,6 +41,16 @@ const sessions = new Map<string, SessionInfo>();
 const MAX_RETRIES = 5;
 const MAX_PREKEY_ERRORS = 10; // after this many PreKeyErrors, clear session and reconnect
 
+/** Track periodic intervals per tenant so we can clean them up on reconnect */
+const profilePicIntervals = new Map<string, NodeJS.Timeout>();
+
+/** Cache group metadata to avoid fetching from WhatsApp on every message */
+const groupMetadataCache = new Map<string, { subject: string; fetchedAt: number }>();
+const GROUP_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Track which conversations we've already checked for profile pics this session */
+const profilePicChecked = new Set<string>();
+
 /** Memory cache for phonebook contacts */
 const tenantContactsCache = new Map<string, Map<string, string>>();
 
@@ -129,10 +139,21 @@ function getSupabase(): SupabaseClient {
     return _supabase;
 }
 
-// Global QR update callback (used by SSE)
-let _qrCallback: QRUpdateCallback | null = null;
+// QR update callbacks (supports multiple SSE clients)
+const _qrCallbacks = new Set<QRUpdateCallback>();
+
 export function setQRUpdateCallback(cb: QRUpdateCallback) {
-    _qrCallback = cb;
+    _qrCallbacks.add(cb);
+}
+
+export function removeQRUpdateCallback(cb: QRUpdateCallback) {
+    _qrCallbacks.delete(cb);
+}
+
+function notifyQRUpdate(tenantId: string, qrDataUrl: string | null) {
+    for (const cb of _qrCallbacks) {
+        try { cb(tenantId, qrDataUrl); } catch { /* ignore dead SSE connections */ }
+    }
 }
 
 // ─── Logger ───────────────────────────────────────────────────────────
@@ -179,6 +200,13 @@ export async function stopSession(
             try { session.socket.end(undefined); } catch { /* ignore */ }
         }
         sessions.delete(tenantId);
+    }
+
+    // Clear periodic intervals to prevent memory leak on reconnect
+    const picInterval = profilePicIntervals.get(tenantId);
+    if (picInterval) {
+        clearInterval(picInterval);
+        profilePicIntervals.delete(tenantId);
     }
 
     // Flush any pending cache writes to DB so creds are fully saved
@@ -492,7 +520,7 @@ async function createSession(tenantId: string): Promise<void> {
             sessionInfo.qrCode = qrDataUrl;
             sessionInfo.status = "connecting";
             console.log(`[${tenantId}] 📱 QR code generated — waiting for scan...`);
-            if (_qrCallback) _qrCallback(tenantId, qrDataUrl);
+            notifyQRUpdate(tenantId, qrDataUrl);
         }
 
         // Connected
@@ -513,7 +541,7 @@ async function createSession(tenantId: string): Promise<void> {
                 .eq("id", tenantId);
 
             console.log(`[${tenantId}] ✅ WhatsApp connected (${phoneNumber})`);
-            if (_qrCallback) _qrCallback(tenantId, null);
+            notifyQRUpdate(tenantId, null);
 
             // After a short delay, resolve any group names and profile pictures
             setTimeout(() => resolveGroupNames(tenantId, socket), 10000);
@@ -521,13 +549,17 @@ async function createSession(tenantId: string): Promise<void> {
             setTimeout(() => resolveProfilePictures(tenantId, socket), 15000);
 
             // Periodic refresh: re-fetch profile pictures every 6 hours (URLs expire)
+            // Clear any previous interval first to prevent leak on reconnect
+            const prevInterval = profilePicIntervals.get(tenantId);
+            if (prevInterval) clearInterval(prevInterval);
             const SIX_HOURS = 6 * 60 * 60 * 1000;
-            setInterval(() => {
+            const picInterval = setInterval(() => {
                 const session = sessions.get(tenantId);
                 if (session?.status === "connected") {
                     resolveProfilePictures(tenantId, socket, true);
                 }
             }, SIX_HOURS);
+            profilePicIntervals.set(tenantId, picInterval);
         }
 
         // Disconnected
@@ -717,14 +749,22 @@ async function createSession(tenantId: string): Promise<void> {
             if (msg.key.remoteJid === "status@broadcast") continue;
             if (msg.message?.protocolMessage) continue;
 
-            // ── Skip outgoing echo-backs ──
-            // When WE send a message (via sendMessage() or AI agent), Baileys
-            // fires messages.upsert again with isFromMe=true.  Those messages
-            // are already saved to the DB at send-time, so processing them
-            // again creates duplicates.  Skip them entirely.
+            // ── Handle outgoing messages (isFromMe) ──
+            // Messages sent via sendMessage() / AI agent are already saved to DB.
+            // Messages typed directly on the phone go through Baileys but NOT our sendMessage().
+            // We use wa_message_id dedup to skip already-saved messages and save phone-typed ones.
             const isFromMe = msg.key.fromMe ?? false;
             if (isFromMe) {
-                continue;
+                const waMessageId = msg.key.id || null;
+                if (waMessageId) {
+                    const { data: existing } = await getSupabase()
+                        .from("messages")
+                        .select("id")
+                        .eq("wa_message_id", waMessageId)
+                        .maybeSingle();
+                    if (existing) continue; // Already saved by sendMessage() — skip
+                }
+                // Message typed on phone — save it via handleIncomingMessage
             }
 
             // Check for decryption failures (CIPHERTEXT stub or missing message entirely)
@@ -881,13 +921,20 @@ async function createSession(tenantId: string): Promise<void> {
             // If it's a group chat, try to fetch the group name (subject)
             if (remoteJid.endsWith("@g.us")) {
                 senderName = cachedName || msg.pushName || participantPhone || "Unknown";
-                try {
-                    const metadata = await socket.groupMetadata(remoteJid);
-                    if (metadata.subject) {
-                        contactName = metadata.subject;
+                // Use cached group metadata to avoid hitting WhatsApp API on every message
+                const cached = groupMetadataCache.get(remoteJid);
+                if (cached && Date.now() - cached.fetchedAt < GROUP_CACHE_TTL_MS) {
+                    contactName = cached.subject;
+                } else {
+                    try {
+                        const metadata = await socket.groupMetadata(remoteJid);
+                        if (metadata.subject) {
+                            contactName = metadata.subject;
+                            groupMetadataCache.set(remoteJid, { subject: metadata.subject, fetchedAt: Date.now() });
+                        }
+                    } catch (err) {
+                        console.error(`[${tenantId}] Could not fetch group metadata:`, err);
                     }
-                } catch (err) {
-                    console.error(`[${tenantId}] Could not fetch group metadata:`, err);
                 }
             } else {
                 // 1-to-1 chats: default to phonebook cached name
@@ -914,7 +961,7 @@ async function createSession(tenantId: string): Promise<void> {
                     tenantId,
                     remoteJid,
                     textContent,
-                    false, // isFromMe is always false here (we skip isFromMe above)
+                    isFromMe,
                     contactName,
                     senderName,
                     mediaUrl,
@@ -927,15 +974,20 @@ async function createSession(tenantId: string): Promise<void> {
                 // On-demand: fetch profile picture for this conversation if missing
                 const phoneNumber = remoteJid.split("@")[0];
                 const isGroup = remoteJid.endsWith("@g.us");
-                const { data: conv } = await getSupabase()
-                    .from("conversations")
-                    .select("id, profile_picture_url")
-                    .eq("tenant_id", tenantId)
-                    .eq("phone_number", phoneNumber)
-                    .maybeSingle();
-                if (conv && !conv.profile_picture_url) {
-                    // Fire-and-forget: don't block message processing
-                    fetchProfilePicture(tenantId, socket, conv.id, phoneNumber, isGroup);
+                const picKey = `${tenantId}:${phoneNumber}`;
+                // Only check DB for profile pic once per session per contact
+                if (!profilePicChecked.has(picKey)) {
+                    profilePicChecked.add(picKey);
+                    const { data: conv } = await getSupabase()
+                        .from("conversations")
+                        .select("id, profile_picture_url")
+                        .eq("tenant_id", tenantId)
+                        .eq("phone_number", phoneNumber)
+                        .maybeSingle();
+                    if (conv && !conv.profile_picture_url) {
+                        // Fire-and-forget: don't block message processing
+                        fetchProfilePicture(tenantId, socket, conv.id, phoneNumber, isGroup);
+                    }
                 }
             } catch (err) {
                 console.error(`[${tenantId}] Message handler error:`, err);

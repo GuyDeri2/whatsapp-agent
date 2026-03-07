@@ -28,7 +28,7 @@ const MAX_REPLIES_PER_MINUTE = 15;
 
 // ─── Debouncing ───────────────────────────────────────────────────────
 const debounceTimers: Record<string, NodeJS.Timeout> = {};
-const DEBOUNCE_DELAY_MS = 3500; // 3.5 seconds
+const DEBOUNCE_DELAY_MS = 2000; // 2 seconds — responsive but still batches rapid messages
 
 function isRateLimited(conversationId: string): boolean {
     const now = Date.now();
@@ -48,6 +48,10 @@ interface TenantConfig {
     whatsapp_phone: string | null;
     agent_respond_to_saved_contacts: boolean;
 }
+
+// ─── Tenant config cache (30s TTL) to avoid DB hit on every message ───
+const tenantConfigCache = new Map<string, { config: TenantConfig; fetchedAt: number }>();
+const CONFIG_CACHE_TTL_MS = 30_000; // 30 seconds
 
 type SendMessageFn = (
     jid: string,
@@ -70,19 +74,25 @@ export async function handleIncomingMessage(
 ): Promise<void> {
     const supabase = getSupabase();
 
-    // 1. Get tenant config
-    const { data: tenant, error: tenantError } = await supabase
-        .from("tenants")
-        .select("agent_mode, agent_filter_mode, whatsapp_phone, agent_respond_to_saved_contacts")
-        .eq("id", tenantId)
-        .single();
+    // 1. Get tenant config (with cache to avoid DB hit on every message)
+    const cached = tenantConfigCache.get(tenantId);
+    let config: TenantConfig;
+    if (cached && Date.now() - cached.fetchedAt < CONFIG_CACHE_TTL_MS) {
+        config = cached.config;
+    } else {
+        const { data: tenant, error: tenantError } = await supabase
+            .from("tenants")
+            .select("agent_mode, agent_filter_mode, whatsapp_phone, agent_respond_to_saved_contacts")
+            .eq("id", tenantId)
+            .single();
 
-    if (tenantError || !tenant) {
-        console.error(`[${tenantId}] Tenant not found:`, tenantError);
-        return;
+        if (tenantError || !tenant) {
+            console.error(`[${tenantId}] Tenant not found:`, tenantError);
+            return;
+        }
+        config = tenant as TenantConfig;
+        tenantConfigCache.set(tenantId, { config, fetchedAt: Date.now() });
     }
-
-    const config = tenant as TenantConfig;
 
     // Extract clean phone number from JID (e.g., "972501234567@s.whatsapp.net" → "972501234567")
     const phoneNumber = remoteJid.split("@")[0];
@@ -279,18 +289,20 @@ async function checkContactFilter(
 ): Promise<boolean> {
     const supabase = getSupabase();
 
-    // WhatsApp gives "972...", but user might have typed "0..." in UI
-    let localNumber = phoneNumber;
+    // Normalize: check all possible formats of the same number
+    // WhatsApp gives "972...", user might have stored "05..." or "+972..." before normalization fix
+    const formats = new Set<string>([phoneNumber]);
     if (phoneNumber.startsWith("972")) {
-        localNumber = "0" + phoneNumber.substring(3);
+        formats.add("0" + phoneNumber.substring(3)); // 972526991415 → 0526991415
+    } else if (phoneNumber.startsWith("0") && phoneNumber.length === 10) {
+        formats.add("972" + phoneNumber.substring(1)); // 0526991415 → 972526991415
     }
 
-    // Use .in() to check both formats, and .limit(1) to avoid .single() crashing on duplicates
     const { data: rules, error } = await supabase
         .from("contact_rules")
         .select("rule_type")
         .eq("tenant_id", tenantId)
-        .in("phone_number", [phoneNumber, localNumber])
+        .in("phone_number", Array.from(formats))
         .limit(1);
 
     if (error) {

@@ -14,6 +14,7 @@ import {
     getActiveSessions,
     restoreAllSessions,
     setQRUpdateCallback,
+    removeQRUpdateCallback,
     sendMessage,
     reconnectSession,
 } from "./session-manager";
@@ -26,7 +27,7 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 // ─── Middleware ────────────────────────────────────────────────────────
 app.use(
     cors({
-        origin: process.env.DASHBOARD_URL || "http://localhost:3000",
+        origin: "*",  // Auth token protects the API; allow any origin
         credentials: true,
     })
 );
@@ -135,10 +136,9 @@ app.get("/sessions/:tenantId/qr", (req, res) => {
 
     setQRUpdateCallback(onQRUpdate);
 
-    // Cleanup on close
+    // Cleanup on close — remove this specific listener
     req.on("close", () => {
-        // In a production app, you'd want a proper event emitter pattern
-        // For MVP, having a single SSE listener per tenant is fine
+        removeQRUpdateCallback(onQRUpdate);
     });
 });
 
@@ -228,12 +228,13 @@ app.listen(PORT, HOST, async () => {
 });
 
 import cron from "node-cron";
-import { createClient } from "@supabase/supabase-js";
 
 // Run every night at 02:00 server time
 cron.schedule("0 2 * * *", async () => {
     console.log("⏰ Running daily batch learning for all tenants in 'learning' mode...");
     try {
+        // Reuse the Supabase singleton from session-manager
+        const { createClient } = await import("@supabase/supabase-js");
         const supabase = createClient(
             process.env.SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
