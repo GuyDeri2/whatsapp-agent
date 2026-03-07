@@ -340,15 +340,18 @@ async function handleActiveMode(
     try {
         console.log(`[${tenantId}] 🤖 Active mode — generating AI reply...`);
 
-        const aiReply = await generateReply(tenantId, conversationId, messageText);
+        let aiReply = await generateReply(tenantId, conversationId, messageText);
+        let shouldPause = false;
 
-        // Auto-pause if AI decides to handoff
-        if (
-            aiReply.includes("אעביר את השיחה לצוות שלנו") ||
-            aiReply.includes("אעביר לטיפול אנושי") ||
-            aiReply.includes("יחזרו אליך בהקדם")
-        ) {
-            console.log(`[${tenantId}] 🛑 Handoff detected! Auto-pausing conversation ${conversationId}`);
+        // Auto-pause if AI decides to handoff using the secret [PAUSE] marker
+        if (aiReply.includes("[PAUSE]")) {
+            console.log(`[${tenantId}] 🛑 Handoff marker [PAUSE] detected! Auto-pausing conversation ${conversationId}`);
+            shouldPause = true;
+            // Strip the marker so the user doesn't see it
+            aiReply = aiReply.replace(/\[PAUSE\]/g, "").trim();
+        }
+
+        if (shouldPause) {
             await getSupabase()
                 .from("conversations")
                 .update({ is_paused: true })
@@ -356,19 +359,25 @@ async function handleActiveMode(
         }
 
         // Send via WhatsApp first to get the wa_message_id
-        const sentMsg = await sendMessage(remoteJid, { text: aiReply });
-        const aiWaMessageId = sentMsg?.key?.id || null;
+        // Handle case where AI reply might be completely empty after stripping [PAUSE]
+        let aiWaMessageId: string | null = null;
+        if (aiReply.length > 0) {
+            const sentMsg = await sendMessage(remoteJid, { text: aiReply });
+            aiWaMessageId = sentMsg?.key?.id || null;
+        }
 
         // Store AI reply with wa_message_id so the echo-back from Baileys is deduped
-        await getSupabase().from("messages").insert({
-            conversation_id: conversationId,
-            tenant_id: tenantId,
-            role: "assistant",
-            content: aiReply,
-            is_from_agent: true,
-            wa_message_id: aiWaMessageId,
-            status: "sent",
-        });
+        if (aiReply.length > 0 || shouldPause) {
+            await getSupabase().from("messages").insert({
+                conversation_id: conversationId,
+                tenantId: tenantId,
+                role: "assistant",
+                content: aiReply.length > 0 ? aiReply : "השיחה הועברה לנציג אנושי.",
+                is_from_agent: true,
+                wa_message_id: aiWaMessageId,
+                status: "sent",
+            });
+        }
 
         console.log(
             `[${tenantId}] ✅ AI reply sent: ${aiReply.substring(0, 80)}...`
