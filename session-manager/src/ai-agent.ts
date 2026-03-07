@@ -202,16 +202,21 @@ export async function generateReply(
         }))
     ];
 
-    const completion = await getOpenAI().chat.completions.create({
-        model: "deepseek-chat",
-        messages,
-        max_tokens: 500,
-        temperature: 0.3,
-    });
+    try {
+        const completion = await getOpenAI().chat.completions.create({
+            model: "deepseek-chat",
+            messages,
+            max_tokens: 500,
+            temperature: 0.3,
+        });
 
-    return (
-        completion.choices[0]?.message?.content ??
-        "Sorry, I couldn't generate a response right now."
-    );
+        return (
+            completion.choices[0]?.message?.content ??
+            "Sorry, I couldn't generate a response right now."
+        );
+    } catch (err: any) {
+        console.error(`[${tenantId}] ❌ DeepSeek API Error:`, err.message);
+        throw err; // Re-throw so handleActiveMode catches it
+    }
 }
 
