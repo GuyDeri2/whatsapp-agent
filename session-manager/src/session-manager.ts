@@ -21,7 +21,7 @@ import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
 import { useSupabaseAuthState, clearSessionData, flushCacheToDB, stopBackgroundSync } from "./session-store";
-import { handleIncomingMessage } from "./message-handler";
+import { handleIncomingMessage, clearPendingAiReply } from "./message-handler";
 import { transcribeAudioBuffer } from "./transcribe";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -312,6 +312,9 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
         .single();
 
     if (conversation && !convError) {
+        // Clear any pending AI reply since the owner just replied manually
+        clearPendingAiReply(tenantId, conversation.id);
+
         await supabase.from("messages").insert({
             conversation_id: conversation.id,
             tenant_id: tenantId,

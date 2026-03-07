@@ -30,6 +30,15 @@ const MAX_REPLIES_PER_MINUTE = 15;
 const debounceTimers: Record<string, NodeJS.Timeout> = {};
 const DEBOUNCE_DELAY_MS = 2000; // 2 seconds — responsive but still batches rapid messages
 
+export function clearPendingAiReply(tenantId: string, conversationId: string): void {
+    const key = `${tenantId}_${conversationId}`;
+    if (debounceTimers[key]) {
+        clearTimeout(debounceTimers[key]);
+        delete debounceTimers[key];
+        console.log(`[${tenantId}] 🛑 Owner replied — cancelled pending AI debounce reply (via sendMessage).`);
+    }
+}
+
 function isRateLimited(conversationId: string): boolean {
     const now = Date.now();
     const timestamps = replyTimestamps.get(conversationId) ?? [];
