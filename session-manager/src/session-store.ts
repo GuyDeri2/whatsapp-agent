@@ -172,21 +172,39 @@ export async function useSupabaseAuthState(
     if (error) {
         console.error(`[${tenantId}] Error loading existing session keys:`, error);
     } else if (allRows) {
+        let corruptedKeys: string[] = [];
         for (const row of allRows) {
-            let parsed: any;
-            if (isEncryptedPayload(row.session_data)) {
-                // Decrypt encrypted data
-                const decryptedJson = decryptData(row.session_data);
-                parsed = JSON.parse(decryptedJson, BufferJSON.reviver);
-            } else {
-                // Legacy unencrypted data — read as-is, will be encrypted on next flush
-                parsed = JSON.parse(JSON.stringify(row.session_data), BufferJSON.reviver);
-                // Mark as dirty so it gets encrypted on next sync cycle
-                markDirty(tenantId, row.session_key);
+            try {
+                let parsed: any;
+                if (isEncryptedPayload(row.session_data)) {
+                    // Decrypt encrypted data
+                    const decryptedJson = decryptData(row.session_data);
+                    parsed = JSON.parse(decryptedJson, BufferJSON.reviver);
+                } else {
+                    // Legacy unencrypted data — read as-is, will be encrypted on next flush
+                    parsed = JSON.parse(JSON.stringify(row.session_data), BufferJSON.reviver);
+                    // Mark as dirty so it gets encrypted on next sync cycle
+                    markDirty(tenantId, row.session_key);
+                }
+                cache.set(row.session_key, parsed);
+            } catch (decryptErr) {
+                // Key was encrypted with a different key or data is corrupted — skip it
+                console.warn(`[${tenantId}] ⚠️ Skipping corrupted session key: ${row.session_key}`);
+                corruptedKeys.push(row.session_key);
             }
-            cache.set(row.session_key, parsed);
         }
-        console.log(`[${tenantId}] ✅ Loaded ${allRows.length} keys into RAM cache.`);
+
+        // Clean up corrupted keys from DB so they don't cause issues on next restart
+        if (corruptedKeys.length > 0) {
+            console.log(`[${tenantId}] 🗑️ Deleting ${corruptedKeys.length} corrupted keys from DB...`);
+            await getSupabase()
+                .from("whatsapp_sessions")
+                .delete()
+                .eq("tenant_id", tenantId)
+                .in("session_key", corruptedKeys);
+        }
+
+        console.log(`[${tenantId}] ✅ Loaded ${allRows.length - corruptedKeys.length} keys into RAM cache (${corruptedKeys.length} corrupted keys removed).`);
     }
 
     // 2. Start Background Sync Worker (if not already running)
