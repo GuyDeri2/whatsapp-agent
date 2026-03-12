@@ -142,7 +142,7 @@ export function ChatTab({
                         placeholder="🔍 חפש שיחה..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all text-white placeholder-neutral-500"
+                        className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-white placeholder-neutral-500"
                     />
                 </div>
 
@@ -155,7 +155,7 @@ export function ChatTab({
                     {filteredConversations.map((conv) => (
                         <button
                             key={conv.id}
-                            className={`w-full flex items-center gap-3 p-3 transition-colors border-b border-white/5 hover:bg-white/5 active:bg-white/10 text-right ${selectedConvId === conv.id ? "bg-indigo-500/10 border-indigo-500/20" : ""
+                            className={`w-full flex items-center gap-3 p-3 transition-colors border-b border-white/5 hover:bg-white/5 active:bg-white/10 text-right ${selectedConvId === conv.id ? "bg-emerald-500/10 border-emerald-500/20" : ""
                                 }`}
                             onClick={() => selectConversation(conv)}
                         >
@@ -187,7 +187,7 @@ export function ChatTab({
                             </div>
                             <div className="flex-1 min-w-0 pr-1">
                                 <div className="flex justify-between items-baseline mb-0.5">
-                                    <span className={`font-semibold truncate text-[15px] ${selectedConvId === conv.id ? "text-indigo-400" : "text-neutral-200"}`}>
+                                    <span className={`font-semibold truncate text-[15px] ${selectedConvId === conv.id ? "text-emerald-400" : "text-neutral-200"}`}>
                                         {getDisplayName(conv)}
                                     </span>
                                     <span className="text-[11px] text-neutral-500 shrink-0 mr-2">
@@ -321,7 +321,7 @@ export function ChatTab({
 
                                 // Base bubble colors
                                 let bubbleClass = "bg-neutral-800 text-neutral-100 rounded-bl-sm";
-                                if (isBotMessage) bubbleClass = "bg-indigo-900/40 border border-indigo-500/20 text-neutral-100 rounded-br-sm";
+                                if (isBotMessage) bubbleClass = "bg-emerald-900/40 border border-emerald-500/20 text-neutral-100 rounded-br-sm";
                                 if (isOwnerMessage) bubbleClass = "bg-emerald-900/40 border border-emerald-500/20 text-neutral-100 rounded-br-sm";
 
                                 return (
@@ -338,7 +338,7 @@ export function ChatTab({
                                             {(msg.sender_name || msg.is_from_agent || isOwnerMessage) && !isPrevSameSender && (
                                                 <div className="flex items-center gap-2 mb-1">
                                                     {msg.is_from_agent && (
-                                                        <span className="text-[10px] font-bold text-indigo-400 tracking-wide uppercase px-1.5 py-0.5 bg-indigo-500/10 rounded">
+                                                        <span className="text-[10px] font-bold text-emerald-400 tracking-wide uppercase px-1.5 py-0.5 bg-emerald-500/10 rounded">
                                                             🤖 סוכן AI
                                                         </span>
                                                     )}
@@ -383,7 +383,7 @@ export function ChatTab({
                                                     <div className={`w-4 h-4 rotate-45 transform origin-top-left ${isUserMessage
                                                             ? "bg-neutral-800 translate-y-[-50%] translate-x-[-50%]"
                                                             : isBotMessage
-                                                                ? "bg-indigo-900/40 border-[0.5px] border-indigo-500/20 translate-y-[-50%] translate-x-[50%]"
+                                                                ? "bg-emerald-900/40 border-[0.5px] border-emerald-500/20 translate-y-[-50%] translate-x-[50%]"
                                                                 : "bg-emerald-900/40 border-[0.5px] border-emerald-500/20 translate-y-[-50%] translate-x-[50%]"
                                                         }`} />
                                                 </div>
@@ -406,7 +406,7 @@ export function ChatTab({
                                 </div>
                             )}
                             <form onSubmit={handleSendMessage} className="flex items-end gap-2 max-w-4xl mx-auto">
-                                <div className="flex-1 relative bg-black/40 border border-white/10 rounded-2xl focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/50 transition-all">
+                                <div className="flex-1 relative bg-black/40 border border-white/10 rounded-2xl focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/50 transition-all">
                                     <textarea
                                         value={newMessage}
                                         onChange={(e) => setNewMessage(e.target.value)}
@@ -423,7 +423,7 @@ export function ChatTab({
                                 <button
                                     type="submit"
                                     disabled={!newMessage.trim() || isSending || tenant.agent_mode === "active"}
-                                    className="w-12 h-12 shrink-0 bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white rounded-full flex items-center justify-center transition-all disabled:cursor-not-allowed transform active:scale-95 disabled:active:scale-100 shadow-md"
+                                    className="w-12 h-12 shrink-0 bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white rounded-full flex items-center justify-center transition-all disabled:cursor-not-allowed transform active:scale-95 disabled:active:scale-100 shadow-md"
                                 >
                                     {isSending ? (
                                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

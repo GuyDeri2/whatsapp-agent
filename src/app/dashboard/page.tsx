@@ -91,19 +91,19 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-neutral-200 font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-black text-neutral-200 font-sans selection:bg-emerald-500/30">
       {/* Background Gradients */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-indigo-600/10 blur-[100px]" />
-        <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-purple-600/10 blur-[120px]" />
+        <div className="absolute top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-emerald-600/10 blur-[100px]" />
+        <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-emerald-600/10 blur-[120px]" />
       </div>
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-10 pb-6 border-b border-white/10">
           <div>
-            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 flex items-center gap-2">
-              <Bot className="w-8 h-8 text-indigo-500" />
+            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-400 flex items-center gap-2">
+              <Bot className="w-8 h-8 text-emerald-500" />
               דשבורד סוכנים
             </h1>
             <p className="text-neutral-500 text-sm mt-1">נהל את סוכני ה-AI והעסקים שלך במקום אחד</p>
@@ -111,7 +111,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             {profile && (
               <span className={`px-3 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${profile.subscription_status === "active" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" :
-                  profile.subscription_status === "trial" ? "bg-indigo-500/10 text-indigo-400 ring-indigo-500/20" :
+                  profile.subscription_status === "trial" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" :
                     "bg-red-500/10 text-red-400 ring-red-500/20"
                 }`}>
                 {profile.subscription_status === "trial" && "תקופת ניסיון"}
@@ -143,7 +143,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
           <StatCard title="סה״כ עסקים" value={tenants.length} />
           <StatCard title="מחוברים לוואטסאפ" value={tenants.filter((t) => t.whatsapp_connected).length} highlight="text-emerald-400" />
-          <StatCard title="סוכנים פעילים" value={tenants.filter((t) => t.agent_mode === "active").length} highlight="text-indigo-400" />
+          <StatCard title="סוכנים פעילים" value={tenants.filter((t) => t.agent_mode === "active").length} highlight="text-emerald-400" />
         </div>
 
         {/* Main Content */}
@@ -155,7 +155,7 @@ export default function Dashboard() {
             </h2>
             <button
               onClick={() => setShowForm(!showForm)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-500/20"
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-emerald-500/20"
             >
               {showForm ? "ביטול" : <><Plus className="w-4 h-4" /> הוסף עסק</>}
             </button>
@@ -182,7 +182,7 @@ export default function Dashboard() {
                           required
                           value={formData.business_name}
                           onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                          className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all text-sm"
+                          className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm"
                           placeholder="לדוגמה: חנות אלקטרוניקה"
                         />
                       </div>
@@ -192,7 +192,7 @@ export default function Dashboard() {
                           type="text"
                           value={formData.target_customers}
                           onChange={(e) => setFormData({ ...formData, target_customers: e.target.value })}
-                          className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all text-sm"
+                          className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm"
                           placeholder="למשל: חובבי טכנולוגיה, עסקים קטנים..."
                         />
                       </div>
@@ -204,7 +204,7 @@ export default function Dashboard() {
                         value={formData.products}
                         onChange={(e) => setFormData({ ...formData, products: e.target.value })}
                         rows={2}
-                        className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all text-sm resize-none"
+                        className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm resize-none"
                         placeholder="מה אתם מוכרים? למשל: סמארטפונים, מחשבים ניידים..."
                       />
                     </div>
@@ -215,7 +215,7 @@ export default function Dashboard() {
                         value={formData.description}
                         onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                         rows={3}
-                        className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all text-sm resize-none"
+                        className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm resize-none"
                         placeholder="מה העסק שלך עושה באופן כללי?"
                       />
                     </div>
@@ -231,7 +231,7 @@ export default function Dashboard() {
                       <button
                         type="submit"
                         disabled={creating}
-                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+                        className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
                       >
                         {creating ? (
                           <><div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> יוצר...</>
@@ -248,7 +248,7 @@ export default function Dashboard() {
 
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
-              <div className="w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-4" />
+              <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-indigo-500 rounded-full animate-spin mb-4" />
               <p>טוען נתונים...</p>
             </div>
           ) : tenants.length === 0 && !showForm ? (
@@ -259,7 +259,7 @@ export default function Dashboard() {
               <Building2 className="w-16 h-16 text-neutral-600 mx-auto mb-4" />
               <h3 className="text-xl font-medium text-white mb-2">אין עסקים עדיין</h3>
               <p className="text-neutral-400 mb-6">הוסף את העסק הראשון שלך כדי להתחיל לאמן את סוכן ה-AI בווטסאפ.</p>
-              <button onClick={() => setShowForm(true)} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-colors">
+              <button onClick={() => setShowForm(true)} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-colors">
                 + הוסף עסק ראשון
               </button>
             </motion.div>
@@ -274,10 +274,10 @@ export default function Dashboard() {
                     transition={{ delay: idx * 0.1 }}
                     key={tenant.id}
                     onClick={() => router.push(`/tenant/${tenant.id}`)}
-                    className="group relative bg-white/[0.02] hover:bg-white/[0.04] border border-white/10 hover:border-indigo-500/50 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/10 flex flex-col"
+                    className="group relative bg-white/[0.02] hover:bg-white/[0.04] border border-white/10 hover:border-emerald-500/50 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/10 flex flex-col"
                   >
                     <div className="flex justify-between items-start mb-4">
-                      <h3 className="text-lg font-semibold text-white truncate pr-2 group-hover:text-indigo-300 transition-colors">
+                      <h3 className="text-lg font-semibold text-white truncate pr-2 group-hover:text-emerald-300 transition-colors">
                         {tenant.business_name}
                       </h3>
                       <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${mode.color} shrink-0`}>
@@ -300,7 +300,7 @@ export default function Dashboard() {
                           {tenant.whatsapp_connected ? `מחובר (${tenant.whatsapp_phone || "..."})` : "לא מחובר"}
                         </span>
                       </div>
-                      <ArrowLeft className="w-4 h-4 text-neutral-600 group-hover:text-indigo-400 group-hover:-translate-x-1 transition-all" />
+                      <ArrowLeft className="w-4 h-4 text-neutral-600 group-hover:text-emerald-400 group-hover:-translate-x-1 transition-all" />
                     </div>
                   </motion.div>
                 );

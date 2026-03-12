@@ -3,18 +3,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import { PhoneMockup } from "@/components/PhoneMockup";
 import { BrainCircuit, Zap, ShieldCheck, ChevronRight, Bot, ArrowRight } from "lucide-react";
 
 export default function LandingPage() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const supabase = createClient();
-    const { scrollYProgress } = useScroll();
-
-    // Parallax values
-    const yHero = useTransform(scrollYProgress, [0, 1], ["0%", "50%"]);
-    const opacityHero = useTransform(scrollYProgress, [0, 0.2], [1, 0]);
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -27,7 +22,7 @@ export default function LandingPage() {
             {/* Background Gradients */}
             <div className="fixed inset-0 z-0 pointer-events-none">
                 <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-600/20 blur-[120px]" />
-                <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-emerald-600/10 blur-[150px]" />
+                <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-purple-600/10 blur-[150px]" />
             </div>
 
             {/* Navigation */}
@@ -70,7 +65,6 @@ export default function LandingPage() {
 
                     {/* Left Copy */}
                     <motion.div
-                        style={{ y: yHero, opacity: opacityHero }}
                         className="flex flex-col gap-8 text-center lg:text-right"
                     >
                         <motion.div
@@ -87,7 +81,7 @@ export default function LandingPage() {
                             </div>
                             <h1 className="text-5xl lg:text-7xl font-extrabold tracking-tight leading-[1.1]">
                                 שירות הלקוחות שלך,<br />
-                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-emerald-400">
+                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-purple-200 to-indigo-400 drop-shadow-[0_0_15px_rgba(99,102,241,0.3)]">
                                     על טייס אוטומטי.
                                 </span>
                             </h1>
@@ -131,7 +125,7 @@ export default function LandingPage() {
                             className="relative z-10"
                         >
                             {/* Decorative glow behind phone */}
-                            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500 to-emerald-500 blur-3xl opacity-20 transform scale-110 -z-10 rounded-full animate-pulse" />
+                            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500 to-purple-500 blur-3xl opacity-20 transform scale-110 -z-10 rounded-full animate-pulse" />
                             <PhoneMockup />
                         </motion.div>
                     </div>
@@ -159,13 +153,13 @@ export default function LandingPage() {
                             delay={0.1}
                         />
                         <FeatureCard
-                            icon={<Zap className="w-8 h-8 text-emerald-400" />}
+                            icon={<Zap className="w-8 h-8 text-indigo-400" />}
                             title="100% אוטומציה מגנטית"
                             description="הלקוח הקליד הודעה? תוך 3 שניות הוא מקבל תשובה שמניעה לפעולה. בלי לחכות, בלי לאבד לידים."
                             delay={0.3}
                         />
                         <FeatureCard
-                            icon={<ShieldCheck className="w-8 h-8 text-purple-400" />}
+                            icon={<ShieldCheck className="w-8 h-8 text-indigo-400" />}
                             title="שליטה היברידית"
                             description="הבוט יודע מתי לעצור ולהעביר אליך שיחות מורכבות. אתה תמיד שולט, מתערב ועוצר כשצריך."
                             delay={0.5}

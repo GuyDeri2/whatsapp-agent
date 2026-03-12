@@ -104,11 +104,11 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
 
             {/* Header Section */}
             <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 md:p-8 backdrop-blur-xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] -z-10 pointer-events-none"></div>
+                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-[80px] -z-10 pointer-events-none"></div>
 
                 <div className="flex items-center gap-4 mb-3">
-                    <div className="w-12 h-12 rounded-xl bg-indigo-500/20 flex items-center justify-center shrink-0 ring-1 ring-indigo-500/30">
-                        <Brain className="w-6 h-6 text-indigo-400" />
+                    <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0 ring-1 ring-emerald-500/30">
+                        <Brain className="w-6 h-6 text-emerald-400" />
                     </div>
                     <h2 className="text-2xl font-bold text-white tracking-tight">"המוח" של הסוכן</h2>
                 </div>
@@ -201,7 +201,7 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                     </div>
 
                     <button
-                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.4)]"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.4)]"
                         onClick={() => { setIsAdding(true); setEditingId(null); setEditForm({ question: "", answer: "", category: "general" }); }}
                     >
                         <Plus className="w-4 h-4" />
@@ -211,7 +211,7 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
 
                 {loading ? (
                     <div className="flex-1 flex flex-col items-center justify-center text-neutral-500 py-12">
-                        <div className="w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+                        <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
                         <p>טוען נתונים...</p>
                     </div>
                 ) : (
@@ -219,8 +219,8 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
 
                         {/* Add/Edit Form */}
                         {isAdding && (
-                            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-2xl p-6 animate-in slide-in-from-top-4 duration-300">
-                                <h4 className="text-lg font-bold text-indigo-300 mb-4 flex items-center gap-2">
+                            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-6 animate-in slide-in-from-top-4 duration-300">
+                                <h4 className="text-lg font-bold text-emerald-300 mb-4 flex items-center gap-2">
                                     <Edit2 className="w-4 h-4" />
                                     {editingId ? "ערוך כלל" : "כלל חדש"}
                                 </h4>
@@ -234,7 +234,7 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                                                 placeholder="למשל: מדיניות החזרות, כללי..."
                                                 value={editForm.category}
                                                 onChange={e => setEditForm({ ...editForm, category: e.target.value })}
-                                                className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-white transition-all text-sm"
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 text-white transition-all text-sm"
                                             />
                                         </div>
                                         <div>
@@ -244,7 +244,7 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                                                 placeholder="למשל: כמה ימים להחזרה?"
                                                 value={editForm.question}
                                                 onChange={e => setEditForm({ ...editForm, question: e.target.value })}
-                                                className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-white transition-all text-sm"
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 text-white transition-all text-sm"
                                             />
                                         </div>
                                     </div>
@@ -255,13 +255,13 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                                             placeholder="מה הסוכן צריך לדעת ולענות?"
                                             value={editForm.answer}
                                             onChange={e => setEditForm({ ...editForm, answer: e.target.value })}
-                                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-white transition-all text-sm min-h-[100px] resize-y custom-scrollbar"
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 text-white transition-all text-sm min-h-[100px] resize-y custom-scrollbar"
                                         />
                                     </div>
 
                                     <div className="flex items-center gap-3 pt-2">
                                         <button
-                                            className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all text-sm"
+                                            className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-all text-sm"
                                             onClick={handleAdd}
                                         >
                                             <Save className="w-4 h-4" />
@@ -304,7 +304,7 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                             ).sort(([catA], [catB]) => (catA === "general" || catA === "כללי" ? 1 : catB === "general" || catB === "כללי" ? -1 : catA.localeCompare(catB)))
                                 .map(([category, catLearnings]) => (
                                     <div key={category} className="space-y-4">
-                                        <h4 className="flex items-center gap-2 text-[15px] font-semibold text-indigo-300 mb-3 ml-2 border-b border-white/5 pb-2">
+                                        <h4 className="flex items-center gap-2 text-[15px] font-semibold text-emerald-300 mb-3 ml-2 border-b border-white/5 pb-2">
                                             <Folder className="w-4 h-4" />
                                             {category === "general" ? "כללי" : category}
                                             <span className="text-xs px-2 py-0.5 bg-white/5 rounded-full text-neutral-400 font-normal mr-auto relative top-0.5">
@@ -317,15 +317,15 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                                                 <div key={learning.id} className="relative group bg-black/40 border border-white/5 hover:border-white/10 rounded-2xl p-5 transition-all duration-300 overflow-hidden">
 
                                                     {/* Accent border left */}
-                                                    <div className={`absolute right-0 top-0 bottom-0 w-1 ${learning.source === "manual" ? "bg-emerald-500/50" : "bg-indigo-500/50"}`}></div>
+                                                    <div className={`absolute right-0 top-0 bottom-0 w-1 ${learning.source === "manual" ? "bg-emerald-500/50" : "bg-emerald-500/50"}`}></div>
 
                                                     {editingId === learning.id ? (
                                                         <div className="space-y-3 animate-in fade-in pr-3 flex flex-col items-stretch">
-                                                            <input type="text" placeholder="קטגוריה" value={editForm.category} onChange={e => setEditForm({ ...editForm, category: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm focus:outline-none focus:border-indigo-500" />
-                                                            <input type="text" placeholder="שאלה/נושא" value={editForm.question} onChange={e => setEditForm({ ...editForm, question: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm focus:outline-none focus:border-indigo-500 font-medium" />
-                                                            <textarea placeholder="תשובה" value={editForm.answer} onChange={e => setEditForm({ ...editForm, answer: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm min-h-[80px] focus:outline-none focus:border-indigo-500 custom-scrollbar resize-none" />
+                                                            <input type="text" placeholder="קטגוריה" value={editForm.category} onChange={e => setEditForm({ ...editForm, category: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm focus:outline-none focus:border-emerald-500" />
+                                                            <input type="text" placeholder="שאלה/נושא" value={editForm.question} onChange={e => setEditForm({ ...editForm, question: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm focus:outline-none focus:border-emerald-500 font-medium" />
+                                                            <textarea placeholder="תשובה" value={editForm.answer} onChange={e => setEditForm({ ...editForm, answer: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm min-h-[80px] focus:outline-none focus:border-emerald-500 custom-scrollbar resize-none" />
                                                             <div className="flex gap-2 pt-1">
-                                                                <button className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-colors" onClick={() => handleSaveEdit(learning.id)}>עדכן</button>
+                                                                <button className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-colors" onClick={() => handleSaveEdit(learning.id)}>עדכן</button>
                                                                 <button className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-medium transition-colors border border-white/5" onClick={() => setEditingId(null)}>ביטול</button>
                                                             </div>
                                                         </div>
@@ -339,7 +339,7 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 bg-black/60 backdrop-blur-sm rounded-lg border border-white/5 p-1">
                                                                     <button
                                                                         onClick={() => { setEditingId(learning.id); setEditForm({ question: learning.question, answer: learning.answer, category: learning.category || "כללי" }); setIsAdding(false); }}
-                                                                        className="w-7 h-7 flex items-center justify-center rounded text-neutral-400 hover:text-indigo-400 hover:bg-white/5 transition-colors"
+                                                                        className="w-7 h-7 flex items-center justify-center rounded text-neutral-400 hover:text-emerald-400 hover:bg-white/5 transition-colors"
                                                                         title="ערוך"
                                                                     >
                                                                         <Edit2 className="w-3.5 h-3.5" />
@@ -363,7 +363,7 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                                                                     <Calendar className="w-3 h-3 opacity-70" />
                                                                     {new Date(learning.created_at).toLocaleDateString("he-IL")}
                                                                 </div>
-                                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/5 ${learning.source === "manual" ? "text-emerald-400" : "text-indigo-400"}`}>
+                                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/5 ${learning.source === "manual" ? "text-emerald-400" : "text-emerald-400"}`}>
                                                                     {learning.source === "manual" ? (
                                                                         <><UserCheck className="w-3 h-3" /> נוסף ידנית</>
                                                                     ) : (

@@ -59,17 +59,17 @@ export function ContactsTab({
         <div className="space-y-8 animate-in fade-in duration-500">
             {/* Header Section */}
             <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-6 md:p-8 backdrop-blur-xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 opacity-50"></div>
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 via-purple-500 to-emerald-500 opacity-50"></div>
 
                 <div className="flex items-start gap-4 mb-6">
-                    <div className="w-12 h-12 rounded-xl bg-indigo-500/20 flex items-center justify-center shrink-0 ring-1 ring-indigo-500/30">
-                        <Users className="w-6 h-6 text-indigo-400" />
+                    <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0 ring-1 ring-emerald-500/30">
+                        <Users className="w-6 h-6 text-emerald-400" />
                     </div>
                     <div>
                         <h2 className="text-2xl font-bold text-white mb-2">סינון אנשי קשר</h2>
                         <p className="text-neutral-400 text-sm leading-relaxed max-w-2xl">
                             כאן אתה קובע <strong className="text-white font-semibold">למי הבוט יענה אוטומטית</strong> כשהוא במצב "פעיל".<br />
-                            <span className="inline-flex items-center gap-1.5 mt-2 text-indigo-300 bg-indigo-500/10 px-3 py-1.5 rounded-lg text-xs font-medium">
+                            <span className="inline-flex items-center gap-1.5 mt-2 text-emerald-300 bg-emerald-500/10 px-3 py-1.5 rounded-lg text-xs font-medium">
                                 <Search className="w-3.5 h-3.5" />
                                 כל ההודעות תמיד נשמרות ומוצגות לך — הסינון משפיע רק על מענה אוטומטי.
                             </span>
@@ -98,18 +98,18 @@ export function ContactsTab({
                                     key={mode}
                                     onClick={() => setFilterMode(mode)}
                                     className={`relative flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 border ${isActive
-                                            ? "bg-indigo-600/20 border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.15)] transform scale-[1.02]"
+                                            ? "bg-emerald-600/20 border-emerald-500/50 shadow-[0_0_20px_rgba(99,102,241,0.15)] transform scale-[1.02]"
                                             : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 text-neutral-400"
                                         }`}
                                 >
                                     {isActive && (
                                         <div className="absolute top-2 right-2 flex h-2 w-2">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                                         </div>
                                     )}
                                     {icons[mode]}
-                                    <span className={`text-sm font-medium mt-1 ${isActive ? "text-indigo-300" : ""}`}>
+                                    <span className={`text-sm font-medium mt-1 ${isActive ? "text-emerald-300" : ""}`}>
                                         {filterLabels[mode]}
                                     </span>
                                 </button>
@@ -124,7 +124,7 @@ export function ContactsTab({
                 <div className="lg:col-span-1">
                     <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-6 backdrop-blur-xl sticky top-6">
                         <h3 className="text-lg font-semibold text-white mb-5 flex items-center gap-2">
-                            <Plus className="w-5 h-5 text-indigo-400" />
+                            <Plus className="w-5 h-5 text-emerald-400" />
                             הוסף כלל חדש
                         </h3>
 
@@ -137,7 +137,7 @@ export function ContactsTab({
                                     value={newRulePhone}
                                     onChange={(e) => setNewRulePhone(e.target.value)}
                                     required
-                                    className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 text-white transition-all text-left placeholder-neutral-600"
+                                    className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 text-white transition-all text-left placeholder-neutral-600"
                                     dir="ltr"
                                 />
                             </div>
@@ -149,7 +149,7 @@ export function ContactsTab({
                                     placeholder="שם איש הקשר"
                                     value={newRuleName}
                                     onChange={(e) => setNewRuleName(e.target.value)}
-                                    className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 text-white transition-all placeholder-neutral-600"
+                                    className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 text-white transition-all placeholder-neutral-600"
                                 />
                             </div>
 
@@ -159,7 +159,7 @@ export function ContactsTab({
                                     <select
                                         value={newRuleType}
                                         onChange={(e) => setNewRuleType(e.target.value as "allow" | "block")}
-                                        className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 text-white transition-all appearance-none pr-10"
+                                        className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 text-white transition-all appearance-none pr-10"
                                     >
                                         <option value="allow">✅ אפשר (רשימה לבנה)</option>
                                         <option value="block">🚫 חסום (רשימה שחורה)</option>
@@ -174,7 +174,7 @@ export function ContactsTab({
 
                             <button
                                 type="submit"
-                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-4 rounded-xl transition-all hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] transform active:scale-[0.98] mt-2 flex justify-center items-center gap-2"
+                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-xl transition-all hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] transform active:scale-[0.98] mt-2 flex justify-center items-center gap-2"
                                 disabled={!newRulePhone.trim()}
                             >
                                 הוסף כלל
@@ -188,7 +188,7 @@ export function ContactsTab({
                     <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-6 backdrop-blur-xl h-full flex flex-col">
                         <h3 className="text-lg font-semibold text-white mb-5 flex items-center justify-between">
                             <span className="flex items-center gap-2">
-                                <Users className="w-5 h-5 text-indigo-400" />
+                                <Users className="w-5 h-5 text-emerald-400" />
                                 הכללים שלך
                             </span>
                             <span className="text-xs py-1 px-2.5 bg-white/5 rounded-full border border-white/10 text-neutral-400">

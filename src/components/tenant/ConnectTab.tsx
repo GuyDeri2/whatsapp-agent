@@ -84,12 +84,12 @@ export function ConnectTab({
                         <div className="pt-6 mt-6 border-t border-white/10">
 
                             {connectionStatus === "connecting" && (
-                                <div className="flex flex-col items-center md:items-start p-6 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
-                                    <div className="flex items-center gap-4 text-indigo-400 mb-2">
-                                        <div className="w-6 h-6 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin"></div>
+                                <div className="flex flex-col items-center md:items-start p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+                                    <div className="flex items-center gap-4 text-emerald-400 mb-2">
+                                        <div className="w-6 h-6 border-2 border-emerald-400/30 border-t-indigo-400 rounded-full animate-spin"></div>
                                         <h3 className="font-semibold text-lg">מכין חיבור...</h3>
                                     </div>
-                                    <p className="text-indigo-300 text-sm">אנא המתן בזמן שאנו מכינים את הקוד לסריקה.</p>
+                                    <p className="text-emerald-300 text-sm">אנא המתן בזמן שאנו מכינים את הקוד לסריקה.</p>
                                 </div>
                             )}
 
@@ -158,7 +158,7 @@ export function ConnectTab({
                                 connectionStatus !== "waiting_scan" && (
                                     <button
                                         onClick={handleConnect}
-                                        className="w-full md:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-semibold text-lg transition-all shadow-lg hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] transform hover:-translate-y-0.5"
+                                        className="w-full md:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-semibold text-lg transition-all shadow-lg hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] transform hover:-translate-y-0.5"
                                     >
                                         <LinkIcon className="w-6 h-6" />
                                         התחל תהליך חיבור

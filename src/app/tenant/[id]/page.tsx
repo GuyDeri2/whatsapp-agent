@@ -774,12 +774,12 @@ export default function TenantPage() {
     };
 
     return (
-        <div className="min-h-screen bg-black text-neutral-200 font-sans selection:bg-indigo-500/30 flex flex-col">
+        <div className="min-h-screen bg-black text-neutral-200 font-sans selection:bg-emerald-500/30 flex flex-col">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
             {/* Background Gradients */}
             <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-indigo-600/10 blur-[100px]" />
+                <div className="absolute top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-emerald-600/10 blur-[100px]" />
                 <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-emerald-600/10 blur-[120px]" />
             </div>
 
@@ -827,7 +827,7 @@ export default function TenantPage() {
                                 key={mode}
                                 onClick={() => setAgentMode(mode)}
                                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${tenant.agent_mode === mode
-                                        ? 'bg-indigo-600 text-white shadow-md'
+                                        ? 'bg-emerald-600 text-white shadow-md'
                                         : 'text-neutral-400 hover:text-white hover:bg-white/5'
                                     }`}
                             >
@@ -855,14 +855,14 @@ export default function TenantPage() {
                             if (tab.action) tab.action();
                         }}
                         className={`flex items-center gap-2 px-4 py-2.5 whitespace-nowrap text-sm font-medium transition-colors rounded-t-lg relative ${activeTab === tab.id
-                                ? "text-indigo-400"
+                                ? "text-emerald-400"
                                 : "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
                             }`}
                     >
                         <span>{tab.icon}</span>
                         {tab.label}
                         {activeTab === tab.id && (
-                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 shadow-[0_-2px_8px_rgba(99,102,241,0.5)]" />
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 shadow-[0_-2px_8px_rgba(99,102,241,0.5)]" />
                         )}
                     </button>
                 ))}
