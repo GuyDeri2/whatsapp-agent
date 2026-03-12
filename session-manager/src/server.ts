@@ -42,7 +42,8 @@ function authMiddleware(
 ): void {
     const secret = process.env.SESSION_MANAGER_SECRET;
     if (!secret) {
-        next();
+        console.error("❌ SESSION_MANAGER_SECRET is not configured. Blocking /sessions access.");
+        res.status(500).json({ error: "SESSION_MANAGER_SECRET is not configured on the server" });
         return;
     }
     const authHeader = req.headers.authorization;

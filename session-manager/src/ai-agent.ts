@@ -13,9 +13,11 @@ let _supabase: SupabaseClient | null = null;
 
 function getOpenAI(): OpenAI {
     if (!_openai) {
-        const apiKey = process.env.DEEPSEEK_API_KEY || "sk-ec42954bd1b34950a9acc8081bfc7f35";
+        if (!process.env.DEEPSEEK_API_KEY) {
+            throw new Error("DEEPSEEK_API_KEY is not set");
+        }
         _openai = new OpenAI({
-            apiKey: apiKey,
+            apiKey: process.env.DEEPSEEK_API_KEY,
             baseURL: "https://api.deepseek.com",
         });
     }
