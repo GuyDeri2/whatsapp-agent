@@ -23,6 +23,7 @@ import { runBatchLearning } from "./learning-engine";
 const app = express();
 // Default port for the session manager (dashboard runs on 3000)
 const PORT = parseInt(process.env.PORT || "3001", 10);
+const PUBLIC_URL = process.env.PUBLIC_URL; // e.g. https://whatsapp-agent-sm.onrender.com
 
 // ─── Middleware ────────────────────────────────────────────────────────
 app.use(
@@ -239,6 +240,46 @@ app.listen(PORT, HOST, async () => {
 
     // Restore any previously connected sessions
     await restoreAllSessions();
+
+    // ─── Self-Pinger (Keep-Alive) ─────────────────────────────────────────
+    if (PUBLIC_URL) {
+        console.log(`📡 Self-pinger active: pinging ${PUBLIC_URL}/health every 10 minutes`);
+
+        const userAgents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0"
+        ];
+
+        // Ping every 10 minutes
+        cron.schedule("*/10 * * * *", async () => {
+            try {
+                const randomId = Math.random().toString(36).substring(7);
+                const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
+
+                const response = await fetch(`${PUBLIC_URL}/health?t=${Date.now()}&ref=${randomId}`, {
+                    headers: {
+                        "User-Agent": randomUA,
+                        "Accept": "application/json",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Cache-Control": "no-cache"
+                    }
+                });
+
+                if (response.ok) {
+                    console.log(`💓 Self-ping successful (id: ${randomId})`);
+                } else {
+                    console.warn(`💓 Self-ping failed (id: ${randomId}) with status: ${response.status}`);
+                }
+            } catch (err: any) {
+                console.error("💓 Self-ping failed:", err.message);
+            }
+        });
+    } else {
+        console.log("⚠️ PUBLIC_URL not set – self-pinger disabled. Server may sleep on free-tier hosting.");
+    }
 });
 
 import cron from "node-cron";

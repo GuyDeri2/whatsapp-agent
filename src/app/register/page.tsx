@@ -30,10 +30,7 @@ export default function RegisterPage() {
             setError(error.message);
             setLoading(false);
         } else {
-            // Usually requires email confirmation, but we redirect them anyway
-            // Middleware will catch them and send to /pending-approval
-            router.push("/dashboard");
-            router.refresh();
+            window.location.href = "/dashboard";
         }
     };
 

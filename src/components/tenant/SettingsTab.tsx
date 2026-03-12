@@ -1,4 +1,5 @@
 import React from "react";
+import { Settings, Info, Briefcase, BookOpen, Target, Package, Save, Loader2, Users } from "lucide-react";
 
 interface Tenant {
     id: string;
@@ -31,101 +32,169 @@ export function SettingsTab({
     saving,
 }: SettingsTabProps) {
     return (
-        <div className="settings-section">
-            <div className="settings-form">
-                <h2>הגדרות עסק וסוכן</h2>
-                <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>
-                    המידע כאן משמש את ה-AI בתור "בסיס הידע" שלו כשהוא עונה ללקוחות.
-                </p>
+        <div className="flex flex-col lg:flex-row gap-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
 
-                <form onSubmit={handleSaveSettings}>
-                    <div className="form-group">
-                        <label>שם העסק / מותג *</label>
-                        <input
-                            type="text"
-                            value={editForm.business_name}
-                            onChange={(e) =>
-                                setEditForm({ ...editForm, business_name: e.target.value })
-                            }
-                            required
-                        />
+            {/* Main Form Section */}
+            <div className="flex-1 order-2 lg:order-1">
+                <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 md:p-8 backdrop-blur-xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] -z-10 pointer-events-none"></div>
+
+                    <div className="flex items-center gap-4 mb-2">
+                        <div className="w-12 h-12 rounded-xl bg-indigo-500/20 flex items-center justify-center shrink-0 ring-1 ring-indigo-500/30">
+                            <Settings className="w-6 h-6 text-indigo-400" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white">הגדרות עסק וסוכן</h2>
                     </div>
 
-                    <div className="form-group">
-                        <label>על העסק (תיאור כללי)</label>
-                        <textarea
-                            value={editForm.description}
-                            onChange={(e) =>
-                                setEditForm({ ...editForm, description: e.target.value })
-                            }
-                            rows={4}
-                            placeholder="מי אנחנו, מה המומחיות שלנו, שעות פעילות, וכו'..."
-                        />
-                    </div>
+                    <p className="text-neutral-400 text-sm mb-8 pr-16 leading-relaxed">
+                        המידע כאן משמש את ה-AI בתור <span className="text-indigo-300 font-medium">"בסיס הידע"</span> שלו כשהוא עונה ללקוחות.
+                        ככל שתפרט יותר, כך הסוכן יספק תשובות מדויקות ואמינות יותר.
+                    </p>
 
-                    <div className="form-group">
-                        <label>מוצרים / שירותים שאנחנו נותנים</label>
-                        <textarea
-                            value={editForm.products}
-                            onChange={(e) =>
-                                setEditForm({ ...editForm, products: e.target.value })
-                            }
-                            rows={4}
-                            placeholder="למשל: ייעוץ משכנתאות, ליווי פיננסי לעסקים..."
-                        />
-                    </div>
+                    <form onSubmit={handleSaveSettings} className="space-y-6">
 
-                    <div className="form-group">
-                        <label>מי קהל היעד שלנו?</label>
-                        <textarea
-                            value={editForm.target_customers}
-                            onChange={(e) =>
-                                setEditForm({ ...editForm, target_customers: e.target.value })
-                            }
-                            rows={3}
-                            placeholder="למשל: זוגות צעירים לפני קניית דירה..."
-                        />
-                    </div>
+                        {/* Business Name */}
+                        <div className="group">
+                            <label className="flex items-center gap-2 text-sm font-medium text-neutral-300 mb-2 ml-1">
+                                <Briefcase className="w-4 h-4 text-indigo-400" />
+                                שם העסק / מותג <span className="text-red-400">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={editForm.business_name}
+                                onChange={(e) => setEditForm({ ...editForm, business_name: e.target.value })}
+                                required
+                                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all placeholder-neutral-600 group-hover:border-white/20"
+                                placeholder="הזן את שם העסק המלא"
+                            />
+                        </div>
 
-                    <div className="form-group" style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "16px", marginBottom: "24px" }}>
-                        <input
-                            type="checkbox"
-                            id="respond_to_saved"
-                            checked={editForm.agent_respond_to_saved_contacts}
-                            onChange={(e) =>
-                                setEditForm({ ...editForm, agent_respond_to_saved_contacts: e.target.checked })
-                            }
-                            style={{ width: "20px", height: "20px", cursor: "pointer" }}
-                        />
-                        <label htmlFor="respond_to_saved" style={{ margin: 0, cursor: "pointer" }}>
-                            <strong>הגב גם לאנשי קשר שמורים</strong>
-                            <br />
-                            <span style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: "normal" }}>
-                                אם כבוי, הסוכן יתעלם מלקוחות שמורים בטלפון שלך ויגיב רק ללידים חדשים שאנחנו לא מכירים.
-                            </span>
-                        </label>
-                    </div>
+                        {/* Description */}
+                        <div className="group">
+                            <label className="flex items-center gap-2 text-sm font-medium text-neutral-300 mb-2 ml-1">
+                                <BookOpen className="w-4 h-4 text-indigo-400" />
+                                על העסק (תיאור כללי)
+                            </label>
+                            <textarea
+                                value={editForm.description}
+                                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                                rows={4}
+                                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all placeholder-neutral-600 resize-none group-hover:border-white/20 custom-scrollbar"
+                                placeholder="מי אנחנו, מה המומחיות שלנו, שעות פעילות, וכו'..."
+                            />
+                        </div>
 
-                    <button type="submit" className="btn btn-primary" disabled={saving}>
-                        {saving ? "שומר..." : "💾 שמור שינויים"}
-                    </button>
-                </form>
+                        {/* Products */}
+                        <div className="group">
+                            <label className="flex items-center gap-2 text-sm font-medium text-neutral-300 mb-2 ml-1">
+                                <Package className="w-4 h-4 text-indigo-400" />
+                                מוצרים / שירותים שאנחנו נותנים
+                            </label>
+                            <textarea
+                                value={editForm.products}
+                                onChange={(e) => setEditForm({ ...editForm, products: e.target.value })}
+                                rows={4}
+                                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all placeholder-neutral-600 resize-none group-hover:border-white/20 custom-scrollbar"
+                                placeholder="למשל: ייעוץ משכנתאות, ליווי פיננסי לעסקים..."
+                            />
+                        </div>
+
+                        {/* Target Customers */}
+                        <div className="group">
+                            <label className="flex items-center gap-2 text-sm font-medium text-neutral-300 mb-2 ml-1">
+                                <Target className="w-4 h-4 text-indigo-400" />
+                                מי קהל היעד שלנו?
+                            </label>
+                            <textarea
+                                value={editForm.target_customers}
+                                onChange={(e) => setEditForm({ ...editForm, target_customers: e.target.value })}
+                                rows={3}
+                                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all placeholder-neutral-600 resize-none group-hover:border-white/20 custom-scrollbar"
+                                placeholder="למשל: זוגות צעירים לפני קניית דירה..."
+                            />
+                        </div>
+
+                        {/* Save Contacts Toggle */}
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 mt-6 hover:bg-white/[0.07] transition-colors cursor-pointer" onClick={() => setEditForm({ ...editForm, agent_respond_to_saved_contacts: !editForm.agent_respond_to_saved_contacts })}>
+                            <div className="flex items-start gap-4">
+                                <div className="mt-1">
+                                    <div className={`w-6 h-6 rounded flex items-center justify-center border transition-all ${editForm.agent_respond_to_saved_contacts
+                                            ? "bg-indigo-600 border-indigo-500 text-white"
+                                            : "bg-black/50 border-white/20 text-transparent"
+                                        }`}>
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        className="hidden"
+                                        checked={editForm.agent_respond_to_saved_contacts}
+                                        onChange={(e) => setEditForm({ ...editForm, agent_respond_to_saved_contacts: e.target.checked })}
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1 flex items-center gap-2">
+                                        <Users className="w-4 h-4 text-indigo-400" />
+                                        הגב גם לאנשי קשר שמורים
+                                    </h4>
+                                    <p className="text-sm text-neutral-400 leading-relaxed">
+                                        אם כבוי, הסוכן יתעלם מלקוחות שמורים בטלפון שלך ויגיב <span className="text-neutral-300 font-medium">רק</span> ללידים חדשים שאנחנו לא מכירים.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="pt-4 flex justify-end">
+                            <button
+                                type="submit"
+                                disabled={saving}
+                                className="relative overflow-hidden inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] disabled:opacity-70 disabled:cursor-not-allowed group w-full sm:w-auto transform active:scale-[0.98]"
+                            >
+                                {saving ? (
+                                    <>
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                        שומר שינויים...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                                        שמור שינויים
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
 
-            <div className="settings-sidebar">
-                <div className="info-card">
-                    <h3>💡 טיפ לניהול AI</h3>
-                    <p>
-                        ככל שהמידע שתזין כאן יהיה מדויק ומפורט יותר, ככה הסוכן יידע לתת
-                        תשובות טובות יותר ללקוחות.
+            {/* Sidebar Section */}
+            <div className="lg:w-80 shrink-0 order-1 lg:order-2">
+                <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 rounded-3xl p-6 backdrop-blur-xl sticky top-6 shadow-[0_0_30px_rgba(99,102,241,0.1)]">
+                    <div className="w-10 h-10 bg-indigo-500/20 rounded-full flex items-center justify-center mb-4">
+                        <Info className="w-5 h-5 text-indigo-300" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white mb-3">טיפ לניהול AI</h3>
+                    <p className="text-indigo-200/90 text-sm leading-relaxed mb-4">
+                        ככל שהמידע שתזין כאן יהיה מדויק ומפורט יותר, ככה הסוכן יידע לתת תשובות טובות ואנושיות יותר ללקוחות שלך.
                     </p>
-                    <ul style={{ paddingRight: 20, marginTop: 10, fontSize: 14 }}>
-                        <li>הכלל מחירים אם יש (או הסבר שאין)</li>
-                        <li>ציין זמני מענה ולוגיסטיקה</li>
-                        <li>אם יש לינקים חשובים, צרף אותם</li>
+
+                    <ul className="space-y-3">
+                        {[
+                            "הכלל מחירים אם יש (או הסבר מפורט שאין)",
+                            "ציין זמני מענה, שעות פעילות ולוגיסטיקה",
+                            "אם יש לינקים חשובים לשליחה, צרף אותם כאן",
+                            "השתמש בשפה שאתה רוצה שהסוכן ידבר בה"
+                        ].map((tip, idx) => (
+                            <li key={idx} className="flex items-start gap-2.5 text-sm text-indigo-100/70">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0"></span>
+                                <span className="leading-tight">{tip}</span>
+                            </li>
+                        ))}
                     </ul>
                 </div>
             </div>
+
         </div>
     );
 }

@@ -384,7 +384,7 @@ async function handleActiveMode(
         if (aiReply.length > 0 || shouldPause) {
             await getSupabase().from("messages").insert({
                 conversation_id: conversationId,
-                tenantId: tenantId,
+                tenant_id: tenantId,
                 role: "assistant",
                 content: aiReply.length > 0 ? aiReply : "השיחה הועברה לנציג אנושי.",
                 is_from_agent: true,

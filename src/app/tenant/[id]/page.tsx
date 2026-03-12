@@ -774,74 +774,101 @@ export default function TenantPage() {
     };
 
     return (
-        <div className="tenant-page">
+        <div className="min-h-screen bg-black text-neutral-200 font-sans selection:bg-indigo-500/30 flex flex-col">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
+            {/* Background Gradients */}
+            <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+                <div className="absolute top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-indigo-600/10 blur-[100px]" />
+                <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-emerald-600/10 blur-[120px]" />
+            </div>
+
             {/* Top Bar */}
-            <header className="tenant-header">
-                <button className="btn btn-ghost" onClick={() => router.push("/")}>→ חזרה</button>
-                <div className="tenant-title">
-                    <h1>{tenant.business_name}</h1>
-                    <span className="mode-badge" style={{ backgroundColor: modeConfig[tenant.agent_mode].color }}>
-                        {modeConfig[tenant.agent_mode].emoji} {modeConfig[tenant.agent_mode].label}
-                    </span>
+            <header className="relative z-10 px-6 py-4 border-b border-white/10 bg-black/50 backdrop-blur-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex items-center gap-4">
                     <button
-                        className={`status-badge ${tenant.whatsapp_connected ? "status-badge-connected" : "status-badge-disconnected"}`}
-                        onClick={() => setActiveTab("connect")}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '4px 10px',
-                            background: tenant.whatsapp_connected ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                            color: tenant.whatsapp_connected ? '#4ade80' : '#f87171',
-                            border: `1px solid ${tenant.whatsapp_connected ? '#22c55e' : '#ef4444'}`,
-                            borderRadius: '16px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            marginRight: '8px'
-                        }}
+                        className="p-2 text-neutral-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex items-center gap-2"
+                        onClick={() => router.push("/dashboard")}
                     >
-                        <span className={`status-dot ${tenant.whatsapp_connected ? "connected" : "disconnected"}`} style={{ margin: 0, width: '8px', height: '8px' }} />
+                        <svg className="w-5 h-5 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                        <span className="hidden sm:inline">חזרה לדשבורד</span>
+                    </button>
+                    <div className="h-6 w-px bg-white/10 hidden sm:block"></div>
+                    <div>
+                        <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                            {tenant.business_name}
+                            <span className={`text-xs px-2 py-0.5 rounded-full ring-1 ring-inset ${modeConfig[tenant.agent_mode].color.replace('ring-amber-500/30', 'ring-amber-500/20').replace('ring-emerald-500/30', 'ring-emerald-500/20')}`}>
+                                {modeConfig[tenant.agent_mode].emoji} {modeConfig[tenant.agent_mode].label}
+                            </span>
+                        </h1>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+                    <button
+                        onClick={() => setActiveTab("connect")}
+                        className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ring-inset transition-colors ${tenant.whatsapp_connected
+                                ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20 hover:bg-emerald-500/20'
+                                : 'bg-red-500/10 text-red-400 ring-red-500/20 hover:bg-red-500/20'
+                            }`}
+                    >
+                        <div className="relative flex h-2 w-2">
+                            {tenant.whatsapp_connected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+                            <span className={`relative inline-flex rounded-full h-2 w-2 ${tenant.whatsapp_connected ? "bg-emerald-500" : "bg-red-500"}`}></span>
+                        </div>
                         {tenant.whatsapp_connected ? 'ווטסאפ מחובר' : 'ווטסאפ מנותק'}
                     </button>
-                </div>
-                <div className="mode-switcher">
-                    {(["learning", "active"] as const).map((mode) => (
-                        <button
-                            key={mode}
-                            className={`mode-btn ${tenant.agent_mode === mode ? "active" : ""}`}
-                            onClick={() => setAgentMode(mode)}
-                            style={tenant.agent_mode === mode ? { backgroundColor: modeConfig[mode].color } : {}}
-                        >
-                            {modeConfig[mode].emoji} {modeConfig[mode].label}
-                        </button>
-                    ))}
+
+                    <div className="flex bg-white/5 rounded-lg p-1 border border-white/10 shrink-0">
+                        {(["learning", "active"] as const).map((mode) => (
+                            <button
+                                key={mode}
+                                onClick={() => setAgentMode(mode)}
+                                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${tenant.agent_mode === mode
+                                        ? 'bg-indigo-600 text-white shadow-md'
+                                        : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                                    }`}
+                            >
+                                <span>{modeConfig[mode].emoji}</span>
+                                <span>{modeConfig[mode].label}</span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </header>
 
             {/* Tab Navigation */}
-            <nav className="tab-nav">
-                <button className={`tab ${activeTab === "chat" ? "active" : ""}`} onClick={() => setActiveTab("chat")}>
-                    💬 שיחות
-                </button>
-                <button className={`tab ${activeTab === "contacts" ? "active" : ""}`} onClick={() => { setActiveTab("contacts"); fetchContactRules(); }}>
-                    👥 סינון אנשי קשר
-                </button>
-                <button className={`tab ${activeTab === "connect" ? "active" : ""}`} onClick={() => setActiveTab("connect")}>
-                    📱 חיבור ווטסאפ
-                </button>
-                <button className={`tab ${activeTab === "capabilities" ? "active" : ""}`} onClick={() => setActiveTab("capabilities")}>
-                    🧠 יכולות סוכן
-                </button>
-                <button className={`tab ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}>
-                    ⚙️ הגדרות
-                </button>
+            <nav className="relative z-10 flex overflow-x-auto border-b border-white/5 px-6 hide-scrollbar gap-2 py-2">
+                {[
+                    { id: "chat", icon: "💬", label: "שיחות" },
+                    { id: "contacts", icon: "👥", label: "סינון אנשי קשר", action: fetchContactRules },
+                    { id: "connect", icon: "📱", label: "חיבור ווטסאפ" },
+                    { id: "capabilities", icon: "🧠", label: "יכולות סוכן" },
+                    { id: "settings", icon: "⚙️", label: "הגדרות" }
+                ].map((tab) => (
+                    <button
+                        key={tab.id}
+                        onClick={() => {
+                            setActiveTab(tab.id as any);
+                            if (tab.action) tab.action();
+                        }}
+                        className={`flex items-center gap-2 px-4 py-2.5 whitespace-nowrap text-sm font-medium transition-colors rounded-t-lg relative ${activeTab === tab.id
+                                ? "text-indigo-400"
+                                : "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+                            }`}
+                    >
+                        <span>{tab.icon}</span>
+                        {tab.label}
+                        {activeTab === tab.id && (
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 shadow-[0_-2px_8px_rgba(99,102,241,0.5)]" />
+                        )}
+                    </button>
+                ))}
             </nav>
 
-            <div className="tab-content">
+            <div className="relative z-10 flex-1 flex flex-col h-0 overflow-hidden bg-black/40">
                 {activeTab === "chat" && (
                     <ChatTab
                         tenant={tenant}
@@ -893,45 +920,53 @@ export default function TenantPage() {
                 )}
 
                 {activeTab === "contacts" && (
-                    <ContactsTab
-                        tenant={tenant}
-                        contactRules={contactRules}
-                        newRulePhone={newRulePhone}
-                        setNewRulePhone={setNewRulePhone}
-                        newRuleName={newRuleName}
-                        setNewRuleName={setNewRuleName}
-                        newRuleType={newRuleType}
-                        setNewRuleType={setNewRuleType}
-                        setFilterMode={setFilterMode}
-                        handleAddRule={handleAddRule}
-                        handleDeleteRule={handleDeleteRule}
-                        filterLabels={filterLabels}
-                    />
+                    <div className="p-6 overflow-y-auto w-full max-w-5xl mx-auto h-full">
+                        <ContactsTab
+                            tenant={tenant}
+                            contactRules={contactRules}
+                            newRulePhone={newRulePhone}
+                            setNewRulePhone={setNewRulePhone}
+                            newRuleName={newRuleName}
+                            setNewRuleName={setNewRuleName}
+                            newRuleType={newRuleType}
+                            setNewRuleType={setNewRuleType}
+                            setFilterMode={setFilterMode}
+                            handleAddRule={handleAddRule}
+                            handleDeleteRule={handleDeleteRule}
+                            filterLabels={filterLabels}
+                        />
+                    </div>
                 )}
 
                 {activeTab === "connect" && (
-                    <ConnectTab
-                        tenant={tenant}
-                        connectionStatus={connectionStatus}
-                        qrCode={qrCode}
-                        handleConnect={handleConnect}
-                        handleReconnect={handleReconnect}
-                        handleDisconnect={handleDisconnect}
-                    />
+                    <div className="p-6 overflow-y-auto w-full max-w-4xl mx-auto h-full">
+                        <ConnectTab
+                            tenant={tenant}
+                            connectionStatus={connectionStatus}
+                            qrCode={qrCode}
+                            handleConnect={handleConnect}
+                            handleReconnect={handleReconnect}
+                            handleDisconnect={handleDisconnect}
+                        />
+                    </div>
                 )}
 
                 {activeTab === "capabilities" && (
-                    <CapabilitiesTab tenant={tenant} />
+                    <div className="p-6 overflow-y-auto w-full max-w-4xl mx-auto h-full">
+                        <CapabilitiesTab tenant={tenant} />
+                    </div>
                 )}
 
                 {activeTab === "settings" && (
-                    <SettingsTab
-                        tenant={tenant}
-                        editForm={editForm}
-                        setEditForm={setEditForm}
-                        handleSaveSettings={handleSaveSettings}
-                        saving={saving}
-                    />
+                    <div className="p-6 overflow-y-auto w-full max-w-4xl mx-auto h-full">
+                        <SettingsTab
+                            tenant={tenant}
+                            editForm={editForm}
+                            setEditForm={setEditForm}
+                            handleSaveSettings={handleSaveSettings}
+                            saving={saving}
+                        />
+                    </div>
                 )}
             </div>
         </div>
