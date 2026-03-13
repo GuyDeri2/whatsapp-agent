@@ -268,6 +268,11 @@ function makeHumanSend(socket: WASocket) {
     return async (jid: string, content: { text: string }) => {
         // Only simulate typing for individual chats (not groups / system JIDs)
         if (jid.endsWith("@s.whatsapp.net")) {
+            // Pre-establish the Signal encryption session so the recipient never
+            // sees "בהמתנה להודעה זו" (waiting for message / clock icon).
+            // assertSessions(false) fetches keys only if not already cached.
+            await socket.assertSessions([jid], false);
+
             const words = content.text.trim().split(/\s+/).length;
             // ~80 wpm typing speed, capped at 3s, plus 0-500ms random jitter
             const typingMs = Math.min(Math.ceil((words / 80) * 60_000), 3_000)
