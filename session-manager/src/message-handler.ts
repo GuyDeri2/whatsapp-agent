@@ -34,6 +34,15 @@ const dailyReplyCounts = new Map<string, { date: string; count: number }>();
 const debounceTimers: Record<string, NodeJS.Timeout> = {};
 const activeGenerations = new Set<string>();
 
+// Track wa_message_ids sent by the AI agent to prevent Baileys echo from being
+// re-stored as an "owner" message (race condition between send and DB insert)
+const agentSentIds = new Set<string>();
+function markAgentSent(id: string | null | undefined): void {
+    if (!id) return;
+    agentSentIds.add(id);
+    setTimeout(() => agentSentIds.delete(id), 120_000); // auto-cleanup after 2 min
+}
+
 // Randomised debounce: 1.5s–4.5s to avoid mechanical fixed-interval fingerprinting
 const getDebounceDelay = () => 1_500 + Math.floor(Math.random() * 3_000);
 
@@ -131,6 +140,15 @@ export async function handleIncomingMessage(
     // Extract clean phone number from JID (e.g., "972501234567@s.whatsapp.net" → "972501234567")
     const phoneNumber = remoteJid.split("@")[0];
     const isGroupChat = remoteJid.endsWith("@g.us");
+
+    // ── Ignore Baileys echo of messages sent by the AI agent ──────────────
+    // When we send a message via socket.sendMessage, Baileys fires messages.upsert
+    // with fromMe=true almost immediately — before our DB insert completes.
+    // Without this check the message gets stored again as role "owner".
+    if (waMessageId && agentSentIds.has(waMessageId)) {
+        console.log(`[${tenantId}] ⏭️ Skipping agent-sent echo: ${waMessageId}`);
+        return;
+    }
 
     // ── Silently ignore Meta/WhatsApp system and probe JIDs ──────────────
     const isSystemJid =
@@ -424,34 +442,37 @@ async function handleActiveMode(
                 .eq("id", conversationId);
         }
 
-        // Send via WhatsApp first to get the wa_message_id
-        // Handle case where AI reply might be completely empty after stripping [PAUSE]
+        // If AI reply is empty after stripping [PAUSE], use a fallback handoff message
+        if (aiReply.length === 0 && shouldPause) {
+            const HANDOFF_FALLBACKS = [
+                "תודה על פנייתך. שיחה זו מועברת לנציג אנושי שיחזור אליך בהקדם. 🙏",
+                "תודה שפנית אלינו! נציג מטעמנו יצור איתך קשר בהקדם האפשרי. 🙏",
+                "קיבלנו את פנייתך ✅ אחד מהנציגים שלנו יחזור אליך בהקדם.",
+            ];
+            aiReply = HANDOFF_FALLBACKS[Math.floor(Math.random() * HANDOFF_FALLBACKS.length)];
+        }
+
+        // Send the single message to the customer and register its ID to suppress Baileys echo
         let aiWaMessageId: string | null = null;
         if (aiReply.length > 0) {
             const sentMsg = await sendMessage(remoteJid, { text: aiReply });
             aiWaMessageId = sentMsg?.key?.id || null;
-        }
+            markAgentSent(aiWaMessageId); // prevent echo re-storage as "owner"
 
-        // If pausing, send a clear handoff notification (separate message after the AI reply)
-        if (shouldPause) {
-            const HANDOFF_VARIANTS = [
-                "תודה על פנייתך. על מנת לתת לך את השירות הטוב ביותר, שיחה זו מועברת לנציג אנושי שיחזור אליך בהקדם. 🙏",
-                "תודה שפנית אלינו! הנושא הועבר לנציג מטעמנו שיצור איתך קשר בהקדם האפשרי. 🙏",
-                "קיבלנו את פנייתך ✅ אחד מהנציגים שלנו יחזור אליך בהקדם האפשרי.",
-            ];
-            const handoffMsg = HANDOFF_VARIANTS[Math.floor(Math.random() * HANDOFF_VARIANTS.length)];
-            const handoffSent = await sendMessage(remoteJid, { text: handoffMsg });
+            // Store in DB immediately after send
             await getSupabase().from("messages").insert({
                 conversation_id: conversationId,
                 tenant_id: tenantId,
                 role: "assistant",
-                content: handoffMsg,
+                content: aiReply,
                 is_from_agent: true,
-                wa_message_id: handoffSent?.key?.id || null,
+                wa_message_id: aiWaMessageId,
                 status: "sent",
             });
+        }
 
-            // Notify the business owner on their personal phone
+        // Notify the business owner on their personal WhatsApp number
+        if (shouldPause) {
             if (ownerPhone) {
                 const customerPhone = remoteJid.split("@")[0];
                 const { data: conv } = await getSupabase()
@@ -464,7 +485,7 @@ async function handleActiveMode(
                     : customerPhone;
                 const ownerNotification = `🔔 לקוח ממתין למענה אנושי!\n\nשם: ${contactDisplay}\nטלפון: ${customerPhone}\n\nהלקוח פנה לוואטסאפ העסקי שלך וסוכן ה-AI הפנה אותו לטיפול ידני.`;
 
-                // Normalize owner phone to international format (972XXXXXXXXX)
+                // Normalize to international format (972XXXXXXXXX)
                 let ownerDigits = ownerPhone.replace(/\D/g, "");
                 if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
                     ownerDigits = "972" + ownerDigits.substring(1);
@@ -472,27 +493,15 @@ async function handleActiveMode(
                 const ownerJid = `${ownerDigits}@s.whatsapp.net`;
 
                 try {
-                    await sendMessage(ownerJid, { text: ownerNotification });
-                    console.log(`[${tenantId}] 📱 Owner notified at ${ownerJid} about customer handoff: ${customerPhone}`);
+                    const ownerSent = await sendMessage(ownerJid, { text: ownerNotification });
+                    markAgentSent(ownerSent?.key?.id);
+                    console.log(`[${tenantId}] 📱 Owner notified at ${ownerJid} — customer: ${customerPhone}`);
                 } catch (notifyErr: any) {
                     console.error(`[${tenantId}] ❌ Failed to notify owner at ${ownerJid}:`, notifyErr.message);
                 }
             } else {
                 console.warn(`[${tenantId}] ⚠️ No owner_phone configured — skipping owner notification`);
             }
-        }
-
-        // Store AI reply with wa_message_id so the echo-back from Baileys is deduped
-        if (aiReply.length > 0) {
-            await getSupabase().from("messages").insert({
-                conversation_id: conversationId,
-                tenant_id: tenantId,
-                role: "assistant",
-                content: aiReply,
-                is_from_agent: true,
-                wa_message_id: aiWaMessageId,
-                status: "sent",
-            });
         }
 
         console.log(
