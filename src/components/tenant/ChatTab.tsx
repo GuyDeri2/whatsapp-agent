@@ -298,16 +298,13 @@ export function ChatTab({
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
-                                        {onTogglePause && (
+                                        {onTogglePause && !conv.is_paused && (
                                             <button
-                                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${conv.is_paused
-                                                    ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 ring-1 ring-orange-500/20"
-                                                    : "bg-white/5 text-neutral-300 hover:bg-white/10 border border-white/5"
-                                                    }`}
-                                                onClick={() => onTogglePause(conv.id, !!conv.is_paused)}
-                                                title={conv.is_paused ? "הפעל AI מחדש" : "השהה AI עבור שיחה זו"}
+                                                className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors bg-white/5 text-neutral-300 hover:bg-white/10 border border-white/5"
+                                                onClick={() => onTogglePause(conv.id, false)}
+                                                title="השהה AI עבור שיחה זו"
                                             >
-                                                {conv.is_paused ? "▶️ הפעל AI" : "⏸️ השהה AI"}
+                                                ⏸️ השהה AI
                                             </button>
                                         )}
                                         {existingRule ? (

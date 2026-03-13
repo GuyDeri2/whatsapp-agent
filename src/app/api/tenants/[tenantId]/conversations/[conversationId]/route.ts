@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 // PATCH /api/tenants/[tenantId]/conversations/[conversationId]
 export async function PATCH(
@@ -57,8 +58,9 @@ export async function PATCH(
         return NextResponse.json({ error: "No valid fields provided to update" }, { status: 400 });
     }
 
-    // Update conversation
-    const { data: conversation, error } = await supabase
+    // Update conversation — use admin client to bypass RLS (ownership already verified above)
+    const admin = getSupabaseAdmin();
+    const { data: conversation, error } = await admin
         .from("conversations")
         .update(updateData)
         .eq("id", conversationId)

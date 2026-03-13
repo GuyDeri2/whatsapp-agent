@@ -671,6 +671,13 @@ export default function TenantPage() {
         const digits = phone.replace(/\D/g, "");
         if (!digits) return phone;
 
+        // WhatsApp LID / internal identifiers (13+ digits that aren't real phone numbers)
+        // e.g. 240213326622964 — no real phone number is longer than 15 digits
+        // but valid E.164 numbers top out at 15 digits; LIDs are often 15+ or have unusual patterns
+        if (digits.length > 13 && !digits.startsWith("972")) {
+            return `מזהה WA`;
+        }
+
         // Israeli numbers starting with 972
         if (digits.startsWith("972")) {
             const local = digits.substring(3); // strip country code
@@ -807,8 +814,8 @@ export default function TenantPage() {
     }
 
     const modeConfig = {
-        learning: { label: "למידה", emoji: "📚", color: "#f59e0b" },
-        active: { label: "פעיל", emoji: "🤖", color: "#10b981" },
+        learning: { label: "בוט לא פעיל", emoji: "📚", color: "#f59e0b" },
+        active: { label: "בוט פעיל", emoji: "🤖", color: "#10b981" },
         paused: { label: "מושהה", emoji: "⏸️", color: "#6b7280" },
     };
 
