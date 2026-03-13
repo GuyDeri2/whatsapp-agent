@@ -338,6 +338,18 @@ export async function handleIncomingMessage(
             debounceTimers[debounceKey] = setTimeout(async () => {
                 delete debounceTimers[debounceKey];
 
+                // Re-check is_paused from DB — handoff may have been triggered
+                // between when this message arrived and when the debounce fired.
+                const { data: freshConv } = await getSupabase()
+                    .from("conversations")
+                    .select("is_paused")
+                    .eq("id", conversationId)
+                    .single();
+                if (freshConv?.is_paused) {
+                    console.log(`[${tenantId}] ⏸️ Conversation paused (re-check) — skipping AI reply: ${phoneNumber}`);
+                    return;
+                }
+
                 // If AI is already actively typing/generating for this chat, don't start a second parallel generation.
                 // The current generation will pick up the context anyway.
                 if (activeGenerations.has(debounceKey)) {

@@ -183,7 +183,12 @@ export default function TenantPage() {
                 products: data.products || "",
                 target_customers: data.target_customers || "",
                 agent_respond_to_saved_contacts: data.agent_respond_to_saved_contacts ?? true,
-                owner_phone: data.owner_phone || "",
+                owner_phone: (() => {
+                    const p = data.owner_phone || "";
+                    // Display in local Israeli format (05XXXXXXXX) even if stored as 972XXXXXXXXX
+                    if (p.startsWith("972") && p.length === 12) return "0" + p.substring(3);
+                    return p;
+                })(),
             });
         }
     }, [supabase, tenantId]);
