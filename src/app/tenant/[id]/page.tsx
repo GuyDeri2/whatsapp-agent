@@ -333,10 +333,24 @@ export default function TenantPage() {
                         const newMsg = payload.new as Message;
                         const msgTime = newMsg.created_at || new Date().toISOString();
 
-                        // 1. Optimistically append message to active chat view
+                        // 1. Append message to active chat view.
+                        // If there's a matching optimistic temp message (same role + content),
+                        // replace it with the real DB row to avoid duplicates.
                         if (newMsg.conversation_id === selectedConvIdRef.current) {
                             setMessages((prev) => {
                                 if (prev.find((m) => m.id === newMsg.id)) return prev;
+                                // Replace matching temp optimistic message if present
+                                const tempIdx = prev.findIndex(
+                                    (m) => m.id.startsWith("temp-") &&
+                                        m.role === newMsg.role &&
+                                        m.content === newMsg.content &&
+                                        m.conversation_id === newMsg.conversation_id
+                                );
+                                if (tempIdx !== -1) {
+                                    const updated = [...prev];
+                                    updated[tempIdx] = newMsg;
+                                    return updated;
+                                }
                                 return [...prev, newMsg];
                             });
                         }
@@ -674,22 +688,56 @@ export default function TenantPage() {
         const conv = conversations.find(c => c.id === selectedConvId);
         if (!conv) return;
 
+        const messageText = newMessage.trim();
+        const tempId = `temp-${Date.now()}`;
+        const now = new Date().toISOString();
+
+        // Optimistic update — show message immediately before API responds
+        const optimisticMsg: Message = {
+            id: tempId,
+            conversation_id: selectedConvId,
+            role: "owner",
+            content: messageText,
+            sender_name: "Owner",
+            is_from_agent: false,
+            created_at: now,
+        };
+        setMessages(prev => [...prev, optimisticMsg]);
+        setNewMessage("");
+
+        // Also update conversation preview and bubble to top instantly
+        setLastMessages(prev => ({ ...prev, [selectedConvId]: messageText.substring(0, 50) }));
+        setConversations(prev => {
+            const idx = prev.findIndex(c => c.id === selectedConvId);
+            if (idx === -1) return prev;
+            const updated = { ...prev[idx], updated_at: now };
+            const rest = prev.filter(c => c.id !== selectedConvId);
+            return [updated, ...rest];
+        });
+
         setIsSending(true);
         try {
             const res = await fetch(`/api/tenants/${tenantId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ phone_number: conv.phone_number, text: newMessage.trim() }),
+                body: JSON.stringify({ phone_number: conv.phone_number, text: messageText }),
             });
-            if (res.ok) {
-                setNewMessage("");
-            } else {
+            if (!res.ok) {
                 const data = await res.json();
                 showToast(`שגיאה: ${data.error}`, "error");
+                // Revert optimistic message on failure
+                setMessages(prev => prev.filter(m => m.id !== tempId));
+                setNewMessage(messageText);
             }
+            // On success: Realtime will replace the temp message with the real DB row.
+            // If Realtime fires before we remove the temp, the dedup check (m.id !== newMsg.id)
+            // will prevent duplicates since temp id won't match the real DB UUID.
         } catch (err) {
             console.error(err);
             showToast("שגיאה בשליחה", "error");
+            // Revert optimistic message on network error
+            setMessages(prev => prev.filter(m => m.id !== tempId));
+            setNewMessage(messageText);
         } finally {
             setIsSending(false);
         }

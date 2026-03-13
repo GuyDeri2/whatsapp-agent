@@ -69,6 +69,14 @@ function markAgentSent(id: string | null | undefined): void {
     setTimeout(() => agentSentIds.delete(id), 120_000); // auto-cleanup after 2 min
 }
 
+/**
+ * Mark a wa_message_id as already saved so the Baileys echo is suppressed.
+ * Called by session-manager's sendMessage() for dashboard-originated outgoing messages.
+ */
+export function markOwnerSent(id: string | null | undefined): void {
+    markAgentSent(id);
+}
+
 // Randomised debounce: 1.5s–4.5s to avoid mechanical fixed-interval fingerprinting
 const getDebounceDelay = () => 1_500 + Math.floor(Math.random() * 3_000);
 

@@ -22,7 +22,7 @@ import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
 import { useSupabaseAuthState, clearSessionData, flushCacheToDB, stopBackgroundSync } from "./session-store";
-import { handleIncomingMessage, clearPendingAiReply, setLidResolver } from "./message-handler";
+import { handleIncomingMessage, clearPendingAiReply, setLidResolver, markOwnerSent } from "./message-handler";
 // Inject LID resolver so message-handler can re-resolve JIDs at send time
 setLidResolver((tenantId, jid) => resolveLidJid(tenantId, jid));
 import { transcribeAudioBuffer } from "./transcribe";
@@ -430,6 +430,13 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
     // 1. Send via Baileys
     const sentMsg = await session.socket.sendMessage(jid, { text });
     const waMessageId = sentMsg?.key?.id || "unknown";
+
+    // Suppress the Baileys echo (fromMe=true upsert) that fires almost immediately
+    // after sendMessage(). Without this, handleIncomingMessage would treat the echo
+    // as a new owner message and save it a second time (race condition).
+    if (waMessageId !== "unknown") {
+        markOwnerSent(waMessageId);
+    }
 
     // 2. Save to DB as owner message
     const supabase = getSupabase();
