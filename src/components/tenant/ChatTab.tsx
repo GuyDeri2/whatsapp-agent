@@ -1,4 +1,32 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
+
+// ── Pause countdown timer ──────────────────────────────────────────────
+const FORTY_MIN_MS = 40 * 60 * 1000;
+
+function PauseCountdown({ updatedAt }: { updatedAt: string }) {
+    const getRemaining = useCallback(
+        () => Math.max(0, FORTY_MIN_MS - (Date.now() - new Date(updatedAt).getTime())),
+        [updatedAt]
+    );
+    const [remaining, setRemaining] = useState(getRemaining);
+
+    useEffect(() => {
+        setRemaining(getRemaining());
+        const id = setInterval(() => setRemaining(getRemaining()), 1000);
+        return () => clearInterval(id);
+    }, [getRemaining]);
+
+    if (remaining === 0)
+        return <span className="text-xs opacity-60">(ממתין להודעה הבאה)</span>;
+
+    const m = Math.floor(remaining / 60000);
+    const s = Math.floor((remaining % 60000) / 1000);
+    return (
+        <span className="text-xs opacity-60 tabular-nums">
+            (מתחדש אוטומטית בעוד {m}:{String(s).padStart(2, "0")})
+        </span>
+    );
+}
 
 // Types
 interface Tenant {
@@ -310,6 +338,23 @@ export function ChatTab({
                                 </div>
                             );
                         })()}
+
+                        {/* Pause Banner */}
+                        {conv.is_paused && onTogglePause && (
+                            <div className="relative z-10 bg-orange-500/10 border-b border-orange-500/20 px-4 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                                <div className="flex items-center gap-2 text-sm text-orange-300 min-w-0">
+                                    <span className="shrink-0">⏸️</span>
+                                    <span className="font-medium">ה-AI מושהה — השיחה בטיפול ידני</span>
+                                    <PauseCountdown updatedAt={conv.updated_at} />
+                                </div>
+                                <button
+                                    className="shrink-0 px-3 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
+                                    onClick={() => onTogglePause(conv.id, true)}
+                                >
+                                    ▶️ הפעל AI
+                                </button>
+                            </div>
+                        )}
 
                         {/* Messages List */}
                         <div className="relative z-10 flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 custom-scrollbar">
