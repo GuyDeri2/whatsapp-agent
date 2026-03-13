@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { ShieldCheck, Users, LayoutDashboard, LogOut } from "lucide-react";
 
@@ -24,7 +25,7 @@ export default async function AdminLayout({
 
     if (!profile || profile.role !== "admin") redirect("/");
 
-    const { count: pendingCount } = await supabase
+    const { count: pendingCount } = await getSupabaseAdmin()
         .from("profiles")
         .select("id", { count: "exact", head: true })
         .eq("approval_status", "pending");

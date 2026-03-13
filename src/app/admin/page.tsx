@@ -1,18 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { Users, Building2, Zap, Clock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminDashboard() {
-    const supabase = await createClient();
+    // Use service-role client for data — RLS would otherwise filter out other users' profiles
+    const admin = getSupabaseAdmin();
 
-    const { data: profiles } = await supabase
+    const { data: profiles } = await admin
         .from("profiles")
         .select("*")
         .order("created_at", { ascending: false });
 
-    const { data: tenants } = await supabase
+    const { data: tenants } = await admin
         .from("tenants")
         .select("id, owner_id, business_name, agent_mode, whatsapp_connected");
 
