@@ -544,50 +544,53 @@ async function handleActiveMode(
             });
         }
 
-        // Notify the business owner on their personal WhatsApp number
+        // Notify the business owner and fire lead webhook on handoff
         if (shouldPause) {
+            const internationalPhone = remoteJid.split("@")[0];
+            const customerPhone = toLocalPhone(internationalPhone);
+            const { data: conv } = await getSupabase()
+                .from("conversations")
+                .select("contact_name")
+                .eq("id", conversationId)
+                .single();
+            const contactName = conv?.contact_name || null;
+
+            // Gather conversation data once — used by both webhook and owner notification
+            const summary = await summarizeConversationForHandoff(tenantId, conversationId);
+            const { data: recentMsgs } = await getSupabase()
+                .from("messages")
+                .select("role, content")
+                .eq("conversation_id", conversationId)
+                .order("created_at", { ascending: true })
+                .limit(30);
+            const email = extractEmailFromMessages(recentMsgs ?? []);
+
+            // Fire lead webhook regardless of whether ownerPhone is set
+            if (leadWebhookUrl) {
+                await fireLeadWebhook(leadWebhookUrl, tenantId, {
+                    name: contactName,
+                    phone: customerPhone,
+                    email,
+                    summary,
+                    timestamp: new Date().toISOString(),
+                });
+            }
+
+            // Send WhatsApp notification to owner
             if (ownerPhone) {
-                const internationalPhone = remoteJid.split("@")[0];
-                const customerPhone = toLocalPhone(internationalPhone);
-                const { data: conv } = await getSupabase()
-                    .from("conversations")
-                    .select("contact_name")
-                    .eq("id", conversationId)
-                    .single();
-                const contactName = conv?.contact_name || null;
                 const waLink = `https://wa.me/${internationalPhone}`;
-
-                const summary = await summarizeConversationForHandoff(tenantId, conversationId);
                 const summarySection = summary ? `\n\n📋 *סיכום השיחה:*\n${summary}` : "";
-
-                // Fire lead webhook if configured
-                if (leadWebhookUrl) {
-                    const { data: recentMsgs } = await getSupabase()
-                        .from("messages")
-                        .select("role, content")
-                        .eq("conversation_id", conversationId)
-                        .order("created_at", { ascending: true })
-                        .limit(30);
-                    const email = extractEmailFromMessages(recentMsgs ?? []);
-                    await fireLeadWebhook(leadWebhookUrl, tenantId, {
-                        name: contactName,
-                        phone: customerPhone,
-                        email,
-                        summary,
-                        timestamp: new Date().toISOString(),
-                    });
-                }
 
                 const ownerNotification = [
                     `🔔 לקוח ממתין למענה אנושי!`,
                     ``,
                     contactName ? `👤 שם: ${contactName}` : null,
                     `📞 טלפון: ${customerPhone}`,
+                    email ? `📧 מייל: ${email}` : null,
                     `💬 פתח צ'אט: ${waLink}`,
                     summarySection,
                 ].filter((l) => l !== null).join("\n");
 
-                // Normalize to international format (972XXXXXXXXX)
                 let ownerDigits = ownerPhone.replace(/\D/g, "");
                 if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
                     ownerDigits = "972" + ownerDigits.substring(1);

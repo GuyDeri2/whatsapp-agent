@@ -28,6 +28,11 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
     const [webhookSaving, setWebhookSaving] = useState(false);
     const [webhookSaved, setWebhookSaved] = useState(false);
 
+    // Sync when parent re-fetches tenant (useState only captures initial value)
+    useEffect(() => {
+        setWebhookUrl(tenant?.lead_webhook_url ?? "");
+    }, [tenant?.lead_webhook_url]);
+
     const fetchLearnings = async () => {
         if (!tenant?.id) return;
         setLoading(true);
