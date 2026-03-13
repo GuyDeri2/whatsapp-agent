@@ -109,6 +109,28 @@ export async function handleIncomingMessage(
     const phoneNumber = remoteJid.split("@")[0];
     const isGroupChat = remoteJid.endsWith("@g.us");
 
+    // Silently ignore known Meta/WhatsApp system JIDs (automated probes)
+    const META_SYSTEM_JIDS = new Set([
+        "0@s.whatsapp.net",           // WhatsApp system
+        "status@broadcast",            // Status broadcast
+        "16315555555@s.whatsapp.net",  // WhatsApp helpdesk
+        "12036315555@s.whatsapp.net",  // Meta probe
+        "12036315956@s.whatsapp.net",
+        "12036315957@s.whatsapp.net",
+        "12036315958@s.whatsapp.net",
+        "12036315959@s.whatsapp.net",
+    ]);
+    // Also skip any JID that looks like a Meta probe range (1203631XXXX)
+    const isMetaProbe =
+        META_SYSTEM_JIDS.has(remoteJid) ||
+        /^1203631\d{4}@s\.whatsapp\.net$/.test(remoteJid) ||
+        remoteJid.endsWith("@broadcast");
+
+    if (isMetaProbe) {
+        console.log(`[${tenantId}] 🛡️ Ignored Meta/system JID: ${remoteJid}`);
+        return;
+    }
+
     // 2. Upsert conversation (without contact_name to avoid overwriting existing names)
     // We fetch updated_at as well so we can check for the 40-minute timeout
     const { data: conversation, error: convError } = await supabase
