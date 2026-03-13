@@ -12,7 +12,7 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: tenant } = await supabase
-    .from('tenants').select('id').eq('id', tenantId).eq('user_id', user.id).single();
+    .from('tenants').select('id').eq('id', tenantId).eq('owner_id', user.id).single();
   if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { error } = await supabase

@@ -15,7 +15,7 @@ export async function POST(
     .from('tenants')
     .select('id, lead_webhook_url')
     .eq('id', tenantId)
-    .eq('user_id', user.id)
+    .eq('owner_id', user.id)
     .single();
   if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   if (!tenant.lead_webhook_url) return NextResponse.json({ error: 'No webhook URL configured' }, { status: 400 });
