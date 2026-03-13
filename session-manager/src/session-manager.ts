@@ -717,7 +717,23 @@ async function createSession(tenantId: string): Promise<void> {
         syncFullHistory: false,
         markOnlineOnConnect: false,
         keepAliveIntervalMs: 15_000,
-        getMessage: async () => ({ conversation: "hello" }),
+        getMessage: async (key) => {
+            // Called by Baileys when WhatsApp requests a message retry (e.g. decryption failure).
+            // We look up the real content from Supabase so retried messages contain the
+            // correct text — not the "hello" placeholder that was here before.
+            try {
+                if (key.id) {
+                    const { data } = await getSupabase()
+                        .from("messages")
+                        .select("content")
+                        .eq("wa_message_id", key.id)
+                        .eq("tenant_id", tenantId)
+                        .maybeSingle();
+                    if (data?.content) return { conversation: data.content };
+                }
+            } catch { /* ignore — fallback to undefined */ }
+            return undefined;
+        },
     });
 
     // Preserve retry count from previous session if it exists
