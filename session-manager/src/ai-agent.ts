@@ -216,21 +216,27 @@ export async function summarizeConversationForHandoff(
     }).join("\n");
 
     try {
-        const completion = await getOpenAI().chat.completions.create({
-            model: "deepseek-chat",
-            messages: [
-                {
-                    role: "system",
-                    content: "אתה עוזר שמסכם שיחות WhatsApp לבעל עסק. סכם את השיחה הבאה בעברית בצורה קצרה ועניינית. כלול: מה הלקוח ביקש, מה כבר נענה, ולמה הועבר לנציג. עד 3 נקודות קצרות עם •.",
-                },
-                {
-                    role: "user",
-                    content: `סכם את השיחה הבאה:\n\n${transcript}`,
-                },
-            ],
-            max_tokens: 200,
-            temperature: 0.3,
-        });
+        const AI_TIMEOUT_MS = 30_000;
+        const completion = await Promise.race([
+            getOpenAI().chat.completions.create({
+                model: "deepseek-chat",
+                messages: [
+                    {
+                        role: "system",
+                        content: "אתה עוזר שמסכם שיחות WhatsApp לבעל עסק. סכם את השיחה הבאה בעברית בצורה קצרה ועניינית. כלול: מה הלקוח ביקש, מה כבר נענה, ולמה הועבר לנציג. עד 3 נקודות קצרות עם •.",
+                    },
+                    {
+                        role: "user",
+                        content: `סכם את השיחה הבאה:\n\n${transcript}`,
+                    },
+                ],
+                max_tokens: 200,
+                temperature: 0.3,
+            }),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("AI summarize timeout after 30s")), AI_TIMEOUT_MS)
+            ),
+        ]);
         return completion.choices[0]?.message?.content?.trim() ?? "";
     } catch (err: any) {
         console.error(`[${tenantId}] ❌ Failed to summarize conversation for handoff:`, err.message);
@@ -294,13 +300,19 @@ export async function generateReply(
         }))
     ];
 
+    const AI_TIMEOUT_MS = 30_000;
     try {
-        const completion = await getOpenAI().chat.completions.create({
-            model: "deepseek-chat",
-            messages,
-            max_tokens: 500,
-            temperature: 0.3,
-        });
+        const completion = await Promise.race([
+            getOpenAI().chat.completions.create({
+                model: "deepseek-chat",
+                messages,
+                max_tokens: 500,
+                temperature: 0.3,
+            }),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("AI reply timeout after 30s")), AI_TIMEOUT_MS)
+            ),
+        ]);
 
         return (
             completion.choices[0]?.message?.content ??

@@ -146,14 +146,20 @@ ${existingKnowledgeStr || "(Empty)"}
         { role: "user", content: `--- RECENT CONVERSATIONS ---\n${chatsToProcess}` }
     ];
 
+    const AI_TIMEOUT_MS = 60_000; // Learning extraction can be longer due to larger payloads
     try {
-        const completion = await getOpenAI().chat.completions.create({
-            model: "deepseek-chat",
-            messages: messages as any,
-            max_tokens: 1500,
-            temperature: 0.1, // Keep it deterministic
-            response_format: { type: "json_object" }
-        });
+        const completion = await Promise.race([
+            getOpenAI().chat.completions.create({
+                model: "deepseek-chat",
+                messages: messages as any,
+                max_tokens: 1500,
+                temperature: 0.1, // Keep it deterministic
+                response_format: { type: "json_object" }
+            }),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("AI learning timeout after 60s")), AI_TIMEOUT_MS)
+            ),
+        ]);
 
         const reply = completion.choices[0]?.message?.content?.trim() || "[]";
 

@@ -458,11 +458,19 @@ async function fireLeadWebhook(
             return;
         }
 
-        const res = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+        let res: Response;
+        try {
+            res = await fetch(webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller.signal,
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
         if (res.ok) {
             console.log(`[${tenantId}] ✅ Lead webhook fired → ${webhookUrl} (${res.status})`);

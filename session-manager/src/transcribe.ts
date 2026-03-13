@@ -44,14 +44,20 @@ export async function transcribeAudioBuffer(buffer: Buffer, mimetype?: string): 
         // 1. Write buffer to temp file
         await writeFileAsync(tempFilePath, buffer);
 
-        // 2. Send to Groq Whisper API
-        const translation = await getGroq().audio.transcriptions.create({
-            file: fs.createReadStream(tempFilePath),
-            model: "whisper-large-v3", // Groq's high-speed Whisper model
-            prompt: "Transcribe the audio accurately. The language may be Hebrew or English. If Hebrew, ensure proper formatting and direction.",
-            response_format: "json",
-            temperature: 0.0,
-        });
+        // 2. Send to Groq Whisper API (with 30s timeout to avoid blocking message delivery)
+        const TRANSCRIBE_TIMEOUT_MS = 30_000;
+        const translation = await Promise.race([
+            getGroq().audio.transcriptions.create({
+                file: fs.createReadStream(tempFilePath),
+                model: "whisper-large-v3", // Groq's high-speed Whisper model
+                prompt: "Transcribe the audio accurately. The language may be Hebrew or English. If Hebrew, ensure proper formatting and direction.",
+                response_format: "json",
+                temperature: 0.0,
+            }),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("Groq transcription timeout after 30s")), TRANSCRIBE_TIMEOUT_MS)
+            ),
+        ]);
 
         return translation.text?.trim() || null;
     } catch (error: any) {

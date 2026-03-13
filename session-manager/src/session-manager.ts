@@ -53,6 +53,12 @@ const GROUP_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Track which conversations we've already checked for profile pics this session */
 const profilePicChecked = new Set<string>();
+// Prune profilePicChecked every 24 hours to prevent unbounded growth
+setInterval(() => {
+    const sizeBefore = profilePicChecked.size;
+    profilePicChecked.clear();
+    if (sizeBefore > 0) console.log(`[cleanup] 🧹 Cleared ${sizeBefore} entries from profilePicChecked set`);
+}, 24 * 60 * 60 * 1000).unref();
 
 /** Memory cache for phonebook contacts */
 const tenantContactsCache = new Map<string, Map<string, string>>();
@@ -996,7 +1002,7 @@ async function createSession(tenantId: string): Promise<void> {
     socket.ev.on("messages.upsert", async (upsert) => {
         const sessionInfo = sessions.get(tenantId);
 
-        for (const msg of upsert.messages) {
+        try { for (const msg of upsert.messages) {
             // Skip status broadcasts, newsletters, and protocol messages
             if (!msg.key.remoteJid) continue;
             if (msg.key.remoteJid === "status@broadcast") continue;
@@ -1264,6 +1270,8 @@ async function createSession(tenantId: string): Promise<void> {
             } catch (err) {
                 console.error(`[${tenantId}] Message handler error:`, err);
             }
+        } } catch (outerErr) {
+            console.error(`[${tenantId}] ❌ Unhandled error in messages.upsert handler:`, outerErr);
         }
     });
 

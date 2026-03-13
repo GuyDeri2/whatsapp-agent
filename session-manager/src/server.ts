@@ -313,10 +313,19 @@ app.listen(PORT, HOST, async () => {
 
 import cron from "node-cron";
 
+// ─── Cron overlap guards ──────────────────────────────────────────────
+let _watchdogRunning = false;
+let _learningRunning = false;
+
 // ─── Session Watchdog (Auto-Recovery) ────────────────────────────────
 // Every 5 minutes: find sessions with saved creds that aren't in memory, and restart them.
 // This recovers sessions that died after MAX_RETRIES or after a server restart.
 cron.schedule("*/5 * * * *", async () => {
+    if (_watchdogRunning) {
+        console.warn("⚠️ Watchdog still running from previous tick — skipping this cycle");
+        return;
+    }
+    _watchdogRunning = true;
     try {
         const activeSessions = getActiveSessions();
         const { createClient } = await import("@supabase/supabase-js");
@@ -349,6 +358,8 @@ cron.schedule("*/5 * * * *", async () => {
         }
     } catch (err: any) {
         console.error("Session watchdog error:", err.message);
+    } finally {
+        _watchdogRunning = false;
     }
 });
 
@@ -386,6 +397,11 @@ cron.schedule("*/2 * * * *", async () => {
 
 // Run every night at 02:00 server time
 cron.schedule("0 2 * * *", async () => {
+    if (_learningRunning) {
+        console.warn("⚠️ Daily learning cron still running from previous tick — skipping this cycle");
+        return;
+    }
+    _learningRunning = true;
     console.log("⏰ Running daily batch learning for all tenants in 'learning' mode...");
     try {
         // Reuse the Supabase singleton from session-manager
@@ -418,5 +434,7 @@ cron.schedule("0 2 * * *", async () => {
         }
     } catch (err) {
         console.error("Fatal error during daily cron job:", err);
+    } finally {
+        _learningRunning = false;
     }
 });
