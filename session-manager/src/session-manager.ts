@@ -499,6 +499,87 @@ async function resolveGroupNames(tenantId: string, socket: WASocket): Promise<vo
     }
 }
 
+// ─── Resolve LID JIDs for existing conversations ─────────────────────
+/**
+ * Calls socket.onWhatsApp() with all real phone numbers we have in the
+ * conversations table. The API returns { jid, lid } for each — letting
+ * us build the LID→phone map AND retroactively rename any conversation
+ * that was stored under a LID instead of the real phone number.
+ *
+ * LID numbers are always ≥15 digits; real phone numbers are ≤13 digits.
+ */
+async function resolveLidPhoneMappings(tenantId: string, socket: any): Promise<void> {
+    const supabase = getSupabase();
+
+    const { data: conversations } = await supabase
+        .from("conversations")
+        .select("id, phone_number")
+        .eq("tenant_id", tenantId)
+        .eq("is_group", false);
+
+    if (!conversations || conversations.length === 0) return;
+
+    const realPhones = conversations
+        .map(c => c.phone_number as string)
+        .filter(p => p.length <= 13); // real phone numbers ≤ 13 digits; LIDs ≥ 15
+
+    const lidConversations = conversations.filter(c => (c.phone_number as string).length >= 15);
+
+    if (realPhones.length > 0) {
+        try {
+            // onWhatsApp returns [{ jid, exists, lid }] — batch in chunks of 50
+            const CHUNK = 50;
+            for (let i = 0; i < realPhones.length; i += CHUNK) {
+                const chunk = realPhones.slice(i, i + CHUNK);
+                const results: Array<{ jid: string; lid?: string; exists: boolean }> =
+                    await socket.onWhatsApp(...chunk);
+
+                for (const r of results || []) {
+                    if (!r.lid || !r.jid) continue;
+                    const lidNum = r.lid.split("@")[0];
+                    const phoneNum = r.jid.split("@")[0];
+
+                    let map = tenantLidToPhone.get(tenantId);
+                    if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
+                    map.set(lidNum, phoneNum);
+                    console.log(`[${tenantId}] 🔗 LID resolved via onWhatsApp: ${lidNum} → ${phoneNum}`);
+                }
+            }
+        } catch (err: any) {
+            console.error(`[${tenantId}] onWhatsApp LID resolution error:`, err.message);
+        }
+    }
+
+    // Fix existing conversations stored under a LID phone number
+    if (lidConversations.length > 0) {
+        const map = tenantLidToPhone.get(tenantId);
+        if (!map) return;
+
+        for (const lidConv of lidConversations) {
+            const realPhone = map.get(lidConv.phone_number as string);
+            if (!realPhone) continue;
+
+            // Only rename if there is no existing conversation under the real phone
+            const { data: existing } = await supabase
+                .from("conversations")
+                .select("id")
+                .eq("tenant_id", tenantId)
+                .eq("phone_number", realPhone)
+                .maybeSingle();
+
+            if (!existing) {
+                await supabase
+                    .from("conversations")
+                    .update({ phone_number: realPhone })
+                    .eq("id", lidConv.id);
+                console.log(`[${tenantId}] ✅ Fixed LID conversation: ${lidConv.phone_number} → ${realPhone}`);
+            } else {
+                console.log(`[${tenantId}] ⚠️ LID conversation already has a real-phone counterpart, skipping rename: ${lidConv.phone_number}`);
+            }
+        }
+    }
+}
+
 // ─── Fetch a single profile picture (on-demand for new conversations) ──
 async function fetchProfilePicture(
     tenantId: string,
@@ -653,6 +734,8 @@ async function createSession(tenantId: string): Promise<void> {
             setTimeout(() => resolveGroupNames(tenantId, socket), 10000);
             setTimeout(() => syncCachedContactsToDB(tenantId), 12000); // Retroactively fix missing names
             setTimeout(() => resolveProfilePictures(tenantId, socket), 15000);
+            // Resolve LID JIDs after contacts have synced (contacts.upsert fires first)
+            setTimeout(() => resolveLidPhoneMappings(tenantId, socket), 25000);
 
             // Periodic refresh: re-fetch profile pictures every 6 hours (URLs expire)
             // Clear any previous interval first to prevent leak on reconnect
