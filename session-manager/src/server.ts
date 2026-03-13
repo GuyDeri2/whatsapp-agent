@@ -324,6 +324,38 @@ cron.schedule("*/5 * * * *", async () => {
     }
 });
 
+// ─── Auto-Unpause (40 minutes) ────────────────────────────────────────
+// Every 2 minutes: unpause conversations that have been paused for 40+ minutes.
+cron.schedule("*/2 * * * *", async () => {
+    try {
+        const { createClient } = await import("@supabase/supabase-js");
+        const supabase = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const cutoff = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+
+        const { data, error } = await supabase
+            .from("conversations")
+            .update({ is_paused: false })
+            .eq("is_paused", true)
+            .lt("updated_at", cutoff)
+            .select("id, tenant_id");
+
+        if (error) {
+            console.error("Auto-unpause cron error:", error.message);
+            return;
+        }
+
+        if (data && data.length > 0) {
+            console.log(`⏰ Auto-unpause: resumed ${data.length} conversation(s)`);
+        }
+    } catch (err: any) {
+        console.error("Auto-unpause cron fatal:", err.message);
+    }
+});
+
 // Run every night at 02:00 server time
 cron.schedule("0 2 * * *", async () => {
     console.log("⏰ Running daily batch learning for all tenants in 'learning' mode...");

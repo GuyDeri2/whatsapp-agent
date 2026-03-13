@@ -255,6 +255,7 @@ export function ChatTab({
                                 (r) => r.phone_number === conv.phone_number
                             );
                             return (
+                                <>
                                 <div className="relative z-10 flex items-center justify-between px-6 py-3 bg-neutral-900/90 backdrop-blur-md border-b border-white/10 shadow-sm shrink-0">
                                     <div className="flex items-center gap-3 min-w-0">
                                         {conv.profile_picture_url ? (
@@ -336,25 +337,25 @@ export function ChatTab({
                                         )}
                                     </div>
                                 </div>
+                                {/* Pause Banner */}
+                                {conv.is_paused && onTogglePause && (
+                                    <div className="relative z-10 bg-orange-500/10 border-b border-orange-500/20 px-4 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                                        <div className="flex items-center gap-2 text-sm text-orange-300 min-w-0">
+                                            <span className="shrink-0">⏸️</span>
+                                            <span className="font-medium">ה-AI מושהה — השיחה בטיפול ידני</span>
+                                            <PauseCountdown updatedAt={conv.updated_at} />
+                                        </div>
+                                        <button
+                                            className="shrink-0 px-3 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
+                                            onClick={() => onTogglePause(conv.id, true)}
+                                        >
+                                            ▶️ הפעל AI
+                                        </button>
+                                    </div>
+                                )}
+                                </>
                             );
                         })()}
-
-                        {/* Pause Banner */}
-                        {conv.is_paused && onTogglePause && (
-                            <div className="relative z-10 bg-orange-500/10 border-b border-orange-500/20 px-4 py-2.5 flex items-center justify-between gap-3 shrink-0">
-                                <div className="flex items-center gap-2 text-sm text-orange-300 min-w-0">
-                                    <span className="shrink-0">⏸️</span>
-                                    <span className="font-medium">ה-AI מושהה — השיחה בטיפול ידני</span>
-                                    <PauseCountdown updatedAt={conv.updated_at} />
-                                </div>
-                                <button
-                                    className="shrink-0 px-3 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
-                                    onClick={() => onTogglePause(conv.id, true)}
-                                >
-                                    ▶️ הפעל AI
-                                </button>
-                            </div>
-                        )}
 
                         {/* Messages List */}
                         <div className="relative z-10 flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 custom-scrollbar">
