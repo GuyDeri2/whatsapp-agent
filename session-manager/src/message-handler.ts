@@ -104,6 +104,7 @@ interface TenantConfig {
     whatsapp_phone: string | null;
     owner_phone: string | null;
     agent_respond_to_saved_contacts: boolean;
+    lead_webhook_url: string | null;
 }
 
 // ─── Tenant config cache (30s TTL) to avoid DB hit on every message ───
@@ -139,7 +140,7 @@ export async function handleIncomingMessage(
     } else {
         const { data: tenant, error: tenantError } = await supabase
             .from("tenants")
-            .select("agent_mode, agent_filter_mode, whatsapp_phone, owner_phone, agent_respond_to_saved_contacts")
+            .select("agent_mode, agent_filter_mode, whatsapp_phone, owner_phone, agent_respond_to_saved_contacts, lead_webhook_url")
             .eq("id", tenantId)
             .single();
 
@@ -379,7 +380,8 @@ export async function handleIncomingMessage(
                         remoteJid,
                         messageText, // this messageText is just the latest trigger, history will contain all
                         sendMessage,
-                        config.owner_phone
+                        config.owner_phone,
+                        config.lead_webhook_url
                     );
                 } finally {
                     activeGenerations.delete(debounceKey);
@@ -396,6 +398,38 @@ export async function handleIncomingMessage(
         case "paused":
             console.log(`[${tenantId}] ⏸️ Paused mode — message stored silently`);
             break;
+    }
+}
+
+// ─── Lead helpers ─────────────────────────────────────────────────────
+
+/** Extract the first email address found in recent user messages (newest first). */
+function extractEmailFromMessages(messages: { role: string; content: string }[]): string | null {
+    const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/i;
+    for (const msg of [...messages].reverse()) {
+        if (msg.role === "user") {
+            const match = msg.content.match(emailRegex);
+            if (match) return match[0];
+        }
+    }
+    return null;
+}
+
+/** Fire a lead webhook with the collected data. Silently swallows errors. */
+async function fireLeadWebhook(
+    webhookUrl: string,
+    tenantId: string,
+    payload: { name: string | null; phone: string; email: string | null; summary: string; timestamp: string }
+): Promise<void> {
+    try {
+        const res = await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        console.log(`[${tenantId}] 🔗 Lead webhook fired → ${webhookUrl} (${res.status})`);
+    } catch (err: any) {
+        console.error(`[${tenantId}] ❌ Lead webhook failed:`, err.message);
     }
 }
 
@@ -445,7 +479,8 @@ async function handleActiveMode(
     remoteJid: string,
     messageText: string,
     sendMessage: SendMessageFn,
-    ownerPhone: string | null
+    ownerPhone: string | null,
+    leadWebhookUrl: string | null
 ): Promise<void> {
     try {
         console.log(`[${tenantId}] 🤖 Active mode — generating AI reply...`);
@@ -524,6 +559,24 @@ async function handleActiveMode(
 
                 const summary = await summarizeConversationForHandoff(tenantId, conversationId);
                 const summarySection = summary ? `\n\n📋 *סיכום השיחה:*\n${summary}` : "";
+
+                // Fire lead webhook if configured
+                if (leadWebhookUrl) {
+                    const { data: recentMsgs } = await getSupabase()
+                        .from("messages")
+                        .select("role, content")
+                        .eq("conversation_id", conversationId)
+                        .order("created_at", { ascending: true })
+                        .limit(30);
+                    const email = extractEmailFromMessages(recentMsgs ?? []);
+                    await fireLeadWebhook(leadWebhookUrl, tenantId, {
+                        name: contactName,
+                        phone: customerPhone,
+                        email,
+                        summary,
+                        timestamp: new Date().toISOString(),
+                    });
+                }
 
                 const ownerNotification = [
                     `🔔 לקוח ממתין למענה אנושי!`,

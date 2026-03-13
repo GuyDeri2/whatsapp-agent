@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck } from "lucide-react";
+import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Webhook, CheckCircle2 } from "lucide-react";
 
 interface AgentLearning {
     id: string;
@@ -23,6 +23,10 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
 
     const [unanswered, setUnanswered] = useState<any[]>([]);
     const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+
+    const [webhookUrl, setWebhookUrl] = useState<string>(tenant?.lead_webhook_url ?? "");
+    const [webhookSaving, setWebhookSaving] = useState(false);
+    const [webhookSaved, setWebhookSaved] = useState(false);
 
     const fetchLearnings = async () => {
         if (!tenant?.id) return;
@@ -99,6 +103,18 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
 
     const activeUnanswered = unanswered.filter(q => !dismissedIds.includes(q.id));
 
+    const handleSaveWebhook = async () => {
+        setWebhookSaving(true);
+        await fetch(`/api/tenants/${tenant.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lead_webhook_url: webhookUrl || null }),
+        });
+        setWebhookSaving(false);
+        setWebhookSaved(true);
+        setTimeout(() => setWebhookSaved(false), 2500);
+    };
+
     return (
         <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
 
@@ -116,6 +132,55 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
                 <p className="text-neutral-400 text-sm max-w-3xl leading-relaxed pr-16 bg-white/5 inline-block px-4 py-2 rounded-lg border border-white/5">
                     כאן מרוכזות כל היכולות האוטומטיות שהסוכן למד משיחות עבר, או שהוספת ידנית. מידע זה משמש כבסיס הידע המרכזי לתשובותיו.
                 </p>
+            </div>
+
+            {/* Lead Webhook Section */}
+            <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 md:p-8 backdrop-blur-xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-64 h-64 bg-violet-500/10 rounded-full blur-[80px] -z-10 pointer-events-none"></div>
+
+                <div className="flex items-center gap-4 mb-2">
+                    <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0 ring-1 ring-violet-500/30">
+                        <Webhook className="w-5 h-5 text-violet-400" />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-white">Webhook לידים</h3>
+                        <p className="text-sm text-neutral-400">כשלקוח מועבר לנציג, שלח את פרטיו אוטומטית ל-Make / Zapier / CRM</p>
+                    </div>
+                </div>
+
+                <div className="mt-5 bg-black/30 border border-white/5 rounded-2xl p-4 text-xs text-neutral-400 mb-5 space-y-1">
+                    <p className="font-semibold text-neutral-300 mb-2">המידע שיישלח ב-POST:</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {[["👤 name", "שם הלקוח"], ["📞 phone", "מספר טלפון"], ["📧 email", "מייל שנאסף"], ["📋 summary", "סיכום השיחה"]].map(([field, label]) => (
+                            <div key={field} className="bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                                <div className="font-mono text-violet-400 font-semibold">{field}</div>
+                                <div className="text-neutral-500 text-[11px]">{label}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex gap-3 items-center">
+                    <input
+                        type="url"
+                        placeholder="https://hook.eu1.make.com/..."
+                        value={webhookUrl}
+                        onChange={e => setWebhookUrl(e.target.value)}
+                        className="flex-1 bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-violet-500/50 text-white text-sm transition-all placeholder:text-neutral-600"
+                        dir="ltr"
+                    />
+                    <button
+                        onClick={handleSaveWebhook}
+                        disabled={webhookSaving}
+                        className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all shrink-0 ${
+                            webhookSaved
+                                ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
+                                : "bg-violet-600 hover:bg-violet-500 text-white"
+                        }`}
+                    >
+                        {webhookSaved ? <><CheckCircle2 className="w-4 h-4" /> נשמר!</> : <><Save className="w-4 h-4" /> שמור</>}
+                    </button>
+                </div>
             </div>
 
             {/* Unanswered Questions Widget */}

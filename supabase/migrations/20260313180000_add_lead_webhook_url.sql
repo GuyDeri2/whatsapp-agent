@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lead_webhook_url TEXT DEFAULT NULL;
