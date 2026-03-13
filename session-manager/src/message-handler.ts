@@ -24,12 +24,18 @@ function getSupabase(): SupabaseClient {
 
 // ─── Rate limiting ────────────────────────────────────────────────────
 const replyTimestamps = new Map<string, number[]>();
-const MAX_REPLIES_PER_MINUTE = 15;
+const MAX_REPLIES_PER_MINUTE = 5;   // Conservative — human agents don't reply 15x/min
+const MAX_REPLIES_PER_DAY = 50;     // Safety cap per conversation per day
+
+// Daily counters: { date: "YYYY-MM-DD", count: number }
+const dailyReplyCounts = new Map<string, { date: string; count: number }>();
 
 // ─── Debouncing & Concurrency Locks ───────────────────────────────────
 const debounceTimers: Record<string, NodeJS.Timeout> = {};
-const activeGenerations = new Set<string>(); // Lock to prevent concurrent AI generation for the same conversation
-const DEBOUNCE_DELAY_MS = 2000; // 2 seconds — responsive but still batches rapid messages
+const activeGenerations = new Set<string>();
+
+// Randomised debounce: 1.5s–4.5s to avoid mechanical fixed-interval fingerprinting
+const getDebounceDelay = () => 1_500 + Math.floor(Math.random() * 3_000);
 
 export function clearPendingAiReply(tenantId: string, conversationId: string): void {
     const key = `${tenantId}_${conversationId}`;
@@ -43,11 +49,22 @@ export function clearPendingAiReply(tenantId: string, conversationId: string): v
 function isRateLimited(conversationId: string): boolean {
     const now = Date.now();
     const timestamps = replyTimestamps.get(conversationId) ?? [];
-    // Keep only timestamps from the last 60 seconds
-    const recent = timestamps.filter((t) => now - t < 60000);
+    const recent = timestamps.filter((t) => now - t < 60_000);
     replyTimestamps.set(conversationId, recent);
     if (recent.length >= MAX_REPLIES_PER_MINUTE) return true;
     recent.push(now);
+    return false;
+}
+
+function isDailyLimitReached(conversationId: string): boolean {
+    const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const entry = dailyReplyCounts.get(conversationId);
+    if (!entry || entry.date !== today) {
+        dailyReplyCounts.set(conversationId, { date: today, count: 1 });
+        return false;
+    }
+    if (entry.count >= MAX_REPLIES_PER_DAY) return true;
+    entry.count++;
     return false;
 }
 
@@ -109,25 +126,25 @@ export async function handleIncomingMessage(
     const phoneNumber = remoteJid.split("@")[0];
     const isGroupChat = remoteJid.endsWith("@g.us");
 
-    // Silently ignore known Meta/WhatsApp system JIDs (automated probes)
-    const META_SYSTEM_JIDS = new Set([
-        "0@s.whatsapp.net",           // WhatsApp system
-        "status@broadcast",            // Status broadcast
-        "16315555555@s.whatsapp.net",  // WhatsApp helpdesk
-        "12036315555@s.whatsapp.net",  // Meta probe
-        "12036315956@s.whatsapp.net",
-        "12036315957@s.whatsapp.net",
-        "12036315958@s.whatsapp.net",
-        "12036315959@s.whatsapp.net",
-    ]);
-    // Also skip any JID that looks like a Meta probe range (1203631XXXX)
-    const isMetaProbe =
-        META_SYSTEM_JIDS.has(remoteJid) ||
-        /^1203631\d{4}@s\.whatsapp\.net$/.test(remoteJid) ||
-        remoteJid.endsWith("@broadcast");
+    // ── Silently ignore Meta/WhatsApp system and probe JIDs ──────────────
+    const isSystemJid =
+        // Broadcast / newsletter / channel — never reply
+        remoteJid.endsWith("@broadcast") ||
+        remoteJid.endsWith("@newsletter") ||
+        // Known WhatsApp internal numbers
+        remoteJid === "0@s.whatsapp.net" ||
+        remoteJid === "status@broadcast" ||
+        // WhatsApp helpdesk / support numbers
+        remoteJid === "16315555555@s.whatsapp.net" ||
+        remoteJid === "18005550001@s.whatsapp.net" ||
+        // Meta automated probe ranges
+        /^1203631\d{4}@s\.whatsapp\.net$/.test(remoteJid) ||  // 1203631XXXX
+        /^1650\d{7}@s\.whatsapp\.net$/.test(remoteJid) ||      // 1650XXXXXXX (Meta HQ range)
+        // Numeric-only JIDs with ≤ 3 digits — always system accounts
+        /^\d{1,3}@s\.whatsapp\.net$/.test(remoteJid);
 
-    if (isMetaProbe) {
-        console.log(`[${tenantId}] 🛡️ Ignored Meta/system JID: ${remoteJid}`);
+    if (isSystemJid) {
+        console.log(`[${tenantId}] 🛡️ Ignored system/probe JID: ${remoteJid}`);
         return;
     }
 
@@ -278,13 +295,17 @@ export async function handleIncomingMessage(
                 return;
             }
 
-            // Rate limit: max 15 AI replies per minute per conversation
+            // Rate limits
             if (isRateLimited(conversationId)) {
-                console.log(`[${tenantId}] ⏱️ Rate limited — skipping AI reply for ${phoneNumber}`);
+                console.log(`[${tenantId}] ⏱️ Per-minute rate limit — skipping AI reply for ${phoneNumber}`);
+                return;
+            }
+            if (isDailyLimitReached(conversationId)) {
+                console.log(`[${tenantId}] 📅 Daily limit reached — skipping AI reply for ${phoneNumber}`);
                 return;
             }
 
-            // --- DEBOUNCE LOGIC ---
+            // Debounce with randomised delay (1.5s–4.5s) to avoid mechanical patterns
             if (debounceTimers[debounceKey]) {
                 clearTimeout(debounceTimers[debounceKey]);
                 console.log(`[${tenantId}] ⏳ Debouncing rapid message from ${phoneNumber}...`);
@@ -313,7 +334,7 @@ export async function handleIncomingMessage(
                 } finally {
                     activeGenerations.delete(debounceKey);
                 }
-            }, DEBOUNCE_DELAY_MS);
+            }, getDebounceDelay());
 
             break;
 
@@ -407,8 +428,12 @@ async function handleActiveMode(
 
         // If pausing, send a clear handoff notification (separate message after the AI reply)
         if (shouldPause) {
-            const handoffMsg =
-                "תודה על פנייתך. על מנת לתת לך את השירות הטוב ביותר, שיחה זו מועברת כעת לנציג אנושי שיחזור אליך בהקדם. 🙏";
+            const HANDOFF_VARIANTS = [
+                "תודה על פנייתך. על מנת לתת לך את השירות הטוב ביותר, שיחה זו מועברת לנציג אנושי שיחזור אליך בהקדם. 🙏",
+                "תודה שפנית אלינו! הנושא הועבר לנציג מטעמנו שיצור איתך קשר בהקדם האפשרי. 🙏",
+                "קיבלנו את פנייתך ✅ אחד מהנציגים שלנו יחזור אליך בהקדם האפשרי.",
+            ];
+            const handoffMsg = HANDOFF_VARIANTS[Math.floor(Math.random() * HANDOFF_VARIANTS.length)];
             const handoffSent = await sendMessage(remoteJid, { text: handoffMsg });
             await getSupabase().from("messages").insert({
                 conversation_id: conversationId,

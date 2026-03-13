@@ -14,6 +14,7 @@ import {
     makeCacheableSignalKeyStore,
     downloadMediaMessage,
     WASocket,
+    Browsers,
 } from "@whiskeysockets/baileys";
 import { proto } from "@whiskeysockets/baileys";
 import QRCode from "qrcode";
@@ -158,6 +159,24 @@ function notifyQRUpdate(tenantId: string, qrDataUrl: string | null) {
 
 // ─── Logger ───────────────────────────────────────────────────────────
 const logger = pino({ level: "warn" });
+
+// ─── Human-like send wrapper ──────────────────────────────────────────
+// Simulates typing before each AI reply so the connection looks human.
+function makeHumanSend(socket: WASocket) {
+    return async (jid: string, content: { text: string }) => {
+        // Only simulate typing for individual chats (not groups / system JIDs)
+        if (jid.endsWith("@s.whatsapp.net")) {
+            const words = content.text.trim().split(/\s+/).length;
+            // ~40 wpm typing speed, capped at 5s, plus 0-1.5s random jitter
+            const typingMs = Math.min(Math.ceil((words / 40) * 60_000), 5_000)
+                + Math.floor(Math.random() * 1_500);
+            await socket.sendPresenceUpdate("composing", jid);
+            await new Promise((r) => setTimeout(r, typingMs));
+            await socket.sendPresenceUpdate("paused", jid);
+        }
+        return socket.sendMessage(jid, content);
+    };
+}
 
 // ─── Public API ───────────────────────────────────────────────────────
 
@@ -488,20 +507,17 @@ async function createSession(tenantId: string): Promise<void> {
     const socket = makeWASocket({
         version,
         logger,
+        browser: Browsers.ubuntu("Chrome"),  // Appear as Chrome on Linux — not "Baileys"
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger),
         },
         printQRInTerminal: false,
         generateHighQualityLinkPreview: false,
-        syncFullHistory: false, // Turned off to prevent massive history sync bottlenecks
-        markOnlineOnConnect: false, // Stop continuous "Sync completed" notifications
-        keepAliveIntervalMs: 15_000, // Explicit 15s ping to prevent silent WebSocket drops (fixes message delays)
-        getMessage: async (key) => {
-            return {
-                conversation: "hello"
-            }
-        }
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        keepAliveIntervalMs: 15_000,
+        getMessage: async () => ({ conversation: "hello" }),
     });
 
     // Preserve retry count from previous session if it exists
@@ -754,8 +770,11 @@ async function createSession(tenantId: string): Promise<void> {
         const sessionInfo = sessions.get(tenantId);
 
         for (const msg of upsert.messages) {
-            // Skip status broadcasts and protocol messages
+            // Skip status broadcasts, newsletters, and protocol messages
+            if (!msg.key.remoteJid) continue;
             if (msg.key.remoteJid === "status@broadcast") continue;
+            if (msg.key.remoteJid.endsWith("@newsletter")) continue;
+            if (msg.key.remoteJid.endsWith("@broadcast")) continue;
             if (msg.message?.protocolMessage) continue;
 
             // ── Handle outgoing messages (isFromMe) ──
@@ -976,7 +995,7 @@ async function createSession(tenantId: string): Promise<void> {
                     mediaUrl,
                     mediaType,
                     waMessageId,
-                    socket.sendMessage.bind(socket),
+                    makeHumanSend(socket),
                     isMentioned
                 );
 
