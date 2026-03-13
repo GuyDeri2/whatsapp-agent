@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Rocket, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { Rocket, Mail, Lock, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function RegisterPage() {
@@ -12,6 +12,7 @@ export default function RegisterPage() {
     const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [emailSent, setEmailSent] = useState(false);
     const router = useRouter();
     const supabase = createClient();
 
@@ -20,7 +21,7 @@ export default function RegisterPage() {
         setLoading(true);
         setError(null);
 
-        const { error: signUpError } = await supabase.auth.signUp({
+        const { data: { session }, error: signUpError } = await supabase.auth.signUp({
             email,
             password,
             options: {
@@ -30,6 +31,10 @@ export default function RegisterPage() {
 
         if (signUpError) {
             setError(signUpError.message);
+            setLoading(false);
+        } else if (!session) {
+            // Email confirmation required — session is null until user clicks the link
+            setEmailSent(true);
             setLoading(false);
         } else {
             window.location.href = "/dashboard";
@@ -45,6 +50,33 @@ export default function RegisterPage() {
         });
         if (googleError) setError(googleError.message);
     };
+
+    if (emailSent) {
+        return (
+            <div className="min-h-screen bg-black flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden font-sans" dir="rtl">
+                <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-emerald-600/20 blur-[120px] pointer-events-none" />
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="sm:mx-auto sm:w-full sm:max-w-md relative z-10"
+                >
+                    <div className="bg-white/[0.03] backdrop-blur-xl py-10 px-6 shadow-2xl sm:rounded-3xl border border-white/10 sm:px-10 text-center flex flex-col items-center">
+                        <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-6 border border-emerald-500/20">
+                            <CheckCircle2 className="w-9 h-9 text-emerald-400" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white mb-3">בדוק את המייל שלך</h2>
+                        <p className="text-neutral-400 text-sm leading-relaxed mb-2">
+                            שלחנו קישור אישור לכתובת
+                        </p>
+                        <p className="text-emerald-400 font-medium mb-6">{email}</p>
+                        <p className="text-neutral-500 text-sm">
+                            לחץ על הקישור במייל כדי לאשר את החשבון ולהמשיך להרשמה.
+                        </p>
+                    </div>
+                </motion.div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-black flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden font-sans selection:bg-emerald-500/30">
