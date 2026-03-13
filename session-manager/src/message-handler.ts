@@ -83,6 +83,14 @@ function isDailyLimitReached(conversationId: string): boolean {
     return false;
 }
 
+/** Convert international Israeli format (972XXXXXXXXX) to local (0XXXXXXXXX) */
+function toLocalPhone(phone: string): string {
+    if (phone.startsWith("972") && phone.length >= 11 && phone.length <= 12) {
+        return "0" + phone.substring(3);
+    }
+    return phone;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────
 interface TenantConfig {
     agent_mode: "learning" | "active" | "paused";
@@ -486,7 +494,7 @@ async function handleActiveMode(
         // Notify the business owner on their personal WhatsApp number
         if (shouldPause) {
             if (ownerPhone) {
-                const customerPhone = remoteJid.split("@")[0];
+                const customerPhone = toLocalPhone(remoteJid.split("@")[0]);
                 const { data: conv } = await getSupabase()
                     .from("conversations")
                     .select("contact_name")

@@ -459,8 +459,8 @@ export default function TenantPage() {
             await fetchContactRules();
             showToast(
                 ruleType === "allow"
-                    ? `${conv.contact_name || conv.phone_number} נוסף לרשימה הלבנה`
-                    : `${conv.contact_name || conv.phone_number} נחסם`,
+                    ? `${conv.contact_name || formatPhone(conv.phone_number)} נוסף לרשימה הלבנה`
+                    : `${conv.contact_name || formatPhone(conv.phone_number)} נחסם`,
                 "success"
             );
         }
