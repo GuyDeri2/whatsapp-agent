@@ -380,13 +380,29 @@ async function handleActiveMode(
             aiWaMessageId = sentMsg?.key?.id || null;
         }
 
-        // Store AI reply with wa_message_id so the echo-back from Baileys is deduped
-        if (aiReply.length > 0 || shouldPause) {
+        // If pausing, send a clear handoff notification (separate message after the AI reply)
+        if (shouldPause) {
+            const handoffMsg =
+                "תודה על פנייתך. על מנת לתת לך את השירות הטוב ביותר, שיחה זו מועברת כעת לנציג אנושי שיחזור אליך בהקדם. 🙏";
+            const handoffSent = await sendMessage(remoteJid, { text: handoffMsg });
             await getSupabase().from("messages").insert({
                 conversation_id: conversationId,
                 tenant_id: tenantId,
                 role: "assistant",
-                content: aiReply.length > 0 ? aiReply : "השיחה הועברה לנציג אנושי.",
+                content: handoffMsg,
+                is_from_agent: true,
+                wa_message_id: handoffSent?.key?.id || null,
+                status: "sent",
+            });
+        }
+
+        // Store AI reply with wa_message_id so the echo-back from Baileys is deduped
+        if (aiReply.length > 0) {
+            await getSupabase().from("messages").insert({
+                conversation_id: conversationId,
+                tenant_id: tenantId,
+                role: "assistant",
+                content: aiReply,
                 is_from_agent: true,
                 wa_message_id: aiWaMessageId,
                 status: "sent",
