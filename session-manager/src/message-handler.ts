@@ -10,6 +10,12 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { proto } from "@whiskeysockets/baileys";
 import { generateReply } from "./ai-agent";
 
+// ─── LID resolver (injected by session-manager to avoid circular dep) ─
+let _lidResolver: ((tenantId: string, jid: string) => string) | null = null;
+export function setLidResolver(fn: (tenantId: string, jid: string) => string): void {
+    _lidResolver = fn;
+}
+
 // ─── Supabase singleton ───────────────────────────────────────────────
 let _supabase: SupabaseClient | null = null;
 
@@ -472,10 +478,22 @@ async function handleActiveMode(
             aiReply = HANDOFF_FALLBACKS[Math.floor(Math.random() * HANDOFF_FALLBACKS.length)];
         }
 
+        // Re-resolve LID JID at send time — the map may have been built after message arrived
+        let sendJid = remoteJid;
+        if (sendJid.endsWith("@lid") && _lidResolver) {
+            const resolved = _lidResolver(tenantId, sendJid);
+            if (!resolved.endsWith("@lid")) {
+                console.log(`[${tenantId}] 🔗 Late LID resolution before send: ${sendJid} → ${resolved}`);
+                sendJid = resolved;
+            } else {
+                console.warn(`[${tenantId}] ⚠️ Cannot resolve LID ${sendJid} — AI reply will NOT be delivered on WhatsApp`);
+            }
+        }
+
         // Send the single message to the customer and register its ID to suppress Baileys echo
         let aiWaMessageId: string | null = null;
         if (aiReply.length > 0) {
-            const sentMsg = await sendMessage(remoteJid, { text: aiReply });
+            const sentMsg = await sendMessage(sendJid, { text: aiReply });
             aiWaMessageId = sentMsg?.key?.id || null;
             markAgentSent(aiWaMessageId); // prevent echo re-storage as "owner"
 

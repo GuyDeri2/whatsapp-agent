@@ -22,7 +22,9 @@ import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
 import { useSupabaseAuthState, clearSessionData, flushCacheToDB, stopBackgroundSync } from "./session-store";
-import { handleIncomingMessage, clearPendingAiReply } from "./message-handler";
+import { handleIncomingMessage, clearPendingAiReply, setLidResolver } from "./message-handler";
+// Inject LID resolver so message-handler can re-resolve JIDs at send time
+setLidResolver((tenantId, jid) => resolveLidJid(tenantId, jid));
 import { transcribeAudioBuffer } from "./transcribe";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -122,19 +124,27 @@ function findPhoneByPushName(tenantId: string, pushName: string): string | null 
  */
 async function fixLidConversation(tenantId: string, lidNum: string, realPhone: string): Promise<void> {
     const supabase = getSupabase();
-    const { data: existing } = await supabase
-        .from("conversations")
-        .select("id")
-        .eq("tenant_id", tenantId)
-        .eq("phone_number", realPhone)
-        .maybeSingle();
-    if (!existing) {
-        await supabase
-            .from("conversations")
-            .update({ phone_number: realPhone })
-            .eq("tenant_id", tenantId)
-            .eq("phone_number", lidNum);
-        console.log(`[${tenantId}] ✅ DB: LID conversation renamed: ${lidNum} → ${realPhone}`);
+
+    const { data: lidConv } = await supabase
+        .from("conversations").select("id")
+        .eq("tenant_id", tenantId).eq("phone_number", lidNum).maybeSingle();
+    if (!lidConv) return; // Nothing to fix
+
+    const { data: realConv } = await supabase
+        .from("conversations").select("id")
+        .eq("tenant_id", tenantId).eq("phone_number", realPhone).maybeSingle();
+
+    if (!realConv) {
+        // Simple case: no real-phone conversation yet — rename LID conversation
+        await supabase.from("conversations")
+            .update({ phone_number: realPhone }).eq("id", lidConv.id);
+        console.log(`[${tenantId}] ✅ LID conversation renamed: ${lidNum} → ${realPhone}`);
+    } else {
+        // Both exist: move messages from LID conversation to real one, then delete LID
+        await supabase.from("messages")
+            .update({ conversation_id: realConv.id }).eq("conversation_id", lidConv.id);
+        await supabase.from("conversations").delete().eq("id", lidConv.id);
+        console.log(`[${tenantId}] 🔀 LID conversation merged into real: ${lidNum} → ${realPhone}`);
     }
 }
 
@@ -600,24 +610,8 @@ async function resolveLidPhoneMappings(tenantId: string, socket: any): Promise<v
         for (const lidConv of lidConversations) {
             const realPhone = map.get(lidConv.phone_number as string);
             if (!realPhone) continue;
-
-            // Only rename if there is no existing conversation under the real phone
-            const { data: existing } = await supabase
-                .from("conversations")
-                .select("id")
-                .eq("tenant_id", tenantId)
-                .eq("phone_number", realPhone)
-                .maybeSingle();
-
-            if (!existing) {
-                await supabase
-                    .from("conversations")
-                    .update({ phone_number: realPhone })
-                    .eq("id", lidConv.id);
-                console.log(`[${tenantId}] ✅ Fixed LID conversation: ${lidConv.phone_number} → ${realPhone}`);
-            } else {
-                console.log(`[${tenantId}] ⚠️ LID conversation already has a real-phone counterpart, skipping rename: ${lidConv.phone_number}`);
-            }
+            // fixLidConversation handles both cases: rename-only and merge-when-both-exist
+            await fixLidConversation(tenantId, lidConv.phone_number as string, realPhone);
         }
     }
 }
