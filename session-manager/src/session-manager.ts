@@ -97,6 +97,48 @@ function buildLidMapping(tenantId: string, contact: { id?: string; lid?: string;
 }
 
 /**
+ * Reverse-lookup a contact's phone number by their WhatsApp display name (pushName).
+ * Returns the phone number only when exactly ONE contact in the cache has that name,
+ * to avoid false matches. Returns null if ambiguous or not found.
+ */
+function findPhoneByPushName(tenantId: string, pushName: string): string | null {
+    const cache = tenantContactsCache.get(tenantId);
+    if (!cache) return null;
+    const nameLower = pushName.toLowerCase();
+    let match: string | null = null;
+    let count = 0;
+    for (const [phone, name] of cache) {
+        if (name.toLowerCase() === nameLower) {
+            match = phone;
+            if (++count > 1) return null; // ambiguous
+        }
+    }
+    return count === 1 ? match : null;
+}
+
+/**
+ * Rename a conversation stored under a LID phone number to the real phone number.
+ * Skips if a conversation with the real phone already exists (no merge needed for now).
+ */
+async function fixLidConversation(tenantId: string, lidNum: string, realPhone: string): Promise<void> {
+    const supabase = getSupabase();
+    const { data: existing } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("phone_number", realPhone)
+        .maybeSingle();
+    if (!existing) {
+        await supabase
+            .from("conversations")
+            .update({ phone_number: realPhone })
+            .eq("tenant_id", tenantId)
+            .eq("phone_number", lidNum);
+        console.log(`[${tenantId}] ✅ DB: LID conversation renamed: ${lidNum} → ${realPhone}`);
+    }
+}
+
+/**
  * If `jid` ends with `@lid`, return the resolved `PHONE@s.whatsapp.net` JID.
  * Otherwise return `jid` unchanged.
  */
@@ -1106,7 +1148,22 @@ async function createSession(tenantId: string): Promise<void> {
 
             const rawJid = msg.key.remoteJid!;
             // Resolve LID JID (e.g. 240213326622964@lid) to real phone JID
-            const remoteJid = resolveLidJid(tenantId, rawJid);
+            let remoteJid = resolveLidJid(tenantId, rawJid);
+
+            // Fallback: if still unresolved LID, try matching pushName against contacts cache
+            if (remoteJid.endsWith("@lid") && msg.pushName) {
+                const realPhone = findPhoneByPushName(tenantId, msg.pushName);
+                if (realPhone) {
+                    const lidNum = rawJid.split("@")[0];
+                    let map = tenantLidToPhone.get(tenantId);
+                    if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
+                    map.set(lidNum, realPhone);
+                    remoteJid = `${realPhone}@s.whatsapp.net`;
+                    console.log(`[${tenantId}] 🔗 LID resolved via pushName: ${lidNum} → ${realPhone} (${msg.pushName})`);
+                    fixLidConversation(tenantId, lidNum, realPhone).catch(() => {});
+                }
+            }
+
             let contactName = msg.pushName ?? null;
             let senderName = msg.pushName ?? null;
 
@@ -1242,11 +1299,38 @@ async function createSession(tenantId: string): Promise<void> {
         let withPushOnly = 0;
         let noName = 0;
 
+        // Two-pass name correlation:
+        // Baileys sends separate entries for phone-JID and LID-JID of the same person.
+        // If both arrive in the same batch with the same name, we can cross-map them.
+        const batchNameToPhone = new Map<string, string>();
+        for (const c of contacts) {
+            if (c.id?.endsWith("@s.whatsapp.net")) {
+                const name = c.name || c.notify;
+                if (name) batchNameToPhone.set(name.toLowerCase(), c.id.split("@")[0]);
+            }
+        }
+        for (const c of contacts) {
+            if (!c.id?.endsWith("@lid")) continue;
+            const name = c.name || c.notify;
+            if (!name) continue;
+            const realPhone = batchNameToPhone.get(name.toLowerCase());
+            if (realPhone) {
+                const lidNum = c.id.split("@")[0];
+                let map = tenantLidToPhone.get(tenantId);
+                if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
+                if (!map.has(lidNum)) {
+                    map.set(lidNum, realPhone);
+                    console.log(`[${tenantId}] 🔗 LID resolved via batch name: ${lidNum} → ${realPhone} (${name})`);
+                    fixLidConversation(tenantId, lidNum, realPhone).catch(() => {});
+                }
+            }
+        }
+
         for (const contact of contacts) {
             if (!contact.id) continue;
             if (contact.id === "status@broadcast") continue;
 
-            // Build LID → real phone mapping so LID-based messages resolve correctly
+            // Build LID → real phone mapping (when both lid+jid fields are present on one object)
             buildLidMapping(tenantId, contact);
 
             // Use resolved phone number (LID → real phone if applicable)
