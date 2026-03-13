@@ -56,6 +56,7 @@ interface TenantConfig {
     agent_mode: "learning" | "active" | "paused";
     agent_filter_mode: "all" | "whitelist" | "blacklist";
     whatsapp_phone: string | null;
+    owner_phone: string | null;
     agent_respond_to_saved_contacts: boolean;
 }
 
@@ -92,7 +93,7 @@ export async function handleIncomingMessage(
     } else {
         const { data: tenant, error: tenantError } = await supabase
             .from("tenants")
-            .select("agent_mode, agent_filter_mode, whatsapp_phone, agent_respond_to_saved_contacts")
+            .select("agent_mode, agent_filter_mode, whatsapp_phone, owner_phone, agent_respond_to_saved_contacts")
             .eq("id", tenantId)
             .single();
 
@@ -284,7 +285,8 @@ export async function handleIncomingMessage(
                         conversationId,
                         remoteJid,
                         messageText, // this messageText is just the latest trigger, history will contain all
-                        sendMessage
+                        sendMessage,
+                        config.owner_phone
                     );
                 } finally {
                     activeGenerations.delete(debounceKey);
@@ -349,7 +351,8 @@ async function handleActiveMode(
     conversationId: string,
     remoteJid: string,
     messageText: string,
-    sendMessage: SendMessageFn
+    sendMessage: SendMessageFn,
+    ownerPhone: string | null
 ): Promise<void> {
     try {
         console.log(`[${tenantId}] 🤖 Active mode — generating AI reply...`);
@@ -394,6 +397,23 @@ async function handleActiveMode(
                 wa_message_id: handoffSent?.key?.id || null,
                 status: "sent",
             });
+
+            // Notify the business owner on their personal phone
+            if (ownerPhone) {
+                const customerPhone = remoteJid.split("@")[0];
+                const { data: conv } = await getSupabase()
+                    .from("conversations")
+                    .select("contact_name")
+                    .eq("id", conversationId)
+                    .single();
+                const contactDisplay = conv?.contact_name
+                    ? `${conv.contact_name} (${customerPhone})`
+                    : customerPhone;
+                const ownerNotification = `🔔 לקוח ממתין למענה אנושי!\n\nשם: ${contactDisplay}\nטלפון: ${customerPhone}\n\nהלקוח פנה לוואטסאפ העסקי שלך וסוכן ה-AI הפנה אותו לטיפול ידני.`;
+                const ownerJid = `${ownerPhone.replace(/\D/g, "")}@s.whatsapp.net`;
+                await sendMessage(ownerJid, { text: ownerNotification });
+                console.log(`[${tenantId}] 📱 Owner notified at ${ownerPhone} about customer handoff: ${customerPhone}`);
+            }
         }
 
         // Store AI reply with wa_message_id so the echo-back from Baileys is deduped

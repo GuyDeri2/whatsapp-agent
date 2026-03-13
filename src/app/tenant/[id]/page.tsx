@@ -131,6 +131,7 @@ export default function TenantPage() {
         products: "",
         target_customers: "",
         agent_respond_to_saved_contacts: true,
+        owner_phone: "",
     });
 
     const [newMessage, setNewMessage] = useState("");
@@ -170,6 +171,7 @@ export default function TenantPage() {
                 products: data.products || "",
                 target_customers: data.target_customers || "",
                 agent_respond_to_saved_contacts: data.agent_respond_to_saved_contacts ?? true,
+                owner_phone: data.owner_phone || "",
             });
         }
     }, [supabase, tenantId]);

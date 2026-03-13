@@ -30,6 +30,7 @@ export async function PATCH(
         "agent_prompt",
         "agent_filter_mode",
         "agent_respond_to_saved_contacts",
+        "owner_phone",
     ];
 
     const updates: Record<string, any> = {};

@@ -1,5 +1,5 @@
 import React from "react";
-import { Settings, Info, Briefcase, BookOpen, Target, Package, Save, Loader2, Users } from "lucide-react";
+import { Settings, Info, Briefcase, BookOpen, Target, Package, Save, Loader2, Users, Phone } from "lucide-react";
 
 interface Tenant {
     id: string;
@@ -18,6 +18,7 @@ interface SettingsTabProps {
         products: string;
         target_customers: string;
         agent_respond_to_saved_contacts: boolean;
+        owner_phone: string;
     };
     setEditForm: React.Dispatch<React.SetStateAction<any>>;
     handleSaveSettings: (e: React.FormEvent) => Promise<void>;
@@ -143,6 +144,25 @@ export function SettingsTab({
                                     </p>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Owner Personal Phone */}
+                        <div className="group">
+                            <label className="flex items-center gap-2 text-sm font-medium text-neutral-300 mb-2 ml-1">
+                                <Phone className="w-4 h-4 text-emerald-400" />
+                                מספר טלפון אישי (לקבלת התראות)
+                            </label>
+                            <input
+                                type="tel"
+                                value={editForm.owner_phone}
+                                onChange={(e) => setEditForm({ ...editForm, owner_phone: e.target.value })}
+                                dir="ltr"
+                                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all placeholder-neutral-600 group-hover:border-white/20"
+                                placeholder="972501234567"
+                            />
+                            <p className="text-xs text-neutral-500 mt-1.5 mr-1">
+                                כשהבוט מעביר שיחה לאדם אמיתי, תקבל הודעת וואטסאפ עם פרטי הלקוח. הכנס מספר בפורמט בינלאומי ללא +.
+                            </p>
                         </div>
 
                         <div className="pt-4 flex justify-end">
