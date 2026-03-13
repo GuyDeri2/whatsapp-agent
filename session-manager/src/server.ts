@@ -285,6 +285,45 @@ app.listen(PORT, HOST, async () => {
 
 import cron from "node-cron";
 
+// ─── Session Watchdog (Auto-Recovery) ────────────────────────────────
+// Every 5 minutes: find sessions with saved creds that aren't in memory, and restart them.
+// This recovers sessions that died after MAX_RETRIES or after a server restart.
+cron.schedule("*/5 * * * *", async () => {
+    try {
+        const activeSessions = getActiveSessions();
+        const { createClient } = await import("@supabase/supabase-js");
+        const supabase = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data: sessionsWithCreds } = await supabase
+            .from("whatsapp_sessions")
+            .select("tenant_id")
+            .eq("session_key", "creds");
+
+        if (!sessionsWithCreds || sessionsWithCreds.length === 0) return;
+
+        const uniqueTenants = [...new Set(sessionsWithCreds.map((s) => s.tenant_id))];
+        const deadTenants = uniqueTenants.filter((id) => !activeSessions.includes(id));
+
+        if (deadTenants.length === 0) return;
+
+        console.log(`🔍 Watchdog: ${deadTenants.length} dead session(s) detected. Restarting...`);
+        for (const tenantId of deadTenants) {
+            try {
+                console.log(`[${tenantId}] 🔄 Watchdog restarting session...`);
+                await startSession(tenantId);
+                await new Promise((r) => setTimeout(r, 3000));
+            } catch (err: any) {
+                console.error(`[${tenantId}] Watchdog restart failed:`, err.message);
+            }
+        }
+    } catch (err: any) {
+        console.error("Session watchdog error:", err.message);
+    }
+});
+
 // Run every night at 02:00 server time
 cron.schedule("0 2 * * *", async () => {
     console.log("⏰ Running daily batch learning for all tenants in 'learning' mode...");

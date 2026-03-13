@@ -17,5 +17,9 @@ services:
         sync: false
       - key: DEEPSEEK_API_KEY
         sync: false
+      - key: SESSION_MANAGER_SECRET
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
       - key: PORT
         value: 3001
