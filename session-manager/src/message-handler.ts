@@ -185,6 +185,56 @@ export async function handleIncomingMessage(
     const phoneNumber = remoteJid.split("@")[0];
     const isGroupChat = remoteJid.endsWith("@g.us");
 
+    // ── Owner forwarding: if this message is FROM the owner's personal phone ──
+    // When the owner sends a message to the business WhatsApp number from their
+    // personal phone, we forward it to the most recently paused conversation.
+    if (config.owner_phone && !isGroupChat) {
+        let ownerDigits = config.owner_phone.replace(/\D/g, "");
+        if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
+            ownerDigits = "972" + ownerDigits.substring(1);
+        }
+        const ownerJid = `${ownerDigits}@s.whatsapp.net`;
+
+        if (remoteJid === ownerJid) {
+            // This is the owner messaging the business phone — forward to paused conversation
+            const { data: pausedConv } = await supabase
+                .from("conversations")
+                .select("id, phone_number, contact_name")
+                .eq("tenant_id", tenantId)
+                .eq("is_paused", true)
+                .order("updated_at", { ascending: false })
+                .limit(1)
+                .single();
+
+            if (pausedConv) {
+                const customerJid = `${pausedConv.phone_number}@s.whatsapp.net`;
+                const sent = await sendMessage(customerJid, { text: messageText });
+                markAgentSent(sent?.key?.id);
+
+                await supabase.from("messages").insert({
+                    conversation_id: pausedConv.id,
+                    tenant_id: tenantId,
+                    role: "owner",
+                    content: messageText,
+                    is_from_agent: false,
+                    wa_message_id: sent?.key?.id || null,
+                    status: "sent",
+                });
+
+                // Touch the conversation's updated_at
+                await supabase
+                    .from("conversations")
+                    .update({ updated_at: new Date().toISOString() })
+                    .eq("id", pausedConv.id);
+
+                console.log(`[${tenantId}] 👤 Owner reply forwarded to ${pausedConv.phone_number}`);
+            } else {
+                console.log(`[${tenantId}] 👤 Owner message received but no paused conversation to forward to`);
+            }
+            return; // Don't process owner's message as a normal incoming message
+        }
+    }
+
     // ── Ignore Baileys echo of messages sent by the AI agent ──────────────
     // When we send a message via socket.sendMessage, Baileys fires messages.upsert
     // with fromMe=true almost immediately — before our DB insert completes.
@@ -647,17 +697,19 @@ async function handleActiveMode(
 
             // Send WhatsApp notification to owner
             if (ownerPhone) {
-                const waLink = `https://wa.me/${internationalPhone}`;
-                const summarySection = summary ? `\n\n📋 *סיכום השיחה:*\n${summary}` : "";
+                const summarySection = summary ? `\n\n📋 סיכום:\n${summary}` : "";
 
                 const ownerNotification = [
-                    `🔔 לקוח ממתין למענה אנושי!`,
+                    `🔔 לקוח חדש ממתין לטיפולך!`,
                     ``,
-                    contactName ? `👤 שם: ${contactName}` : null,
+                    `👤 שם: ${contactName || "לא ידוע"}`,
                     `📞 טלפון: ${customerPhone}`,
-                    email ? `📧 מייל: ${email}` : null,
-                    `💬 פתח צ'אט: ${waLink}`,
+                    `📧 מייל: ${email || "לא סופק"}`,
                     summarySection,
+                    ``,
+                    `──────────────────`,
+                    `💬 כדי לענות ללקוח דרך הבוט:`,
+                    `פשוט כתוב כאן בצ'אט הזה והודעתך תועבר ללקוח אוטומטית.`,
                 ].filter((l) => l !== null).join("\n");
 
                 let ownerDigits = ownerPhone.replace(/\D/g, "");
