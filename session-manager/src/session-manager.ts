@@ -60,6 +60,54 @@ export function getCachedContactName(tenantId: string, phoneNumber: string): str
     return cache ? (cache.get(phoneNumber) || null) : null;
 }
 
+/**
+ * LID → real phone mapping.
+ * WhatsApp assigns pseudo-IDs (e.g. 240213326622964@lid) to some accounts.
+ * Baileys exposes both `lid` and `jid` on Contact objects, letting us resolve them.
+ */
+const tenantLidToPhone = new Map<string, Map<string, string>>();
+
+function buildLidMapping(tenantId: string, contact: { id?: string; lid?: string; jid?: string }): void {
+    let lidJid: string | null = null;
+    let phoneJid: string | null = null;
+
+    if (contact.id?.endsWith("@s.whatsapp.net") && contact.lid?.endsWith("@lid")) {
+        // Primary ID is phone JID; lid field has the LID
+        phoneJid = contact.id;
+        lidJid = contact.lid;
+    } else if (contact.id?.endsWith("@lid") && contact.jid?.endsWith("@s.whatsapp.net")) {
+        // Primary ID is LID; jid field has the real phone JID
+        lidJid = contact.id;
+        phoneJid = contact.jid;
+    }
+
+    if (!lidJid || !phoneJid) return;
+
+    let map = tenantLidToPhone.get(tenantId);
+    if (!map) {
+        map = new Map();
+        tenantLidToPhone.set(tenantId, map);
+    }
+    const lidNum = lidJid.split("@")[0];
+    const phoneNum = phoneJid.split("@")[0];
+    if (map.get(lidNum) !== phoneNum) {
+        map.set(lidNum, phoneNum);
+        console.log(`[${tenantId}] 🔗 LID resolved: ${lidNum} → ${phoneNum}`);
+    }
+}
+
+/**
+ * If `jid` ends with `@lid`, return the resolved `PHONE@s.whatsapp.net` JID.
+ * Otherwise return `jid` unchanged.
+ */
+export function resolveLidJid(tenantId: string, jid: string): string {
+    if (!jid.endsWith("@lid")) return jid;
+    const lidNum = jid.split("@")[0];
+    const map = tenantLidToPhone.get(tenantId);
+    const realPhone = map?.get(lidNum);
+    return realPhone ? `${realPhone}@s.whatsapp.net` : jid;
+}
+
 /** Save contacts cache to DB */
 async function saveContactsToDB(tenantId: string) {
     const cache = tenantContactsCache.get(tenantId);
@@ -675,8 +723,9 @@ async function createSession(tenantId: string): Promise<void> {
             // Process chats
             for (const chat of chats) {
                 if (!chat.id) continue;
-                const phoneNumber = chat.id.split("@")[0];
-                const isGroup = chat.id.endsWith("@g.us");
+                const resolvedChatId = resolveLidJid(tenantId, chat.id);
+                const phoneNumber = resolvedChatId.split("@")[0];
+                const isGroup = resolvedChatId.endsWith("@g.us");
                 let contactName = chat.name || null;
 
                 // Use conversationTimestamp from WhatsApp for proper sorting
@@ -725,9 +774,10 @@ async function createSession(tenantId: string): Promise<void> {
 
                 if (!textContent) continue;
 
-                const remoteJid = msg.key.remoteJid!;
-                const phoneNumber = remoteJid.split("@")[0];
-                const isGroup = remoteJid.endsWith("@g.us");
+                const rawMsgJid = msg.key.remoteJid!;
+                const resolvedMsgJid = resolveLidJid(tenantId, rawMsgJid);
+                const phoneNumber = resolvedMsgJid.split("@")[0];
+                const isGroup = resolvedMsgJid.endsWith("@g.us");
 
                 // Ensure conversation exists
                 const { data: conversation } = await supabase
@@ -971,7 +1021,9 @@ async function createSession(tenantId: string): Promise<void> {
 
             if (!textContent && !mediaUrl) continue;
 
-            const remoteJid = msg.key.remoteJid!;
+            const rawJid = msg.key.remoteJid!;
+            // Resolve LID JID (e.g. 240213326622964@lid) to real phone JID
+            const remoteJid = resolveLidJid(tenantId, rawJid);
             let contactName = msg.pushName ?? null;
             let senderName = msg.pushName ?? null;
 
@@ -1111,7 +1163,13 @@ async function createSession(tenantId: string): Promise<void> {
             if (!contact.id) continue;
             if (contact.id === "status@broadcast") continue;
 
-            const phoneNumber = contact.id.split("@")[0];
+            // Build LID → real phone mapping so LID-based messages resolve correctly
+            buildLidMapping(tenantId, contact);
+
+            // Use resolved phone number (LID → real phone if applicable)
+            const resolvedId = resolveLidJid(tenantId, contact.id);
+            const phoneNumber = resolvedId.split("@")[0];
+
             // contact.name = device contact name (what's in the phone book) — HIGHEST PRIORITY
             // contact.notify = WhatsApp push name (what the person set) — fallback
             const phonebookName = contact.name || null;
@@ -1169,7 +1227,9 @@ async function createSession(tenantId: string): Promise<void> {
             if (!update.id) continue;
             if (update.id === "status@broadcast") continue;
 
-            const phoneNumber = update.id.split("@")[0];
+            buildLidMapping(tenantId, update);
+            const resolvedId = resolveLidJid(tenantId, update.id);
+            const phoneNumber = resolvedId.split("@")[0];
             const phonebookName = update.name || null;  // Device contact name — HIGH priority
             const pushName = update.notify || null;       // WhatsApp push name — LOW priority
 
