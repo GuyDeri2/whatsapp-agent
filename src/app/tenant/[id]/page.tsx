@@ -95,14 +95,26 @@ function getInitials(name: string, isGroup: boolean): string {
 
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
     useEffect(() => {
-        const timer = setTimeout(onClose, 3000);
+        const timer = setTimeout(onClose, 3500);
         return () => clearTimeout(timer);
     }, [onClose]);
 
     return (
-        <div className={`toast toast-${type}`}>
-            <span>{type === "success" ? "✅" : "❌"} {message}</span>
-            <button onClick={onClose} className="toast-close">✕</button>
+        <div
+            className={`fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border backdrop-blur-xl text-sm font-medium transition-all animate-in fade-in slide-in-from-top-3 duration-300 ${
+                type === "success"
+                    ? "bg-emerald-900/90 border-emerald-500/40 text-emerald-100"
+                    : "bg-red-900/90 border-red-500/40 text-red-100"
+            }`}
+        >
+            <span>{type === "success" ? "✅" : "❌"}</span>
+            <span>{message}</span>
+            <button
+                onClick={onClose}
+                className="mr-1 opacity-60 hover:opacity-100 transition-opacity text-base leading-none"
+            >
+                ✕
+            </button>
         </div>
     );
 }
