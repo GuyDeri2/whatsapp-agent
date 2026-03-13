@@ -40,6 +40,37 @@ export async function PATCH(
         }
     }
 
+    const smUrl = process.env.SESSION_MANAGER_URL || "http://localhost:3001";
+    const smSecret = process.env.SESSION_MANAGER_SECRET || "";
+
+    // Normalize owner_phone before saving
+    let phoneWarning: string | null = null;
+    if (updates.owner_phone !== undefined && updates.owner_phone !== "") {
+        // Normalize: strip non-digits, convert 05x to 972x
+        let digits = String(updates.owner_phone).replace(/[^\d]/g, "");
+        if (digits.startsWith("0") && digits.length === 10) {
+            digits = "972" + digits.substring(1);
+        }
+        updates.owner_phone = digits;
+
+        // Validate against WhatsApp via session-manager
+        try {
+            const checkRes = await fetch(
+                `${smUrl}/sessions/${tenantId}/check-number?phone=${digits}`,
+                { headers: { Authorization: `Bearer ${smSecret}` } }
+            );
+            if (checkRes.ok) {
+                const checkData = await checkRes.json();
+                if (checkData.exists === false) {
+                    phoneWarning = `המספר ${digits} אינו רשום ב-WhatsApp`;
+                }
+                // exists === null means no active session — skip warning
+            }
+        } catch {
+            // Non-critical — session-manager unavailable
+        }
+    }
+
     const { data: tenant, error } = await supabase
         .from("tenants")
         .update(updates)
@@ -54,20 +85,20 @@ export async function PATCH(
     if (!tenant)
         return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    // Invalidate session-manager's tenant config cache so changes (e.g. owner_phone) take effect immediately
+    // Invalidate session-manager's tenant config cache so changes take effect immediately
     try {
         await fetch(
-            `${process.env.SESSION_MANAGER_URL || "http://localhost:3001"}/sessions/${tenantId}/invalidate-cache`,
+            `${smUrl}/sessions/${tenantId}/invalidate-cache`,
             {
                 method: "POST",
-                headers: { Authorization: `Bearer ${process.env.SESSION_MANAGER_SECRET || ""}` },
+                headers: { Authorization: `Bearer ${smSecret}` },
             }
         );
     } catch {
         // Non-critical — cache expires in 30s anyway
     }
 
-    return NextResponse.json({ tenant });
+    return NextResponse.json({ tenant, phoneWarning });
 }
 
 // DELETE /api/tenants/[tenantId] — delete tenant

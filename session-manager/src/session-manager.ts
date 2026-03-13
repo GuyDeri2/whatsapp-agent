@@ -350,6 +350,39 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
 }
 
 /**
+ * Normalize any phone number string to international format (digits only, e.g. 972526991415).
+ * Handles: 05x..., +972..., 972..., with spaces/dashes/parentheses.
+ */
+export function normalizePhone(raw: string): string {
+    // Remove everything except digits and leading +
+    let s = raw.replace(/[^\d+]/g, "");
+    // Strip leading +
+    s = s.replace(/^\+/, "");
+    // Israeli local: 05XXXXXXXX (10 digits starting with 0)
+    if (s.startsWith("0") && s.length === 10) {
+        s = "972" + s.substring(1);
+    }
+    return s;
+}
+
+/**
+ * Check whether a phone number is registered on WhatsApp.
+ * Returns the canonical JID if found, null if not found, or throws if no active session.
+ */
+export async function checkWhatsAppNumber(tenantId: string, phone: string): Promise<string | null> {
+    const session = sessions.get(tenantId);
+    if (!session || session.status !== "connected") {
+        throw new Error("No active WhatsApp session for this tenant");
+    }
+    const normalized = normalizePhone(phone);
+    const results = await session.socket.onWhatsApp(normalized);
+    if (results && results.length > 0 && results[0].exists) {
+        return results[0].jid;
+    }
+    return null;
+}
+
+/**
  * Restore all previously connected sessions on server start.
  */
 export async function restoreAllSessions(): Promise<void> {

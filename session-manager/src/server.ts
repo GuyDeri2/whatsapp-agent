@@ -17,6 +17,8 @@ import {
     removeQRUpdateCallback,
     sendMessage,
     reconnectSession,
+    checkWhatsAppNumber,
+    normalizePhone,
 } from "./session-manager";
 import { invalidateTenantConfigCache } from "./message-handler";
 import { runBatchLearning } from "./learning-engine";
@@ -171,6 +173,24 @@ app.post("/sessions/:tenantId/reconnect", async (req, res) => {
     } catch (error: any) {
         console.error(`Error reconnecting session for ${tenantId}:`, error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+/** Check if a phone number is registered on WhatsApp */
+app.get("/sessions/:tenantId/check-number", async (req, res) => {
+    const { tenantId } = req.params;
+    const phone = req.query.phone as string;
+    if (!phone) {
+        res.status(400).json({ error: "Missing phone query param" });
+        return;
+    }
+    const normalized = normalizePhone(phone);
+    try {
+        const jid = await checkWhatsAppNumber(tenantId, normalized);
+        res.json({ exists: !!jid, jid, normalized });
+    } catch (err: any) {
+        // Session not active — can't validate, return unknown
+        res.json({ exists: null, error: err.message, normalized });
     }
 });
 

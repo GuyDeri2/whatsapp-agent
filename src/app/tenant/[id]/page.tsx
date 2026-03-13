@@ -499,10 +499,18 @@ export default function TenantPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(editForm),
         });
+        const data = await res.json();
         await fetchTenant();
         setSaving(false);
-        if (res.ok) showToast("ההגדרות נשמרו בהצלחה", "success");
-        else showToast("שגיאה בשמירת ההגדרות", "error");
+        if (res.ok) {
+            if (data.phoneWarning) {
+                showToast(`⚠️ נשמר, אך: ${data.phoneWarning}`, "error");
+            } else {
+                showToast("ההגדרות נשמרו בהצלחה", "success");
+            }
+        } else {
+            showToast("שגיאה בשמירת ההגדרות", "error");
+        }
     };
 
     // ── Connect WhatsApp ──
