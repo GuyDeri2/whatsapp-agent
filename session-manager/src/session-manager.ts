@@ -269,12 +269,14 @@ function makeHumanSend(socket: WASocket) {
         // Only simulate typing for individual chats (not groups / system JIDs)
         if (jid.endsWith("@s.whatsapp.net")) {
             const words = content.text.trim().split(/\s+/).length;
-            // ~40 wpm typing speed, capped at 5s, plus 0-1.5s random jitter
-            const typingMs = Math.min(Math.ceil((words / 40) * 60_000), 5_000)
-                + Math.floor(Math.random() * 1_500);
+            // ~80 wpm typing speed, capped at 3s, plus 0-500ms random jitter
+            const typingMs = Math.min(Math.ceil((words / 80) * 60_000), 3_000)
+                + Math.floor(Math.random() * 500);
             await socket.sendPresenceUpdate("composing", jid);
             await new Promise((r) => setTimeout(r, typingMs));
-            await socket.sendPresenceUpdate("paused", jid);
+            // Set "available" before sending so WhatsApp clears the composing state
+            // immediately when the message arrives — eliminates the ~2s pending clock
+            await socket.sendPresenceUpdate("available", jid);
         }
         return socket.sendMessage(jid, content);
     };

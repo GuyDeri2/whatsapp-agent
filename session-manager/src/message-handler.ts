@@ -8,7 +8,7 @@
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { proto } from "@whiskeysockets/baileys";
-import { generateReply } from "./ai-agent";
+import { generateReply, summarizeConversationForHandoff } from "./ai-agent";
 
 // ─── LID resolver (injected by session-manager to avoid circular dep) ─
 let _lidResolver: ((tenantId: string, jid: string) => string) | null = null;
@@ -512,16 +512,27 @@ async function handleActiveMode(
         // Notify the business owner on their personal WhatsApp number
         if (shouldPause) {
             if (ownerPhone) {
-                const customerPhone = toLocalPhone(remoteJid.split("@")[0]);
+                const internationalPhone = remoteJid.split("@")[0];
+                const customerPhone = toLocalPhone(internationalPhone);
                 const { data: conv } = await getSupabase()
                     .from("conversations")
                     .select("contact_name")
                     .eq("id", conversationId)
                     .single();
-                const contactDisplay = conv?.contact_name
-                    ? `${conv.contact_name} (${customerPhone})`
-                    : customerPhone;
-                const ownerNotification = `🔔 לקוח ממתין למענה אנושי!\n\nשם: ${contactDisplay}\nטלפון: ${customerPhone}\n\nהלקוח פנה לוואטסאפ העסקי שלך וסוכן ה-AI הפנה אותו לטיפול ידני.`;
+                const contactName = conv?.contact_name || null;
+                const waLink = `https://wa.me/${internationalPhone}`;
+
+                const summary = await summarizeConversationForHandoff(tenantId, conversationId);
+                const summarySection = summary ? `\n\n📋 *סיכום השיחה:*\n${summary}` : "";
+
+                const ownerNotification = [
+                    `🔔 לקוח ממתין למענה אנושי!`,
+                    ``,
+                    contactName ? `👤 שם: ${contactName}` : null,
+                    `📞 טלפון: ${customerPhone}`,
+                    `💬 פתח צ'אט: ${waLink}`,
+                    summarySection,
+                ].filter((l) => l !== null).join("\n");
 
                 // Normalize to international format (972XXXXXXXXX)
                 let ownerDigits = ownerPhone.replace(/\D/g, "");

@@ -179,6 +179,51 @@ function sanitizeInput(text: string): string {
     return sanitized.trim();
 }
 
+// ─── Summarize conversation for owner handoff notification ────────────
+export async function summarizeConversationForHandoff(
+    tenantId: string,
+    conversationId: string
+): Promise<string> {
+    const supabase = getSupabase();
+
+    const { data: messages } = await supabase
+        .from("messages")
+        .select("role, content")
+        .eq("conversation_id", conversationId)
+        .in("role", ["user", "assistant"])
+        .order("created_at", { ascending: true })
+        .limit(20);
+
+    if (!messages || messages.length === 0) return "";
+
+    const transcript = messages.map((m) => {
+        const label = m.role === "user" ? "לקוח" : "בוט";
+        return `${label}: ${m.content}`;
+    }).join("\n");
+
+    try {
+        const completion = await getOpenAI().chat.completions.create({
+            model: "deepseek-chat",
+            messages: [
+                {
+                    role: "system",
+                    content: "אתה עוזר שמסכם שיחות WhatsApp לבעל עסק. סכם את השיחה הבאה בעברית בצורה קצרה ועניינית. כלול: מה הלקוח ביקש, מה כבר נענה, ולמה הועבר לנציג. עד 3 נקודות קצרות עם •.",
+                },
+                {
+                    role: "user",
+                    content: `סכם את השיחה הבאה:\n\n${transcript}`,
+                },
+            ],
+            max_tokens: 200,
+            temperature: 0.3,
+        });
+        return completion.choices[0]?.message?.content?.trim() ?? "";
+    } catch (err: any) {
+        console.error(`[${tenantId}] ❌ Failed to summarize conversation for handoff:`, err.message);
+        return "";
+    }
+}
+
 // ─── Generate AI reply ────────────────────────────────────────────────
 export async function generateReply(
     tenantId: string,
