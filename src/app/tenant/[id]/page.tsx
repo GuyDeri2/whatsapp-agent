@@ -684,6 +684,11 @@ export default function TenantPage() {
         const digits = phone.replace(/\D/g, "");
         if (!digits) return phone;
 
+        // WhatsApp group IDs stored without @g.us suffix (16-18 digits, starts with 120)
+        if (digits.length >= 16 && digits.startsWith("120")) {
+            return "קבוצה";
+        }
+
         // WhatsApp LID / internal identifiers (13+ digits that aren't real phone numbers)
         // e.g. 240213326622964 — no real phone number is longer than 15 digits
         // but valid E.164 numbers top out at 15 digits; LIDs are often 15+ or have unusual patterns
