@@ -110,6 +110,8 @@ function findPhoneByPushName(tenantId: string, pushName: string): string | null 
     let match: string | null = null;
     let count = 0;
     for (const [phone, name] of cache) {
+        // Skip LID-like numbers (≥ 14 digits) — they are not valid phone numbers
+        if (phone.length >= 14) continue;
         if (name.toLowerCase() === nameLower) {
             match = phone;
             if (++count > 1) return null; // ambiguous
@@ -1348,7 +1350,10 @@ async function createSession(tenantId: string): Promise<void> {
             }
 
             // Save to RAM dictionary (phonebook name preferred)
-            cache.set(phoneNumber, bestName!);
+            // Don't cache LID-like numbers — only real phone numbers belong in this map
+            if (phoneNumber.length < 14) {
+                cache.set(phoneNumber, bestName!);
+            }
 
             if (phonebookName) {
                 // Phonebook name available — ALWAYS overwrite, it's the highest priority source
