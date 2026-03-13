@@ -646,34 +646,59 @@ export default function TenantPage() {
      * Format a phone number for beautiful display in the UI.
      * - Israeli cells (972 + 9 digits):  052-699-1415
      * - Israeli landlines (972 + 8 digits): 02-123-4567
-     * - Group JIDs (contain "-"):  hide the raw ID entirely
-     * - Other international:  +1 (203) 634-0427  or just +XXXXX
+     * - Group JIDs (contain "-"):  show "קבוצה"
+     * - Other international:  +CC XXXXXXXXX
      */
     const formatPhone = (phone: string) => {
         if (!phone) return "";
 
-        // Groups have a hyphen in the JID like "120363404274395120"
-        // but contact_name is the real group name — if we get here it means
-        // there's no name, so just show a generic label
-        if (phone.includes("-")) return "קבוצה";
+        // Groups have a hyphen in the JID (e.g. "120363404274395120-1234@g.us")
+        if (phone.includes("-") || phone.includes("@")) return "קבוצה";
 
-        // Israeli mobile: 972 + 9 digits = 12 chars total (e.g. 972526991415)
-        if (phone.startsWith("972") && phone.length === 12) {
-            return `0${phone.substring(3, 5)}-${phone.substring(5, 8)}-${phone.substring(8)}`;
+        // Strip any accidental non-digit characters (spaces, +, etc.)
+        const digits = phone.replace(/\D/g, "");
+        if (!digits) return phone;
+
+        // Israeli numbers starting with 972
+        if (digits.startsWith("972")) {
+            const local = digits.substring(3); // strip country code
+            if (local.length === 9) {
+                // Mobile: 05X-XXX-XXXX
+                return `0${local.substring(0, 2)}-${local.substring(2, 5)}-${local.substring(5)}`;
+            }
+            if (local.length === 8) {
+                // Landline: 0X-XXX-XXXX
+                return `0${local.substring(0, 1)}-${local.substring(1, 4)}-${local.substring(4)}`;
+            }
+            // Fallback for unexpected Israeli lengths
+            return `+972-${local}`;
         }
 
-        // Israeli landline: 972 + 8 digits = 11 chars total (e.g. 97221234567)
-        if (phone.startsWith("972") && phone.length === 11) {
-            return `0${phone.substring(3, 4)}-${phone.substring(4, 7)}-${phone.substring(7)}`;
+        // Israeli local format (stored without country code, starts with 05x)
+        if (digits.startsWith("05") && digits.length === 10) {
+            return `${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}`;
         }
 
-        // US numbers: 1 + 10 digits = 11 chars
-        if (phone.startsWith("1") && phone.length === 11) {
-            return `+1 (${phone.substring(1, 4)}) ${phone.substring(4, 7)}-${phone.substring(7)}`;
+        // Known Meta/WhatsApp system numbers — show as system
+        if (/^1203631\d{4}$/.test(digits) || /^1650\d{7}$/.test(digits)) {
+            return "מספר מערכת";
         }
 
-        // Fallback: just prefix with +
-        return `+${phone}`;
+        // US/Canada: 1 + 10 digits
+        if (digits.startsWith("1") && digits.length === 11) {
+            return `+1 (${digits.substring(1, 4)}) ${digits.substring(4, 7)}-${digits.substring(7)}`;
+        }
+
+        // Generic international: group into blocks of 3 for readability
+        // e.g. 447911123456 → +44 791 112 3456
+        if (digits.length >= 8) {
+            const cc = digits.substring(0, digits.length - 9);
+            const rest = digits.substring(cc.length);
+            const grouped = rest.match(/.{1,3}/g)?.join(" ") || rest;
+            return `+${cc} ${grouped}`;
+        }
+
+        return `+${digits}`;
     };
 
     const formatTime = (ts: string) =>
