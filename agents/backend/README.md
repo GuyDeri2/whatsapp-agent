@@ -75,3 +75,29 @@ session-manager/
 - `.error` from Supabase always checked
 - Input validated server-side (type, format, length)
 - Error responses are consistent JSON (`{ error: "..." }`)
+
+## CLI Access
+
+This agent can run shell commands via `execute_cli_command`.
+
+### Supabase (for DB verification)
+```bash
+# Verify a query works as expected
+npx supabase db execute --file - <<'EOF'
+SELECT count(*) FROM messages WHERE tenant_id = 'test';
+EOF
+```
+
+### npm (for build verification)
+```bash
+# From project root — always run after changes to API routes
+npm run build
+
+# From session-manager — after changes to session-manager
+cd session-manager && npm run build
+```
+
+### Vercel env (read env vars for debugging)
+```bash
+npx vercel env ls production
+```

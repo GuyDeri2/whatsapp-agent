@@ -181,21 +181,31 @@ ${existingKnowledgeStr || "(Empty)"}
 
         // 5. Execute Actions against Knowledge Base
         let processedCount = 0;
-        for (const actionRow of extractedActions) {
-            if (actionRow.action === "add" && actionRow.question && actionRow.answer) {
-                const { error } = await supabase.from("knowledge_base").insert({
-                    tenant_id: tenantId,
-                    category: actionRow.category || "learned",
-                    question: actionRow.question,
-                    answer: actionRow.answer,
-                    source: "learned"
-                });
-                if (!error) {
-                    processedCount++;
-                    console.log(`[${tenantId}] 💡 Added new fact: Q: ${actionRow.question}`);
-                } else console.error(`[${tenantId}] Add error:`, error);
+
+        // Collect all "add" actions and batch-insert in a single query
+        const addRows = extractedActions
+            .filter((a) => a.action === "add" && a.question && a.answer)
+            .map((a) => ({
+                tenant_id: tenantId,
+                category: a.category || "learned",
+                question: a.question,
+                answer: a.answer,
+                source: "learned",
+            }));
+
+        if (addRows.length > 0) {
+            const { error } = await supabase.from("knowledge_base").insert(addRows);
+            if (!error) {
+                processedCount += addRows.length;
+                console.log(`[${tenantId}] 💡 Batch-added ${addRows.length} new fact(s)`);
+            } else {
+                console.error(`[${tenantId}] Batch add error:`, error);
             }
-            else if (actionRow.action === "update" && actionRow.id && actionRow.question && actionRow.answer) {
+        }
+
+        // Updates and deletes target specific IDs — keep them individual
+        for (const actionRow of extractedActions) {
+            if (actionRow.action === "update" && actionRow.id && actionRow.question && actionRow.answer) {
                 const { error } = await supabase.from("knowledge_base").update({
                     category: actionRow.category,
                     question: actionRow.question,

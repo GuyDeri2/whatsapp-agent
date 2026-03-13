@@ -63,3 +63,13 @@ jest.mock('openai', () => ({
 
 ## Positive Pattern (2026-03-02)
 [Score: 9/10] Always test the exact WhatsApp hierarchy: saved contact → push name → phone number. Include tests for concurrent real-time updates across multiple browser tabs.
+
+## Coordination Rules — 2026-03-13
+- Run after fix agents complete — verify their changes don't break existing behaviour
+- Check: does the fix handle edge cases? Does it maintain tenant isolation?
+
+## Lessons — 2026-03-13
+- Test message limit: verify chat still shows correct order after .limit(100) + JS reverse
+- Test React.memo: verify components still update when their actual props change
+- Test cache invalidation: verify tenant config cache clears when settings change
+- N+1 fix: verify batch query returns correct "previous message" for each handoff

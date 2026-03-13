@@ -45,23 +45,41 @@ export async function GET(
         return NextResponse.json({ questions: [] });
     }
 
-    // Now for each handoff message, we find the preceding user message in the same conversation
+    // Collect unique conversation IDs from all handoff messages
+    const conversationIds = [...new Set(handoffMessages.map((m) => m.conversation_id))];
+
+    // Batch-fetch ALL user messages for those conversations in one query
+    const { data: allUserMessages } = await supabase
+        .from("messages")
+        .select("id, conversation_id, content, created_at")
+        .eq("tenant_id", tenantId)
+        .eq("role", "user")
+        .in("conversation_id", conversationIds)
+        .order("created_at", { ascending: true });
+
+    // Group user messages by conversation_id for O(1) lookup
+    const userMsgsByConv = new Map<string, { id: string; conversation_id: string; content: string; created_at: string }[]>();
+    for (const um of allUserMessages ?? []) {
+        if (!userMsgsByConv.has(um.conversation_id)) {
+            userMsgsByConv.set(um.conversation_id, []);
+        }
+        userMsgsByConv.get(um.conversation_id)!.push(um);
+    }
+
+    // Map handoff messages back to the preceding user message (newest user msg before the handoff)
     const unansweredQuestions = [];
 
     for (const msg of handoffMessages) {
-        const { data: previousMsgs } = await supabase
-            .from("messages")
-            .select("id, content, created_at")
-            .eq("conversation_id", msg.conversation_id)
-            .eq("role", "user")
-            .lt("created_at", msg.created_at) // Before the AI replied
-            .order("created_at", { ascending: false })
-            .limit(1);
+        const userMsgs = userMsgsByConv.get(msg.conversation_id) ?? [];
+        // Find the latest user message that came before the handoff
+        const preceding = [...userMsgs]
+            .reverse()
+            .find((um) => um.created_at < msg.created_at);
 
-        if (previousMsgs && previousMsgs.length > 0) {
+        if (preceding) {
             unansweredQuestions.push({
                 id: msg.id, // Using the AI message ID as a unique key
-                user_question: previousMsgs[0].content,
+                user_question: preceding.content,
                 conversation_id: msg.conversation_id,
                 date: msg.created_at,
                 contact: msg.conversations ? ((msg.conversations as any).contact_name || (msg.conversations as any).phone_number) : "Unknown",

@@ -50,3 +50,14 @@ For endpoints that call DeepSeek AI (learning engine, manual triggers):
 
 ## Positive Pattern (2026-03-05)
 [Score: 7/10] When checking Node.js versions, tailor recommendations to the exact version found rather than generic version ranges. Verify project stack details before making compatibility statements.
+
+## Coordination Rules — 2026-03-13
+- You own: Vercel config, Render deployment, CI/CD — not application code
+- Work in parallel with other agents on infrastructure while they work on code
+
+## Lessons — 2026-03-13
+- Vercel: use `npx vercel --prod --yes` — project is already linked
+- Render: use REST API with $RENDER_API_KEY — find service ID first, then deploy
+- Always verify deploy succeeded after triggering — don't assume success
+- Env vars needed for CLI: VERCEL_TOKEN, RENDER_API_KEY, SUPABASE_ACCESS_TOKEN
+- Run `npm run build` before any Vercel deploy to catch errors early

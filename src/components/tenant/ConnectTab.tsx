@@ -16,7 +16,7 @@ interface ConnectTabProps {
     handleDisconnect: () => Promise<void>;
 }
 
-export function ConnectTab({
+const ConnectTab = React.memo(function ConnectTab({
     tenant,
     connectionStatus,
     qrCode,
@@ -170,4 +170,6 @@ export function ConnectTab({
             </div>
         </div>
     );
-}
+});
+
+export { ConnectTab };

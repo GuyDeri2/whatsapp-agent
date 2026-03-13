@@ -54,6 +54,10 @@ interface ChatMessage {
     content: string;
 }
 
+// ─── Knowledge Base Cache (5-minute TTL) ─────────────────────────────
+const KB_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const knowledgeBaseCache = new Map<string, { entries: KnowledgeEntry[]; fetchedAt: number }>();
+
 // ─── Build system prompt ──────────────────────────────────────────────
 async function buildSystemPrompt(tenantId: string): Promise<string> {
     const supabase = getSupabase();
@@ -68,12 +72,20 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
     if (!tenant) throw new Error(`Tenant ${tenantId} not found`);
     const t = tenant as TenantProfile;
 
-    // 2. Knowledge base
-    const { data: knowledge } = await supabase
-        .from("knowledge_base")
-        .select("category, question, answer")
-        .eq("tenant_id", tenantId)
-        .limit(50);
+    // 2. Knowledge base (cached, 5-minute TTL)
+    let knowledge: KnowledgeEntry[] | null = null;
+    const kbCached = knowledgeBaseCache.get(tenantId);
+    if (kbCached && Date.now() - kbCached.fetchedAt < KB_CACHE_TTL_MS) {
+        knowledge = kbCached.entries;
+    } else {
+        const { data: kbData } = await supabase
+            .from("knowledge_base")
+            .select("category, question, answer")
+            .eq("tenant_id", tenantId)
+            .limit(50);
+        knowledge = (kbData as KnowledgeEntry[] | null) ?? [];
+        knowledgeBaseCache.set(tenantId, { entries: knowledge, fetchedAt: Date.now() });
+    }
 
 
     // Build dynamic prompt
@@ -97,9 +109,9 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
         prompt += `\n\n## הנחיות אישיות של העסק:\n${t.agent_prompt}`;
     }
 
-    if (knowledge && knowledge.length > 0) {
+    if (knowledge.length > 0) {
         prompt += "\n\nKnowledge Base:";
-        for (const k of knowledge as KnowledgeEntry[]) {
+        for (const k of knowledge) {
             if (k.question) {
                 prompt += `\n- Q: ${k.question}\n  A: ${k.answer}`;
             } else {

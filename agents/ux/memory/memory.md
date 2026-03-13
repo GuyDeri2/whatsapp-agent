@@ -43,3 +43,13 @@
 
 ## Positive Pattern (2026-03-02)
 [Score: 9/10] Israeli phone number formatting: 050-xxx-xxxx for local display, but WhatsApp Web shows international format (+972...). Always test with actual WhatsApp Web side-by-side.
+
+## Coordination Rules — 2026-03-13
+- Work in parallel with Frontend on UI tasks — communicate which components you're designing vs they're implementing
+- Always specify Hebrew copy for user-facing text — English only in code/comments
+
+## Lessons — 2026-03-13
+- User (Guy) targets Israeli SMBs — keep UI simple, no complex workflows
+- Hebrew RTL must be preserved in all components
+- Loading states and skeleton screens are important — don't leave blank flash states
+- Microcopy: use friendly Hebrew, not formal/bureaucratic language

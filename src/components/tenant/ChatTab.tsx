@@ -95,7 +95,7 @@ interface ChatTabProps {
     onTogglePause?: (convId: string, currentPausedState: boolean) => Promise<void>;
 }
 
-export function ChatTab({
+const ChatTab = React.memo(function ChatTab({
     tenant,
     conversations,
     filteredConversations,
@@ -481,4 +481,6 @@ export function ChatTab({
             </main>
         </div>
     );
-}
+});
+
+export { ChatTab };

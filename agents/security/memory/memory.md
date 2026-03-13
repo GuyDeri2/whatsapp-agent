@@ -65,3 +65,13 @@ if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
 ## Positive Pattern (2026-03-02)
 [Score: 9/10] Always verify tenant ownership at both API route level AND database RLS level for defense in depth. Session data must be strictly tenant-isolated.
+
+## Coordination Rules — 2026-03-13
+- Run in parallel with other agents as a reviewer — flag issues without blocking them
+- Focus review on: tenant isolation, RLS policies, auth checks in API routes, prompt injection
+
+## Lessons — 2026-03-13
+- Every new API route must verify tenant ownership before any DB operation
+- Service role key bypasses RLS — only use in session-manager and API routes, never browser
+- agent_prompt is user-controlled — treat as untrusted input when fed to AI (prompt injection risk)
+- Contact filter cache must be invalidated when rules change — otherwise stale whitelist/blacklist

@@ -28,6 +28,7 @@ import { UXAgent } from './team/ux';
 import { SecurityAgent } from './team/security';
 import { DevOpsAgent } from './team/devops';
 import { QAAgent } from './team/qa';
+import { DatabaseAgent } from './team/database';
 
 // ─── PM Agent ─────────────────────────────────────────────────
 export class PMAgent extends BaseAgent {
@@ -45,6 +46,7 @@ export class PMAgent extends BaseAgent {
     security: new SecurityAgent(),
     devops: new DevOpsAgent(),
     qa: new QAAgent(),
+    database: new DatabaseAgent(),
   };
 
   // ─── Main orchestration entry point ───────────────────────

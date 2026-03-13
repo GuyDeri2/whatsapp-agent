@@ -36,6 +36,26 @@ const MAX_REPLIES_PER_DAY = 50;     // Safety cap per conversation per day
 // Daily counters: { date: "YYYY-MM-DD", count: number }
 const dailyReplyCounts = new Map<string, { date: string; count: number }>();
 
+// ─── Memory Leak Cleanup (hourly) ─────────────────────────────────────
+// replyTimestamps and dailyReplyCounts grow unbounded without periodic cleanup.
+setInterval(() => {
+    const now = Date.now();
+    const cutoff = now - 24 * 60 * 60 * 1000; // 24 hours ago
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const [key, timestamps] of replyTimestamps.entries()) {
+        if (timestamps.every((t) => t < cutoff)) {
+            replyTimestamps.delete(key);
+        }
+    }
+
+    for (const [key, entry] of dailyReplyCounts.entries()) {
+        if (entry.date !== today) {
+            dailyReplyCounts.delete(key);
+        }
+    }
+}, 60 * 60 * 1000).unref(); // unref so it doesn't keep the process alive unnecessarily
+
 // ─── Debouncing & Concurrency Locks ───────────────────────────────────
 const debounceTimers: Record<string, NodeJS.Timeout> = {};
 const activeGenerations = new Set<string>();
@@ -55,6 +75,7 @@ const getDebounceDelay = () => 1_500 + Math.floor(Math.random() * 3_000);
 /** Called by server.ts when tenant settings are updated — forces fresh config fetch */
 export function invalidateTenantConfigCache(tenantId: string): void {
     tenantConfigCache.delete(tenantId);
+    contactRulesCache.delete(tenantId);
     console.log(`[${tenantId}] 🔄 Tenant config cache invalidated`);
 }
 
@@ -107,9 +128,17 @@ interface TenantConfig {
     lead_webhook_url: string | null;
 }
 
-// ─── Tenant config cache (30s TTL) to avoid DB hit on every message ───
+// ─── Tenant config cache (5-min TTL) to avoid DB hit on every message ─
 const tenantConfigCache = new Map<string, { config: TenantConfig; fetchedAt: number }>();
-const CONFIG_CACHE_TTL_MS = 30_000; // 30 seconds
+const CONFIG_CACHE_TTL_MS = 300_000; // 5 minutes
+
+// ─── Contact rules cache (60s TTL) to avoid DB hit on every message ──
+interface ContactRulesCacheEntry {
+    rules: { phone_number: string; rule_type: string }[];
+    fetchedAt: number;
+}
+const contactRulesCache = new Map<string, ContactRulesCacheEntry>();
+const CONTACT_RULES_CACHE_TTL_MS = 60_000; // 60 seconds
 
 type SendMessageFn = (
     jid: string,
@@ -422,12 +451,24 @@ async function fireLeadWebhook(
     payload: { name: string | null; phone: string; email: string | null; summary: string; timestamp: string }
 ): Promise<void> {
     try {
+        // Basic URL validation
+        const url = new URL(webhookUrl); // throws if invalid
+        if (!['http:', 'https:'].includes(url.protocol)) {
+            console.error(`[${tenantId}] ❌ Lead webhook invalid protocol: ${webhookUrl}`);
+            return;
+        }
+
         const res = await fetch(webhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         });
-        console.log(`[${tenantId}] 🔗 Lead webhook fired → ${webhookUrl} (${res.status})`);
+
+        if (res.ok) {
+            console.log(`[${tenantId}] ✅ Lead webhook fired → ${webhookUrl} (${res.status})`);
+        } else {
+            console.error(`[${tenantId}] ❌ Lead webhook returned ${res.status} → ${webhookUrl}`);
+        }
     } catch (err: any) {
         console.error(`[${tenantId}] ❌ Lead webhook failed:`, err.message);
     }
@@ -441,6 +482,23 @@ async function checkContactFilter(
 ): Promise<boolean> {
     const supabase = getSupabase();
 
+    // Fetch all contact rules for this tenant (cached, 60s TTL)
+    let allRules: { phone_number: string; rule_type: string }[];
+    const cached = contactRulesCache.get(tenantId);
+    if (cached && Date.now() - cached.fetchedAt < CONTACT_RULES_CACHE_TTL_MS) {
+        allRules = cached.rules;
+    } else {
+        const { data: rulesData, error } = await supabase
+            .from("contact_rules")
+            .select("phone_number, rule_type")
+            .eq("tenant_id", tenantId);
+        if (error) {
+            console.error(`[${tenantId}] Error fetching contact rules:`, error);
+        }
+        allRules = rulesData ?? [];
+        contactRulesCache.set(tenantId, { rules: allRules, fetchedAt: Date.now() });
+    }
+
     // Normalize: check all possible formats of the same number
     // WhatsApp gives "972...", user might have stored "05..." or "+972..." before normalization fix
     const formats = new Set<string>([phoneNumber]);
@@ -450,25 +508,14 @@ async function checkContactFilter(
         formats.add("972" + phoneNumber.substring(1)); // 0526991415 → 972526991415
     }
 
-    const { data: rules, error } = await supabase
-        .from("contact_rules")
-        .select("rule_type")
-        .eq("tenant_id", tenantId)
-        .in("phone_number", Array.from(formats))
-        .limit(1);
-
-    if (error) {
-        console.error(`[${tenantId}] Error checking contact filter:`, error);
-    }
-
-    const rule = rules && rules.length > 0 ? rules[0] : null;
+    const matchedRule = allRules.find((r) => formats.has(r.phone_number)) ?? null;
 
     if (filterMode === "whitelist") {
         // Only respond if the contact is explicitly allowed
-        return rule?.rule_type === "allow";
+        return matchedRule?.rule_type === "allow";
     } else {
         // Respond to everyone UNLESS explicitly blocked
-        return rule?.rule_type !== "block";
+        return matchedRule?.rule_type !== "block";
     }
 }
 
@@ -564,6 +611,20 @@ async function handleActiveMode(
                 .order("created_at", { ascending: true })
                 .limit(30);
             const email = extractEmailFromMessages(recentMsgs ?? []);
+
+            // Save lead to DB for persistence (regardless of webhook)
+            const { data: savedLead } = await getSupabase()
+                .from('leads')
+                .insert({
+                    tenant_id: tenantId,
+                    conversation_id: conversationId,
+                    name: contactName,
+                    phone: customerPhone,
+                    email,
+                    summary,
+                })
+                .select('id')
+                .single();
 
             // Fire lead webhook regardless of whether ownerPhone is set
             if (leadWebhookUrl) {

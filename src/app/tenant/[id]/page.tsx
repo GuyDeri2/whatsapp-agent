@@ -10,6 +10,7 @@ import { SettingsTab } from "@/components/tenant/SettingsTab";
 import { ConnectTab } from "@/components/tenant/ConnectTab";
 import { ContactsTab } from "@/components/tenant/ContactsTab";
 import { CapabilitiesTab } from "@/components/tenant/CapabilitiesTab";
+import { LeadsTab } from "@/components/tenant/LeadsTab";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -76,6 +77,14 @@ const AVATAR_COLORS = [
     '#06b6d4', '#0ea5e9', '#3b82f6', '#2563eb',
 ];
 
+const MEDIA_LABELS: Record<string, string> = {
+    image: "📷 תמונה",
+    video: "🎥 סרטון",
+    audio: "🎙️ הודעה קולית",
+    document: "📄 מסמך",
+    sticker: "🎨 סטיקר",
+};
+
 function getAvatarColor(name: string): string {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -133,7 +142,7 @@ export default function TenantPage() {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
-    const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities">("chat");
+    const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads">("chat");
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [connectionStatus, setConnectionStatus] = useState<string>("unknown");
     const [saving, setSaving] = useState(false);
@@ -164,6 +173,8 @@ export default function TenantPage() {
     const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // Track selected conversation id in a ref so realtime callbacks always see current value
     const selectedConvIdRef = useRef<string | null>(null);
+    // QR polling interval ref — allows cleanup on unmount
+    const qrPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const showToast = (message: string, type: "success" | "error") => {
         setToast({ message, type });
     };
@@ -216,11 +227,10 @@ export default function TenantPage() {
 
             if (recentMsgs) {
                 const lastMsgMap: Record<string, string> = {};
-                const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
                 for (const m of recentMsgs) {
                     if (lastMsgMap[m.conversation_id]) continue; // Already have latest
                     if (m.media_type && (m.content === `[${m.media_type} received]` || !m.content)) {
-                        lastMsgMap[m.conversation_id] = labels[m.media_type] || "📎 קובץ";
+                        lastMsgMap[m.conversation_id] = MEDIA_LABELS[m.media_type] || "📎 קובץ";
                     } else {
                         lastMsgMap[m.conversation_id] = m.content?.substring(0, 50) || "";
                     }
@@ -237,8 +247,9 @@ export default function TenantPage() {
                 .from("messages")
                 .select("*")
                 .eq("conversation_id", convId)
-                .order("created_at", { ascending: true });
-            if (data) setMessages(data);
+                .order("created_at", { ascending: false })
+                .limit(100);
+            if (data) setMessages([...data].reverse());
         },
         [supabase]
     );
@@ -334,8 +345,7 @@ export default function TenantPage() {
                         setLastMessages(prev => {
                             let textPreview = newMsg.content?.substring(0, 50) || "";
                             if (newMsg.media_type && (newMsg.content === `[${newMsg.media_type} received]` || !newMsg.content)) {
-                                const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
-                                textPreview = labels[newMsg.media_type] || "📎 קובץ";
+                                textPreview = MEDIA_LABELS[newMsg.media_type] || "📎 קובץ";
                             }
                             return { ...prev, [newMsg.conversation_id]: textPreview };
                         });
@@ -373,19 +383,24 @@ export default function TenantPage() {
         };
         document.addEventListener("visibilitychange", handleVisibilityChange);
 
-        // ── Periodic polling fallback (every 30s) ──
+        // ── Periodic polling fallback (every 60s) ──
         const pollingInterval = setInterval(() => {
             fetchConversations();
             if (selectedConvIdRef.current) {
                 fetchMessagesRef.current(selectedConvIdRef.current);
             }
-        }, 30000);
+        }, 60000);
 
         return () => {
             channels.forEach((ch) => supabase.removeChannel(ch));
             if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
             document.removeEventListener("visibilitychange", handleVisibilityChange);
             clearInterval(pollingInterval);
+            // Clean up QR polling interval on unmount
+            if (qrPollingRef.current) {
+                clearInterval(qrPollingRef.current);
+                qrPollingRef.current = null;
+            }
         };
     }, [supabase, tenantId, fetchTenant, fetchConversations, fetchContactRules]);
 
@@ -561,7 +576,10 @@ export default function TenantPage() {
                 await fetchTenant();
             }
 
-            const interval = setInterval(async () => {
+            // Clear any previous QR polling interval before starting a new one
+            if (qrPollingRef.current) clearInterval(qrPollingRef.current);
+
+            qrPollingRef.current = setInterval(async () => {
                 try {
                     const statusRes = await fetch(`/api/sessions/${tenantId}/status`);
                     const statusData = await statusRes.json();
@@ -569,7 +587,10 @@ export default function TenantPage() {
                         setConnectionStatus("connected");
                         setQrCode(null);
                         await fetchTenant();
-                        clearInterval(interval);
+                        if (qrPollingRef.current) {
+                            clearInterval(qrPollingRef.current);
+                            qrPollingRef.current = null;
+                        }
                         showToast("ווטסאפ מחובר בהצלחה!", "success");
                     } else if (statusData.qrCode) {
                         setQrCode(statusData.qrCode);
@@ -580,7 +601,13 @@ export default function TenantPage() {
                 }
             }, 3000);
 
-            setTimeout(() => clearInterval(interval), 120000);
+            // Stop polling after 2 minutes regardless
+            setTimeout(() => {
+                if (qrPollingRef.current) {
+                    clearInterval(qrPollingRef.current);
+                    qrPollingRef.current = null;
+                }
+            }, 120000);
         } catch (err: any) {
             console.error(err);
             const errMsg = err.message || "שגיאה בחיבור לשרת";
@@ -936,6 +963,7 @@ export default function TenantPage() {
                     { id: "contacts", icon: "👥", label: "סינון אנשי קשר", action: fetchContactRules },
                     { id: "connect", icon: "📱", label: "חיבור ווטסאפ" },
                     { id: "capabilities", icon: "🧠", label: "יכולות סוכן" },
+                    { id: "leads", icon: "🎯", label: "לידים" },
                     { id: "settings", icon: "⚙️", label: "הגדרות" }
                 ].map((tab) => (
                     <button
@@ -1044,6 +1072,12 @@ export default function TenantPage() {
                 {activeTab === "capabilities" && (
                     <div className="p-6 overflow-y-auto w-full max-w-4xl mx-auto h-full">
                         <CapabilitiesTab tenant={tenant} />
+                    </div>
+                )}
+
+                {activeTab === "leads" && (
+                    <div className="flex-1 overflow-y-auto p-6">
+                        <LeadsTab tenant={tenant} />
                     </div>
                 )}
 

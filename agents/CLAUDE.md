@@ -55,6 +55,11 @@ agents/
 │   ├── skills/skills.md
 │   └── memory/memory.md
 │
+├── database/           ← Database Architect (NEW)
+│   ├── README.md       ← Schema design, RLS, migrations, indexes
+│   ├── skills/skills.md
+│   └── memory/memory.md
+│
 ├── shared/             ← Shared context (loaded by ALL agents)
 │   ├── memory/
 │   │   └── memory.md  ← Shared lessons and project context
@@ -104,6 +109,19 @@ To change how an agent thinks or what it knows:
 
 No TypeScript changes needed for prompt/persona adjustments.
 
+## Agent Roster
+
+| Agent | Role |
+|-------|------|
+| `pm` | Orchestrator — plans, dispatches, synthesizes |
+| `frontend` | React/Next.js UI implementation |
+| `backend` | API routes, Supabase, session-manager logic |
+| `ux` | UX design, user flows, Hebrew copy |
+| `security` | Security review, auth, RLS, data protection |
+| `devops` | Vercel, PM2, CI/CD, infrastructure |
+| `qa` | Tests, edge cases, acceptance criteria |
+| `database` | Schema design, migrations, RLS, indexes, query optimisation |
+
 ## Adding a New Agent
 
 1. Create `<role>/README.md` with role definition
@@ -112,6 +130,7 @@ No TypeScript changes needed for prompt/persona adjustments.
 4. Add the role to `AgentRole` type in `types.ts`
 5. Create `team/<role>.ts` (just role + roleLabel, extends BaseAgent)
 6. Register the agent in `PMAgent.team` map in `pm-agent.ts`
+7. Add delegation rules to `pm/README.md`
 
 ## CLI Usage
 

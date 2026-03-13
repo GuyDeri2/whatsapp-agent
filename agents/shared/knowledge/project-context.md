@@ -127,3 +127,88 @@ SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_URL=...
 DEEPSEEK_API_KEY=...
 ```
+
+---
+
+## Agent Team
+
+| Agent | Role |
+|-------|------|
+| `pm` | Orchestrator |
+| `frontend` | React/Next.js UI |
+| `backend` | API routes, Supabase, session-manager |
+| `ux` | UX design, Hebrew copy |
+| `security` | Auth, RLS, data isolation |
+| `devops` | Vercel, PM2, infrastructure |
+| `qa` | Tests, edge cases |
+| `database` | Schema, migrations, RLS policies, indexes |
+
+---
+
+## Infrastructure & CLI Access
+
+All agents have shell access via `execute_cli_command`. Use these tools to verify, deploy, and manage services.
+
+### Vercel (Next.js frontend)
+- Deploy: `npx vercel --prod --yes`
+- Logs: `npx vercel logs <url>`
+- Env vars: `npx vercel env ls` / `npx vercel env add NAME production`
+- Auth: `VERCEL_TOKEN` env var
+
+### Render (session-manager Node.js service)
+- REST API: `https://api.render.com/v1`
+- Auth header: `Authorization: Bearer $RENDER_API_KEY`
+- Trigger deploy: `POST /services/<SERVICE_ID>/deploys`
+- View logs: `GET /services/<SERVICE_ID>/logs?limit=100`
+
+### Supabase (database + auth)
+- Migrations: `npx supabase db push`
+- Types: `npx supabase gen types typescript --project-id <id>`
+- Migration status: `npx supabase migration list`
+- Execute SQL: `npx supabase db execute --file <path>`
+- Auth: `SUPABASE_ACCESS_TOKEN` env var
+
+### Environment Variables (in .env.local)
+```
+VERCEL_TOKEN=...
+RENDER_API_KEY=...
+SUPABASE_ACCESS_TOKEN=...
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_URL=...
+DEEPSEEK_API_KEY=...
+```
+
+---
+
+## Lessons Learned
+
+### Baileys Event Patterns
+- `messages.upsert` fires for BOTH incoming AND outgoing messages (isFromMe echo). Always filter `isFromMe` to avoid duplicates.
+- Baileys can fire the same event multiple times. Always use `wa_message_id` for deduplication.
+- `contacts.upsert` provides two name types: `contact.name` (phonebook = highest priority) and `contact.notify` (push name = fallback).
+
+### WhatsApp Profile Pictures
+- `profilePictureUrl()` returns URLs that **expire** after some time. Must periodically refresh.
+- 404 errors are normal (user has no picture or privacy is set to "contacts only"). Don't log these.
+- Add delays (200ms+) between calls to avoid WhatsApp rate-limiting.
+- Fetch on-demand when a new conversation is created, don't rely only on batch sync.
+
+### Contact Name Priority (WhatsApp Web parity)
+- Priority: Phonebook (device contact name) > Push name > Phone number
+- Never overwrite a phonebook name with a push name.
+- `handleIncomingMessage` should only set pushName when `contact_name IS NULL`.
+
+### Session Persistence (Baileys)
+- **`socket.logout()` DESTROYS the session** — only use when user explicitly disconnects.
+- **`socket.end()`** just closes the WebSocket — auth state remains valid for reconnect.
+- Always `flushCacheToDB()` before closing socket to prevent pending write loss.
+- Add reconnect cooldown (30s+) to prevent notification spam on the user's phone.
+- Use exponential backoff (5s base, 60s cap) for disconnect retries.
+
+### Database / Supabase
+- RLS must be ENABLED with `ALTER TABLE x ENABLE ROW LEVEL SECURITY` AND a policy must be created — enabling alone blocks all access.
+- Use CHECK constraints (not PostgreSQL enums) for status columns — easier to add new values.
+- Always use `ON DELETE CASCADE` for child tables referencing `tenants(id)`.
+- Adding a NOT NULL column to a populated table: add nullable → backfill → add constraint.

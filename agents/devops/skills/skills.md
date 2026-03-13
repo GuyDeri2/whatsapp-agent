@@ -161,3 +161,38 @@ export const config = {
 | CPU usage | > 60% (sustained) | > 80% |
 | Response time /health | > 500ms | > 2000ms |
 | Failed reconnects | > 5/min | > 20/min |
+
+---
+
+## Vercel + Render Deployment Patterns
+
+### Deploy Next.js to Vercel (production)
+```bash
+# From project root
+cd "/Users/guyderi/Library/Mobile Documents/com~apple~CloudDocs/whatsapp agent"
+npm run build && npx vercel --prod --yes
+```
+
+### Deploy session-manager to Render
+Render auto-deploys on git push. To trigger manually:
+```bash
+# Find service ID first
+curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services | jq '.[] | select(.service.name | contains("session")) | .service.id'
+
+# Then deploy
+curl -s -X POST \
+  -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services/<SERVICE_ID>/deploys \
+  -H "Content-Type: application/json" -d '{}' | jq .
+```
+
+### Check if deploy succeeded
+```bash
+# Vercel
+npx vercel ls --limit 3
+
+# Render — poll until status is "live"
+curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services/<SERVICE_ID>/deploys?limit=1 | jq '.[0].deploy.status'
+```

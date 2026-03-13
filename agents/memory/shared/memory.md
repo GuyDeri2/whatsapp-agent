@@ -127,3 +127,34 @@ SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_URL=...
 DEEPSEEK_API_KEY=...
 ```
+
+---
+
+## Lessons Learned
+
+### User Preferences (Guy Deri) — 2026-03-13
+- Wants agents to run INSIDE Claude Code (not via `npx tsx run.ts` in terminal) — Claude Code IS the agent runtime
+- Prefers parallel agent execution with zero file conflicts — assign file ownership explicitly per agent
+- Wants PM to ask clarifying questions BEFORE starting work, not after delivering wrong output
+- Wants agents to genuinely learn from sessions and remember preferences across conversations
+- Output style: concise, actionable, in Hebrew for user-facing copy, English for all code
+- Approves the multi-agent army approach: PM orchestrates, specialists execute in parallel
+- Wants full coordination between agents — they must not step on each other's files
+
+### Performance Patterns Learned — 2026-03-13
+- Knowledge base should be cached (5 min TTL) — never fetched per AI reply
+- Contact rules should be cached (60s TTL) — never fetched per incoming message
+- Tenant config cache: 30s was too short, 5 min is correct
+- `.limit(100)` is mandatory on all message queries — no unbounded fetches
+- `React.memo` should be applied to ALL tab components — parent re-renders are frequent
+- N+1 queries must be converted to batch queries — 31 queries → 2 is the goal
+- `SELECT *` should be avoided — specify columns explicitly
+- `setInterval` must always be cleaned up in useEffect return function
+- Dead code (like wrong-API-key webhook routes) should be deleted, not kept "just in case"
+
+### Coordination Patterns That Worked — 2026-03-13
+- Split agent tasks by FILE OWNERSHIP: each agent gets exclusive rights to specific files
+- Backend owned: session-manager/src/*, api routes
+- Frontend owned: src/app/tenant/[id]/page.tsx, src/components/tenant/*.tsx
+- Database owned: supabase/migrations/ (new files only)
+- This approach: zero conflicts, all 3 agents finished cleanly

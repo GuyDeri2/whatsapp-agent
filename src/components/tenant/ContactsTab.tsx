@@ -30,7 +30,7 @@ interface ContactsTabProps {
     filterLabels: Record<string, string>;
 }
 
-export function ContactsTab({
+const ContactsTab = React.memo(function ContactsTab({
     tenant,
     contactRules,
     newRulePhone,
@@ -247,4 +247,6 @@ export function ContactsTab({
             </div>
         </div>
     );
-}
+});
+
+export { ContactsTab };

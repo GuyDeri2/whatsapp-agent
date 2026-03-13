@@ -71,6 +71,87 @@ When given a task, provide:
 - Logs are flowing and structured
 - Rollback procedure documented and tested
 
+## CLI Access
+
+This agent has shell access via `execute_cli_command`. Use it proactively to deploy, check status, and manage infrastructure.
+
+### Vercel
+- CLI is available as `npx vercel` (no global install needed)
+- Auth token stored in env: `VERCEL_TOKEN` (or use `~/.vercel/credentials` if already logged in)
+- Project is linked — `vercel.json` exists at project root
+
+**Common commands:**
+```bash
+# Deploy to production
+npx vercel --prod --yes
+
+# Deploy preview
+npx vercel --yes
+
+# Check deployment status
+npx vercel ls
+
+# Inspect a deployment
+npx vercel inspect <deployment-url>
+
+# View logs
+npx vercel logs <deployment-url>
+
+# List environment variables
+npx vercel env ls
+
+# Add environment variable
+npx vercel env add <NAME> production
+
+# Pull env vars locally
+npx vercel env pull .env.local
+```
+
+### Render
+- Use Render API v1 via `curl` (REST)
+- API key in env: `RENDER_API_KEY`
+- Base URL: `https://api.render.com/v1`
+- The session-manager service is deployed on Render
+
+**Common commands:**
+```bash
+# List all services
+curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services | jq '.[] | {id: .service.id, name: .service.name, status: .service.suspended}'
+
+# Trigger manual deploy
+curl -s -X POST \
+  -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services/<SERVICE_ID>/deploys \
+  -H "Content-Type: application/json" \
+  -d '{"clearCache": false}' | jq .
+
+# Get deploy status
+curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services/<SERVICE_ID>/deploys?limit=1 | jq '.[0]'
+
+# View service logs (last 100 lines)
+curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+  "https://api.render.com/v1/services/<SERVICE_ID>/logs?limit=100" | jq '.[] | .message'
+
+# Get environment variables
+curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+  https://api.render.com/v1/services/<SERVICE_ID>/env-vars | jq .
+
+# Update environment variable
+curl -s -X PUT \
+  -H "Authorization: Bearer $RENDER_API_KEY" \
+  -H "Content-Type: application/json" \
+  https://api.render.com/v1/services/<SERVICE_ID>/env-vars \
+  -d '[{"key":"MY_VAR","value":"my_value"}]' | jq .
+```
+
+### Before deploying
+✅ Always run `npm run build` locally first to catch errors
+✅ Check git status — ensure changes are committed
+✅ Verify env vars are set on the target platform
+✅ After deploy, verify with `npx vercel ls` or Render deploy status
+
 ## Execution Capabilities (CLI Access)
 You have access to a terminal environment via the `execute_cli_command` tool.
 - You CAN and SHOULD use this to run raw deployment commands, e.g. `vercel deploy --prod` or `npm install`.

@@ -46,3 +46,18 @@
 
 ## Positive Pattern (2026-03-02)
 [Score: 8/10] WhatsApp Web hierarchy is: saved contact name → push name → phone number (verified name is for business accounts only). Always validate JID format before extracting phone numbers.
+
+## Coordination Rules — 2026-03-13
+- You work in parallel with Frontend and Database agents — never edit their files
+- YOUR files: `session-manager/src/`, `src/app/api/` — Frontend/Database never touch these
+- When dispatched alongside other agents, read your task for explicit file ownership list
+
+## Lessons — 2026-03-13
+- Knowledge base cache: 5 min TTL in ai-agent.ts — never fetch per AI reply
+- Contact rules cache: 60s TTL in message-handler.ts — never query per incoming message
+- Config cache TTL: use 300_000 (5 min), not 30_000 (30s)
+- N+1 in unanswered-questions: collect IDs → one batch .in() query → group in JS
+- Memory leaks: replyTimestamps and dailyReplyCounts need hourly cleanup via setInterval
+- Learning engine: batch all "add" actions into single .insert([...]) call
+- Dead code must be deleted, not kept — webhook/route.ts with wrong API key was removed
+- Always run `npm run build` after changes to verify no TypeScript errors

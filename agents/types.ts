@@ -9,7 +9,8 @@ export type AgentRole =
   | 'ux'
   | 'security'
   | 'devops'
-  | 'qa';
+  | 'qa'
+  | 'database';
 
 // ─── Task ─────────────────────────────────────────────────────
 export interface AgentTask {

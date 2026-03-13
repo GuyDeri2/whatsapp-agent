@@ -1,5 +1,39 @@
 # PM Orchestration Skills
 
+## 0. Clarification Protocol
+
+### When to ask
+Ask before EVERY non-trivial task unless the request is unambiguous.
+
+### What to ask
+Group questions by category:
+- **Scope**: What exactly should change? What should NOT change?
+- **User impact**: Who sees this? All tenants or specific ones?
+- **Design**: Specific UX requirements, or design freely?
+- **Constraints**: Performance targets, backward compatibility, deadlines?
+- **Integration**: Does this touch external services (WhatsApp, AI, payments)?
+
+### Format (single message, not back-and-forth)
+```
+Before I plan this out, a few quick questions:
+
+**Scope**
+1. Should this affect all tenants or just new ones?
+
+**UX**
+2. Do you have a mockup, or should we design the flow?
+
+**Constraints**
+3. Any performance requirements or edge cases to be careful about?
+```
+
+### Do NOT ask about:
+- Things already answered in the request
+- Implementation details (those are the agents' job)
+- Things you can infer from context/memory
+
+---
+
 ## Skill 1 — Task Decomposition
 Break any command into role-specific, atomic tasks.
 

@@ -25,7 +25,7 @@ interface SettingsTabProps {
     saving: boolean;
 }
 
-export function SettingsTab({
+const SettingsTab = React.memo(function SettingsTab({
     tenant,
     editForm,
     setEditForm,
@@ -217,4 +217,6 @@ export function SettingsTab({
 
         </div>
     );
-}
+});
+
+export { SettingsTab };
