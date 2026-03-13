@@ -60,6 +60,22 @@ setInterval(() => {
     if (sizeBefore > 0) console.log(`[cleanup] 🧹 Cleared ${sizeBefore} entries from profilePicChecked set`);
 }, 24 * 60 * 60 * 1000).unref();
 
+/**
+ * Track whether the initial post-connect sync (profile pics, group names, etc.)
+ * has already been run for each tenant. Reset only when a session is fully stopped
+ * (not on auto-reconnect) so we never re-run the expensive bulk calls after a drop.
+ */
+const hasRunInitialSync = new Set<string>();
+
+/** Minimum time (ms) a connection must be alive before the bulk sync is allowed. */
+const INITIAL_SYNC_MIN_AGE_MS = 30_000; // 30 seconds
+
+/** Timestamp of the most recent "open" connection event per tenant. */
+const connectedAt = new Map<string, number>();
+
+/** Helper: resolves after `ms` milliseconds. */
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 /** Memory cache for phonebook contacts */
 const tenantContactsCache = new Map<string, Map<string, string>>();
 
@@ -342,6 +358,10 @@ export async function stopSession(
         clearInterval(picInterval);
         profilePicIntervals.delete(tenantId);
     }
+
+    // Reset the initial-sync guard so a fresh QR-scan triggers sync again
+    hasRunInitialSync.delete(tenantId);
+    connectedAt.delete(tenantId);
 
     // Flush any pending cache writes to DB so creds are fully saved
     await flushCacheToDB(tenantId);
@@ -661,12 +681,27 @@ async function fetchProfilePicture(
 }
 
 // ─── Resolve profile pictures from WhatsApp (batch) ───────────────────
+/**
+ * Fetch/refresh profile pictures for conversations that are missing them.
+ * Batch is capped at MAX_PROFILE_PIC_BATCH to avoid triggering WhatsApp's
+ * bulk-activity detection (which causes 408 disconnects).
+ * A 2-second inter-request delay is enforced for the same reason.
+ */
+const MAX_PROFILE_PIC_BATCH = 20;
+
 async function resolveProfilePictures(
     tenantId: string,
     socket: WASocket,
     refreshStale = false
 ): Promise<void> {
     try {
+        // Guard: don't run if the connection is too young (reconnect protection)
+        const connectedTime = connectedAt.get(tenantId);
+        if (!connectedTime || Date.now() - connectedTime < INITIAL_SYNC_MIN_AGE_MS) {
+            console.log(`[${tenantId}] 📸 Skipping profile pic fetch — connection too young (reconnect guard)`);
+            return;
+        }
+
         const supabase = getSupabase();
         let query = supabase
             .from("conversations")
@@ -675,17 +710,20 @@ async function resolveProfilePictures(
 
         if (refreshStale) {
             // Refresh mode: re-fetch ALL pictures (URLs expire over time)
-            console.log(`[${tenantId}] 📸 Refreshing ALL profile pictures...`);
+            console.log(`[${tenantId}] 📸 Refreshing profile pictures (stale refresh)...`);
         } else {
             // Initial mode: only fetch missing pictures
             query = query.is("profile_picture_url", null);
         }
 
+        // Limit batch size to avoid WhatsApp bulk-activity detection
+        query = query.limit(MAX_PROFILE_PIC_BATCH);
+
         const { data: conversations } = await query;
 
         if (!conversations || conversations.length === 0) return;
 
-        console.log(`[${tenantId}] 📸 Fetching profile pictures for ${conversations.length} contacts...`);
+        console.log(`[${tenantId}] 📸 Fetching profile pictures for ${conversations.length} contacts (max ${MAX_PROFILE_PIC_BATCH})...`);
         let resolved = 0;
         let failed = 0;
 
@@ -709,8 +747,9 @@ async function resolveProfilePictures(
                     console.warn(`[${tenantId}] 📸 Failed [${statusCode}] ${conv.phone_number}: ${msg}`);
                 }
             }
-            // Small delay between calls to avoid WhatsApp rate-limiting
-            await new Promise(r => setTimeout(r, 200));
+            // 2-second delay between calls — prevents WhatsApp from treating this
+            // as suspicious bulk activity and dropping the connection (code 408)
+            await delay(2_000);
         }
 
         console.log(`[${tenantId}] ✅ Profile pictures: ${resolved} resolved, ${failed} failed (of ${conversations.length})`);
@@ -804,12 +843,27 @@ async function createSession(tenantId: string): Promise<void> {
             console.log(`[${tenantId}] ✅ WhatsApp connected (${phoneNumber})`);
             notifyQRUpdate(tenantId, null);
 
-            // After a short delay, resolve any group names and profile pictures
-            setTimeout(() => resolveGroupNames(tenantId, socket), 10000);
-            setTimeout(() => syncCachedContactsToDB(tenantId), 12000); // Retroactively fix missing names
-            setTimeout(() => resolveProfilePictures(tenantId, socket), 15000);
-            // Resolve LID JIDs after contacts have synced (contacts.upsert fires first)
-            setTimeout(() => resolveLidPhoneMappings(tenantId, socket), 25000);
+            // Record the time this connection became active (used by reconnect guards)
+            connectedAt.set(tenantId, Date.now());
+
+            // Only run expensive bulk syncs on the FIRST connect, not on every reconnect.
+            // Repeated profile-pic / group-name storms after reconnects cause WhatsApp to
+            // drop the connection with code 408 (bulk activity detected), creating an
+            // infinite reconnect loop.
+            if (!hasRunInitialSync.has(tenantId)) {
+                hasRunInitialSync.add(tenantId);
+
+                // After a short delay, resolve any group names and profile pictures.
+                // resolveProfilePictures has its own reconnect-age guard as a second line
+                // of defence, but the flag above is the primary gatekeeper.
+                setTimeout(() => resolveGroupNames(tenantId, socket), 10_000);
+                setTimeout(() => syncCachedContactsToDB(tenantId), 12_000); // Retroactively fix missing names
+                setTimeout(() => resolveProfilePictures(tenantId, socket), 15_000);
+                // Resolve LID JIDs after contacts have synced (contacts.upsert fires first)
+                setTimeout(() => resolveLidPhoneMappings(tenantId, socket), 25_000);
+            } else {
+                console.log(`[${tenantId}] ♻️ Reconnect detected — skipping bulk sync to protect connection`);
+            }
 
             // Periodic refresh: re-fetch profile pictures every 6 hours (URLs expire)
             // Clear any previous interval first to prevent leak on reconnect
@@ -1146,7 +1200,21 @@ async function createSession(tenantId: string): Promise<void> {
                         });
 
                     if (error) {
-                        console.error(`[${tenantId}] Failed to upload media:`, error);
+                        // Detect missing storage bucket — log a clear warning and skip upload.
+                        // Do NOT throw or rethrow: Baileys will get a stream ACK error and
+                        // disconnect with code 500 if we let this propagate.
+                        const isBucketMissing =
+                            (error as any)?.status === 400 ||
+                            (error as any)?.status === 404 ||
+                            error?.message?.toLowerCase().includes("bucket not found") ||
+                            error?.message?.toLowerCase().includes("not found");
+
+                        if (isBucketMissing) {
+                            console.warn(`[${tenantId}] ⚠️ Storage bucket 'whatsapp_media' not found — skipping media upload. Message will be saved without media_url.`);
+                        } else {
+                            console.error(`[${tenantId}] Failed to upload media:`, error);
+                        }
+                        // mediaUrl stays null — message will still be saved to DB below
                     } else if (data) {
                         const { data: publicUrlData } = supabase.storage.from("whatsapp_media").getPublicUrl(data.path);
                         mediaUrl = publicUrlData.publicUrl;
@@ -1172,7 +1240,10 @@ async function createSession(tenantId: string): Promise<void> {
                         }
                     }
                 } catch (err) {
-                    console.error(`[${tenantId}] Media processing error:`, err);
+                    // Catch-all for unexpected errors (download failure, network issues, etc.)
+                    // Log and continue — the message must still be saved to DB even without media.
+                    console.error(`[${tenantId}] Media processing error (non-fatal — message will be saved without media_url):`, err);
+                    // mediaUrl stays null — message will be stored without it
                 }
             }
 
