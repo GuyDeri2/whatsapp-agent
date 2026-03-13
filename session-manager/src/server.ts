@@ -395,6 +395,119 @@ cron.schedule("*/2 * * * *", async () => {
     }
 });
 
+// ─── Unanswered-customer reminder (every 5 minutes) ──────────────────
+// Find paused conversations where the last message is from a user and was
+// sent > 10 minutes ago, then send the owner a WhatsApp reminder.
+// Debounce: max 1 reminder per conversation per 30 minutes (in-memory map).
+const _reminderSentAt = new Map<string, number>(); // conversationId → timestamp
+const REMINDER_DEBOUNCE_MS = 30 * 60 * 1000; // 30 minutes
+
+cron.schedule("*/5 * * * *", async () => {
+    const activeSessions = getActiveSessions();
+    if (activeSessions.length === 0) return;
+
+    try {
+        const { createClient } = await import("@supabase/supabase-js");
+        const { summarizeConversationForHandoff } = await import("./ai-agent");
+        const supabase = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const tenCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+        // For each active tenant session, find paused conversations with unanswered user messages
+        for (const tenantId of activeSessions) {
+            try {
+                // Get tenant owner_phone
+                const { data: tenant } = await supabase
+                    .from("tenants")
+                    .select("owner_phone")
+                    .eq("id", tenantId)
+                    .single();
+
+                if (!tenant?.owner_phone) continue;
+
+                // Find paused conversations for this tenant
+                const { data: pausedConvs } = await supabase
+                    .from("conversations")
+                    .select("id, phone_number, contact_name, updated_at")
+                    .eq("tenant_id", tenantId)
+                    .eq("is_paused", true);
+
+                if (!pausedConvs || pausedConvs.length === 0) continue;
+
+                for (const conv of pausedConvs) {
+                    // Debounce: skip if reminder was sent in the last 30 minutes
+                    const lastSent = _reminderSentAt.get(conv.id) ?? 0;
+                    if (Date.now() - lastSent < REMINDER_DEBOUNCE_MS) continue;
+
+                    // Check if the last message in this conversation is from a user
+                    // and was sent more than 10 minutes ago
+                    const { data: lastMsg } = await supabase
+                        .from("messages")
+                        .select("role, created_at")
+                        .eq("conversation_id", conv.id)
+                        .order("created_at", { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+
+                    if (!lastMsg) continue;
+                    if (lastMsg.role !== "user") continue;
+                    if (lastMsg.created_at > tenCutoff) continue; // Not yet 10 minutes
+
+                    // Calculate how many minutes the customer has been waiting
+                    const waitMs = Date.now() - new Date(lastMsg.created_at).getTime();
+                    const waitMins = Math.floor(waitMs / 60_000);
+
+                    // Summarize what the customer wants
+                    let summary = "";
+                    try {
+                        summary = await summarizeConversationForHandoff(tenantId, conv.id);
+                    } catch (_) {
+                        // Non-fatal — send reminder without summary
+                    }
+
+                    const customerPhone = conv.phone_number.startsWith("972") && conv.phone_number.length >= 11
+                        ? "0" + conv.phone_number.substring(3)
+                        : conv.phone_number;
+
+                    const summaryLine = summary ? `\n\n📋 ${summary}` : "";
+                    const reminderMsg = [
+                        `⏰ תזכורת: לקוח עדיין ממתין לתשובה!`,
+                        ``,
+                        `👤 ${conv.contact_name || "לא ידוע"}`,
+                        `📞 ${customerPhone}`,
+                        `⏱️ ממתין כבר ${waitMins} דקות`,
+                        summaryLine.trim() ? summaryLine.trim() : null,
+                        ``,
+                        `פתח את הצ'אט בוואטסאפ העסקי שלך לענות.`,
+                    ].filter((l) => l !== null).join("\n");
+
+                    // Normalize owner_phone → international
+                    let ownerDigits = tenant.owner_phone.replace(/\D/g, "");
+                    if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
+                        ownerDigits = "972" + ownerDigits.substring(1);
+                    }
+                    const ownerJid = `${ownerDigits}@s.whatsapp.net`;
+
+                    try {
+                        await sendMessage(tenantId, ownerJid, reminderMsg);
+                        _reminderSentAt.set(conv.id, Date.now());
+                        console.log(`[${tenantId}] ⏰ Reminder sent to owner for conversation ${conv.id} (waited ${waitMins} min)`);
+                    } catch (sendErr: any) {
+                        console.error(`[${tenantId}] ❌ Failed to send reminder to owner:`, sendErr.message);
+                    }
+                }
+            } catch (tenantErr: any) {
+                console.error(`[${tenantId}] Reminder cron error:`, tenantErr.message);
+            }
+        }
+    } catch (err: any) {
+        console.error("Unanswered-reminder cron fatal:", err.message);
+    }
+});
+
 // Run every night at 02:00 server time
 cron.schedule("0 2 * * *", async () => {
     if (_learningRunning) {

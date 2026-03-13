@@ -185,56 +185,6 @@ export async function handleIncomingMessage(
     const phoneNumber = remoteJid.split("@")[0];
     const isGroupChat = remoteJid.endsWith("@g.us");
 
-    // ── Owner forwarding: if this message is FROM the owner's personal phone ──
-    // When the owner sends a message to the business WhatsApp number from their
-    // personal phone, we forward it to the most recently paused conversation.
-    if (config.owner_phone && !isGroupChat) {
-        let ownerDigits = config.owner_phone.replace(/\D/g, "");
-        if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
-            ownerDigits = "972" + ownerDigits.substring(1);
-        }
-        const ownerJid = `${ownerDigits}@s.whatsapp.net`;
-
-        if (remoteJid === ownerJid) {
-            // This is the owner messaging the business phone — forward to paused conversation
-            const { data: pausedConv } = await supabase
-                .from("conversations")
-                .select("id, phone_number, contact_name")
-                .eq("tenant_id", tenantId)
-                .eq("is_paused", true)
-                .order("updated_at", { ascending: false })
-                .limit(1)
-                .single();
-
-            if (pausedConv) {
-                const customerJid = `${pausedConv.phone_number}@s.whatsapp.net`;
-                const sent = await sendMessage(customerJid, { text: messageText });
-                markAgentSent(sent?.key?.id);
-
-                await supabase.from("messages").insert({
-                    conversation_id: pausedConv.id,
-                    tenant_id: tenantId,
-                    role: "owner",
-                    content: messageText,
-                    is_from_agent: false,
-                    wa_message_id: sent?.key?.id || null,
-                    status: "sent",
-                });
-
-                // Touch the conversation's updated_at
-                await supabase
-                    .from("conversations")
-                    .update({ updated_at: new Date().toISOString() })
-                    .eq("id", pausedConv.id);
-
-                console.log(`[${tenantId}] 👤 Owner reply forwarded to ${pausedConv.phone_number}`);
-            } else {
-                console.log(`[${tenantId}] 👤 Owner message received but no paused conversation to forward to`);
-            }
-            return; // Don't process owner's message as a normal incoming message
-        }
-    }
-
     // ── Ignore Baileys echo of messages sent by the AI agent ──────────────
     // When we send a message via socket.sendMessage, Baileys fires messages.upsert
     // with fromMe=true almost immediately — before our DB insert completes.
@@ -278,7 +228,7 @@ export async function handleIncomingMessage(
             },
             { onConflict: "tenant_id,phone_number", ignoreDuplicates: false }
         )
-        .select("id, contact_name, is_paused, is_saved_contact, updated_at")
+        .select("id, contact_name, is_paused, paused_until, is_saved_contact, updated_at")
         .single();
 
     if (convError || !conversation) {
@@ -346,27 +296,47 @@ export async function handleIncomingMessage(
 
     // 6. Route based on agent mode (only for incoming user messages)
     if (isFromMe) {
-        // Owner is replying — clear any pending AI logic for this conversation
+        // Owner manually typed a message from the business phone — pause AI for 40 minutes
         if (debounceTimers[debounceKey]) {
             clearTimeout(debounceTimers[debounceKey]);
             delete debounceTimers[debounceKey];
             console.log(`[${tenantId}] 🛑 Owner replied — cancelled pending AI debounce reply.`);
         }
+
+        const pausedUntil = new Date(Date.now() + 40 * 60 * 1000).toISOString();
+        await supabase
+            .from("conversations")
+            .update({ is_paused: true, paused_until: pausedUntil })
+            .eq("id", conversationId);
+        console.log(`[${tenantId}] 👤 Owner replied manually — AI paused for 40 min (until ${pausedUntil})`);
         return;
     }
 
-    // Auto-unpause if it's been > 40 minutes since the last message
+    // Auto-unpause if paused_until has passed (or fallback: 40 min since last message)
     if (conversation.is_paused) {
-        const FORTY_MINUTES_MS = 40 * 60 * 1000;
-        const lastUpdated = new Date(conversation.updated_at || Date.now()).getTime();
         const now = Date.now();
+        let shouldUnpause = false;
 
-        if (now - lastUpdated > FORTY_MINUTES_MS) {
-            console.log(`[${tenantId}] ⏱️ $> 40 mins passed. Auto-unpausing conversation ${conversationId}`);
+        if (conversation.paused_until) {
+            // Prefer the explicit paused_until timestamp
+            if (now > new Date(conversation.paused_until).getTime()) {
+                shouldUnpause = true;
+            }
+        } else {
+            // Legacy fallback: use updated_at
+            const FORTY_MINUTES_MS = 40 * 60 * 1000;
+            const lastUpdated = new Date(conversation.updated_at || Date.now()).getTime();
+            if (now - lastUpdated > FORTY_MINUTES_MS) {
+                shouldUnpause = true;
+            }
+        }
+
+        if (shouldUnpause) {
+            console.log(`[${tenantId}] ⏱️ Pause expired. Auto-unpausing conversation ${conversationId}`);
             conversation.is_paused = false;
             await supabase
                 .from("conversations")
-                .update({ is_paused: false })
+                .update({ is_paused: false, paused_until: null })
                 .eq("id", conversationId);
         }
     }
@@ -432,14 +402,16 @@ export async function handleIncomingMessage(
             debounceTimers[debounceKey] = setTimeout(async () => {
                 delete debounceTimers[debounceKey];
 
-                // Re-check is_paused from DB — handoff may have been triggered
-                // between when this message arrived and when the debounce fired.
+                // Re-check is_paused / paused_until from DB — handoff or owner reply may
+                // have been triggered between when this message arrived and the debounce fired.
                 const { data: freshConv } = await getSupabase()
                     .from("conversations")
-                    .select("is_paused")
+                    .select("is_paused, paused_until")
                     .eq("id", conversationId)
                     .single();
-                if (freshConv?.is_paused) {
+                const stillPaused = freshConv?.is_paused &&
+                    (!freshConv.paused_until || Date.now() < new Date(freshConv.paused_until).getTime());
+                if (stillPaused) {
                     console.log(`[${tenantId}] ⏸️ Conversation paused (re-check) — skipping AI reply: ${phoneNumber}`);
                     return;
                 }
@@ -602,9 +574,10 @@ async function handleActiveMode(
         }
 
         if (shouldPause) {
+            const pausedUntil = new Date(Date.now() + 40 * 60 * 1000).toISOString();
             await getSupabase()
                 .from("conversations")
-                .update({ is_paused: true })
+                .update({ is_paused: true, paused_until: pausedUntil })
                 .eq("id", conversationId);
         }
 
@@ -697,19 +670,19 @@ async function handleActiveMode(
 
             // Send WhatsApp notification to owner
             if (ownerPhone) {
-                const summarySection = summary ? `\n\n📋 סיכום:\n${summary}` : "";
+                const emailLine = email ? `📧 ${email}\n` : "";
+                const summarySection = summary ? `\n📋 סיכום:\n${summary}\n` : "";
 
                 const ownerNotification = [
-                    `🔔 לקוח חדש ממתין לטיפולך!`,
+                    `🔔 לקוח ממתין למענה!`,
                     ``,
-                    `👤 שם: ${contactName || "לא ידוע"}`,
-                    `📞 טלפון: ${customerPhone}`,
-                    `📧 מייל: ${email || "לא סופק"}`,
-                    summarySection,
+                    `👤 ${contactName || "לא ידוע"}`,
+                    `📞 ${customerPhone}`,
+                    emailLine.trim() ? emailLine.trim() : null,
+                    summarySection.trim() ? summarySection.trim() : null,
                     ``,
                     `──────────────────`,
-                    `💬 כדי לענות ללקוח דרך הבוט:`,
-                    `פשוט כתוב כאן בצ'אט הזה והודעתך תועבר ללקוח אוטומטית.`,
+                    `כדי לענות — פתח את הצ'אט עם הלקוח בוואטסאפ העסקי שלך.`,
                 ].filter((l) => l !== null).join("\n");
 
                 let ownerDigits = ownerPhone.replace(/\D/g, "");
