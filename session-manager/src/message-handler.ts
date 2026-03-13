@@ -37,6 +37,12 @@ const activeGenerations = new Set<string>();
 // Randomised debounce: 1.5s–4.5s to avoid mechanical fixed-interval fingerprinting
 const getDebounceDelay = () => 1_500 + Math.floor(Math.random() * 3_000);
 
+/** Called by server.ts when tenant settings are updated — forces fresh config fetch */
+export function invalidateTenantConfigCache(tenantId: string): void {
+    tenantConfigCache.delete(tenantId);
+    console.log(`[${tenantId}] 🔄 Tenant config cache invalidated`);
+}
+
 export function clearPendingAiReply(tenantId: string, conversationId: string): void {
     const key = `${tenantId}_${conversationId}`;
     if (debounceTimers[key]) {
@@ -457,9 +463,22 @@ async function handleActiveMode(
                     ? `${conv.contact_name} (${customerPhone})`
                     : customerPhone;
                 const ownerNotification = `🔔 לקוח ממתין למענה אנושי!\n\nשם: ${contactDisplay}\nטלפון: ${customerPhone}\n\nהלקוח פנה לוואטסאפ העסקי שלך וסוכן ה-AI הפנה אותו לטיפול ידני.`;
-                const ownerJid = `${ownerPhone.replace(/\D/g, "")}@s.whatsapp.net`;
-                await sendMessage(ownerJid, { text: ownerNotification });
-                console.log(`[${tenantId}] 📱 Owner notified at ${ownerPhone} about customer handoff: ${customerPhone}`);
+
+                // Normalize owner phone to international format (972XXXXXXXXX)
+                let ownerDigits = ownerPhone.replace(/\D/g, "");
+                if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
+                    ownerDigits = "972" + ownerDigits.substring(1);
+                }
+                const ownerJid = `${ownerDigits}@s.whatsapp.net`;
+
+                try {
+                    await sendMessage(ownerJid, { text: ownerNotification });
+                    console.log(`[${tenantId}] 📱 Owner notified at ${ownerJid} about customer handoff: ${customerPhone}`);
+                } catch (notifyErr: any) {
+                    console.error(`[${tenantId}] ❌ Failed to notify owner at ${ownerJid}:`, notifyErr.message);
+                }
+            } else {
+                console.warn(`[${tenantId}] ⚠️ No owner_phone configured — skipping owner notification`);
             }
         }
 

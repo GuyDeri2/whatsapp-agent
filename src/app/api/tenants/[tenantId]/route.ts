@@ -54,6 +54,19 @@ export async function PATCH(
     if (!tenant)
         return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
+    // Invalidate session-manager's tenant config cache so changes (e.g. owner_phone) take effect immediately
+    try {
+        await fetch(
+            `${process.env.SESSION_MANAGER_URL || "http://localhost:3001"}/sessions/${tenantId}/invalidate-cache`,
+            {
+                method: "POST",
+                headers: { Authorization: `Bearer ${process.env.SESSION_MANAGER_SECRET || ""}` },
+            }
+        );
+    } catch {
+        // Non-critical — cache expires in 30s anyway
+    }
+
     return NextResponse.json({ tenant });
 }
 

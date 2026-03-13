@@ -18,6 +18,7 @@ import {
     sendMessage,
     reconnectSession,
 } from "./session-manager";
+import { invalidateTenantConfigCache } from "./message-handler";
 import { runBatchLearning } from "./learning-engine";
 
 const app = express();
@@ -171,6 +172,13 @@ app.post("/sessions/:tenantId/reconnect", async (req, res) => {
         console.error(`Error reconnecting session for ${tenantId}:`, error);
         res.status(500).json({ error: error.message });
     }
+});
+
+/** Invalidate tenant config cache (called after settings update) */
+app.post("/sessions/:tenantId/invalidate-cache", (req, res) => {
+    const { tenantId } = req.params;
+    invalidateTenantConfigCache(tenantId);
+    res.json({ success: true });
 });
 
 /** Trigger batch learning for a given tenant */
