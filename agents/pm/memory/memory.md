@@ -22,6 +22,7 @@
 - Code examples are always welcome over just theory
 - Prefer TypeScript strict mode
 - Hebrew for user-facing copy, English for code and tech decisions
+- **Always deploy after every task** — after any fix or change, always: build → commit → push to GitHub (Vercel auto-deploys from push). No exceptions. Never finish a task without deploying.
 
 ## Planning Pattern (2026-02-27)
 The PM correctly identified the core requirement (chronological sorting) and assigned appropriate agents. However, should have specified that real-time updates via Supabase subscriptions were a critical requirement for the frontend implementation. Also should have emphasized the need for pagination in both backend and frontend to handle large datasets. The synthesis was clear but could have included acceptance criteria for performance and real-time behavior.
