@@ -52,4 +52,28 @@
     min-height: 100vh;
     direction: rtl;
   }
+
+  /* Remove 300ms tap delay on all interactive elements */
+  button, a, [role="button"], select, input, textarea, label {
+    touch-action: manipulation;
+  }
+
+  /* Consistent fast transitions for interactive elements */
+  button {
+    transition: background-color 150ms ease, color 150ms ease,
+      border-color 150ms ease, opacity 150ms ease,
+      transform 100ms ease, box-shadow 150ms ease;
+  }
+
+  /* Pressed state visual feedback */
+  button:active:not(:disabled) {
+    transform: scale(0.97);
+    opacity: 0.9;
+  }
+
+  /* Prevent text selection on rapid clicks */
+  button, [role="button"] {
+    user-select: none;
+    -webkit-user-select: none;
+  }
 }

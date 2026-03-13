@@ -79,29 +79,41 @@ export function CapabilitiesTab({ tenant }: { tenant: any }) {
 
     const handleDelete = async (id: string) => {
         if (!confirm("האם למחוק יכולת זו? הסוכן לא ישתמש בה יותר.")) return;
+        setLearnings(prev => prev.filter(l => l.id !== id)); // Instant
         const { error } = await supabase.from("knowledge_base").delete().eq("id", id);
-        if (!error) {
-            fetchLearnings();
-        } else {
+        if (error) {
+            fetchLearnings(); // Revert
             alert("שגיאה במחיקה");
         }
     };
 
     const handleAdd = async () => {
         if (!editForm.question || !editForm.answer) return alert("יש למלא נושא ותשובה");
+
+        // Optimistic — close form immediately
+        const tempId = `temp-${Date.now()}`;
+        const tempItem: AgentLearning = {
+            id: tempId, question: editForm.question, answer: editForm.answer,
+            category: editForm.category, confidence: 1, source: "manual",
+            created_at: new Date().toISOString(),
+        };
+        setLearnings(prev => [tempItem, ...prev]);
+        setIsAdding(false);
+        setEditForm({ question: "", answer: "", category: "general" });
+
         const { error } = await supabase.from("knowledge_base").insert({
             tenant_id: tenant.id,
-            question: editForm.question,
-            answer: editForm.answer,
-            category: editForm.category,
+            question: tempItem.question,
+            answer: tempItem.answer,
+            category: tempItem.category,
             source: "manual"
         });
 
         if (!error) {
-            setIsAdding(false);
-            setEditForm({ question: "", answer: "", category: "general" });
-            fetchLearnings();
+            fetchLearnings(); // Replace temp item with real server record
         } else {
+            setLearnings(prev => prev.filter(l => l.id !== tempId)); // Revert
+            setIsAdding(true); // Re-open form
             alert("שגיאה בהוספה");
         }
     };

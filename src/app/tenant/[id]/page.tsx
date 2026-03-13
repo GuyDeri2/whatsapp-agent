@@ -203,30 +203,30 @@ export default function TenantPage() {
         if (data) {
             setConversations(data);
 
-            const lastMsgMap: Record<string, string> = {};
-            // Only fetch previews for the top 30 to save DB bottleneck
-            for (const conv of data.slice(0, 30)) {
-                try {
-                    const { data: msgs } = await supabase
-                        .from("messages")
-                        .select("content, media_type")
-                        .eq("conversation_id", conv.id)
-                        .order("created_at", { ascending: false })
-                        .limit(1);
+            // Batch fetch last messages in ONE query instead of N+1
+            const topConvIds = data.slice(0, 30).map(c => c.id);
+            if (topConvIds.length === 0) return;
 
-                    if (msgs && msgs.length > 0) {
-                        const m = msgs[0];
-                        if (m.media_type && (m.content === `[${m.media_type} received]` || !m.content)) {
-                            const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
-                            lastMsgMap[conv.id] = labels[m.media_type] || "📎 קובץ";
-                        } else {
-                            lastMsgMap[conv.id] = m.content?.substring(0, 50) || "";
-                        }
+            const { data: recentMsgs } = await supabase
+                .from("messages")
+                .select("conversation_id, content, media_type, created_at")
+                .in("conversation_id", topConvIds)
+                .order("created_at", { ascending: false })
+                .limit(topConvIds.length * 3);
+
+            if (recentMsgs) {
+                const lastMsgMap: Record<string, string> = {};
+                const labels: Record<string, string> = { image: "📷 תמונה", video: "🎥 סרטון", audio: "🎙️ הודעה קולית", document: "📄 מסמך", sticker: "🎨 סטיקר" };
+                for (const m of recentMsgs) {
+                    if (lastMsgMap[m.conversation_id]) continue; // Already have latest
+                    if (m.media_type && (m.content === `[${m.media_type} received]` || !m.content)) {
+                        lastMsgMap[m.conversation_id] = labels[m.media_type] || "📎 קובץ";
+                    } else {
+                        lastMsgMap[m.conversation_id] = m.content?.substring(0, 50) || "";
                     }
-                } catch (e) { /* ignore single fails */ }
+                }
+                setLastMessages(prev => ({ ...prev, ...lastMsgMap }));
             }
-            // Safely merge so we don't wipe out older previews
-            setLastMessages(prev => ({ ...prev, ...lastMsgMap }));
         }
     }, [supabase, tenantId]);
 
@@ -391,29 +391,31 @@ export default function TenantPage() {
 
     // ── Agent mode toggle ──
     const setAgentMode = async (mode: "learning" | "active" | "paused") => {
+        setTenant(prev => prev ? { ...prev, agent_mode: mode } : prev); // Instant UI
         try {
             await fetch(`/api/tenants/${tenantId}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ agent_mode: mode }),
             });
-            await fetchTenant();
         } catch {
+            fetchTenant(); // Revert on error
             showToast("שגיאה בשינוי מצב הסוכן", "error");
         }
     };
 
     // ── Agent filter mode toggle ──
     const setFilterMode = async (mode: "all" | "whitelist" | "blacklist") => {
+        setTenant(prev => prev ? { ...prev, agent_filter_mode: mode } : prev); // Instant UI
+        showToast(`מצב סינון שונה ל: ${filterLabels[mode]}`, "success");
         try {
             await fetch(`/api/tenants/${tenantId}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ agent_filter_mode: mode }),
             });
-            await fetchTenant();
-            showToast(`מצב סינון שונה ל: ${filterLabels[mode]}`, "success");
         } catch {
+            fetchTenant(); // Revert on error
             showToast("שגיאה בשינוי מצב הסינון", "error");
         }
     };
@@ -423,28 +425,47 @@ export default function TenantPage() {
         e.preventDefault();
         if (!newRulePhone.trim()) return;
 
+        const phone = normalizePhone(newRulePhone);
+        const name = newRuleName || null;
+        const ruleType = newRuleType;
+
+        // Clear form immediately for perceived performance
+        setNewRulePhone("");
+        setNewRuleName("");
+
+        // Optimistic update
+        const tempId = `temp-${Date.now()}`;
+        const optimisticRule: ContactRule = {
+            id: tempId, tenant_id: tenantId, phone_number: phone,
+            contact_name: name, rule_type: ruleType, created_at: new Date().toISOString(),
+        };
+        setContactRules(prev => [...prev, optimisticRule]);
+
         const res = await fetch(`/api/tenants/${tenantId}/contacts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                phone_number: normalizePhone(newRulePhone),
-                contact_name: newRuleName || null,
-                rule_type: newRuleType,
-            }),
+            body: JSON.stringify({ phone_number: phone, contact_name: name, rule_type: ruleType }),
         });
 
         if (res.ok) {
-            setNewRulePhone("");
-            setNewRuleName("");
-            await fetchContactRules();
+            fetchContactRules(); // Replace temp with real server-generated ID
             showToast("כלל אנשי קשר נוסף", "success");
         } else {
+            setContactRules(prev => prev.filter(r => r.id !== tempId)); // Revert
             showToast("שגיאה בהוספת כלל", "error");
         }
     };
 
     // ── Add from conversation ──
     const handleAddFromConversation = async (conv: Conversation, ruleType: "allow" | "block") => {
+        // Optimistic update
+        const tempId = `temp-${Date.now()}`;
+        const optimisticRule: ContactRule = {
+            id: tempId, tenant_id: tenantId, phone_number: conv.phone_number,
+            contact_name: conv.contact_name, rule_type: ruleType, created_at: new Date().toISOString(),
+        };
+        setContactRules(prev => [...prev, optimisticRule]);
+
         const res = await fetch(`/api/tenants/${tenantId}/contacts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -456,24 +477,29 @@ export default function TenantPage() {
         });
 
         if (res.ok) {
-            await fetchContactRules();
+            fetchContactRules(); // Replace temp with real server-generated ID
             showToast(
                 ruleType === "allow"
                     ? `${conv.contact_name || formatPhone(conv.phone_number)} נוסף לרשימה הלבנה`
                     : `${conv.contact_name || formatPhone(conv.phone_number)} נחסם`,
                 "success"
             );
+        } else {
+            setContactRules(prev => prev.filter(r => r.id !== tempId)); // Revert
         }
     };
 
     // ── Delete contact rule ──
     const handleDeleteRule = async (ruleId: string) => {
+        setContactRules(prev => prev.filter(r => r.id !== ruleId)); // Instant
         const res = await fetch(`/api/tenants/${tenantId}/contacts?id=${ruleId}`, {
             method: "DELETE",
         });
         if (res.ok) {
-            await fetchContactRules();
             showToast("כלל הוסר", "success");
+        } else {
+            fetchContactRules(); // Revert on error
+            showToast("שגיאה בהסרת כלל", "error");
         }
     };
 
@@ -505,14 +531,14 @@ export default function TenantPage() {
             body: JSON.stringify(editForm),
         });
         const data = await res.json();
-        await fetchTenant();
-        setSaving(false);
+        setSaving(false); // Stop spinner as soon as API responds
         if (res.ok) {
             if (data.phoneWarning) {
                 showToast(`⚠️ נשמר, אך: ${data.phoneWarning}`, "error");
             } else {
                 showToast("ההגדרות נשמרו בהצלחה", "success");
             }
+            fetchTenant(); // Background sync (don't await)
         } else {
             showToast("שגיאה בשמירת ההגדרות", "error");
         }
@@ -609,7 +635,7 @@ export default function TenantPage() {
     const selectConversation = (conv: Conversation) => {
         setSelectedConvId(conv.id);
         selectedConvIdRef.current = conv.id;
-        setMessages([]); // Clear stale messages immediately before fetching
+        // Don't clear messages — avoids flash of empty state while loading
         fetchMessages(conv.id);
         fetchConversations(); // Refresh sidebar to show latest previews
     };
