@@ -311,7 +311,18 @@ function makeHumanSend(socket: WASocket) {
             // Pre-establish the Signal encryption session so the recipient never
             // sees "בהמתנה להודעה זו" (waiting for message / clock icon).
             // assertSessions(false) fetches keys only if not already cached.
-            await socket.assertSessions([jid], false);
+            // Wrapped in try-catch with timeout — a failure here must not block the send
+            // or cause unhandled rejections that destabilise the Baileys socket.
+            try {
+                await Promise.race([
+                    socket.assertSessions([jid], false),
+                    new Promise<void>((_, reject) =>
+                        setTimeout(() => reject(new Error("assertSessions timeout")), 5_000)
+                    ),
+                ]);
+            } catch (assertErr: any) {
+                console.warn(`[makeHumanSend] assertSessions skipped: ${assertErr.message}`);
+            }
 
             const words = content.text.trim().split(/\s+/).length;
             // ~80 wpm typing speed, capped at 3s, plus 0-500ms random jitter
@@ -956,6 +967,16 @@ async function createSession(tenantId: string): Promise<void> {
                 `[${tenantId}] ❌ Connection closed (code: ${statusCode}, msg: ${errorMessage})`
             );
 
+            // Handle 515 (restartRequired) — WhatsApp server asks us to restart the connection.
+            // This is NOT a permanent failure; reconnect quickly without clearing auth.
+            if (statusCode === 515) {
+                console.log(`[${tenantId}] 🔄 WhatsApp restart requested (515) — reconnecting in 3s...`);
+                sessions.delete(tenantId);
+                // _reconnecting stays set — createSession will clear it on "open"
+                setTimeout(() => createSession(tenantId), 3_000);
+                return;
+            }
+
             // Fix B: Handle badSession — clear corrupted crypto state and reconnect fresh
             if (statusCode === DisconnectReason.badSession) {
                 console.log(`[${tenantId}] ❌ Bad session detected — clearing corrupted session data and reconnecting...`);
@@ -1144,8 +1165,14 @@ async function createSession(tenantId: string): Promise<void> {
 
             console.log(`[${tenantId}] ✅ History sync done: ${chatsSynced} chats, ${messagesSynced} messages saved`);
 
-            // Fetch actual group names for groups that don't have one yet
-            await resolveGroupNames(tenantId, socket);
+            // Fetch actual group names for groups that don't have one yet.
+            // Only run on the FINAL history batch (isLatest: true) to avoid
+            // making socket.groupMetadata() calls on every incremental batch —
+            // WhatsApp interprets rapid bulk API calls as suspicious and responds
+            // with a 408 disconnect.
+            if (isLatest) {
+                await resolveGroupNames(tenantId, socket);
+            }
         } catch (err) {
             console.error(`[${tenantId}] History sync error:`, err);
         }
