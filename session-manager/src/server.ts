@@ -20,6 +20,7 @@ import {
     checkWhatsAppNumber,
     normalizePhone,
     isReconnecting,
+    probeSessionHealth,
 } from "./session-manager";
 import { invalidateTenantConfigCache } from "./message-handler";
 import { runBatchLearning } from "./learning-engine";
@@ -357,16 +358,37 @@ cron.schedule("*/5 * * * *", async () => {
             return true;
         });
 
-        if (actionableTenants.length === 0) return;
+        if (actionableTenants.length === 0 && activeSessions.length === 0) return;
 
-        console.log(`🔍 Watchdog: ${actionableTenants.length} dead session(s) detected. Restarting...`);
-        for (const tenantId of actionableTenants) {
+        // ── Phase 1: Restart dead sessions (not in sessions Map) ──
+        if (actionableTenants.length > 0) {
+            console.log(`🔍 Watchdog: ${actionableTenants.length} dead session(s) detected. Restarting...`);
+            for (const tenantId of actionableTenants) {
+                try {
+                    console.log(`[${tenantId}] 🔄 Watchdog restarting session...`);
+                    await startSession(tenantId);
+                    await new Promise((r) => setTimeout(r, 3000));
+                } catch (err: any) {
+                    console.error(`[${tenantId}] Watchdog restart failed:`, err.message);
+                }
+            }
+        }
+
+        // ── Phase 2: Detect zombie connections (in Map but socket is dead) ──
+        for (const tenantId of activeSessions) {
             try {
-                console.log(`[${tenantId}] 🔄 Watchdog restarting session...`);
-                await startSession(tenantId);
-                await new Promise((r) => setTimeout(r, 3000));
+                const info = getSessionInfo(tenantId);
+                if (info.status !== "connected") continue; // Only probe "connected" sessions
+
+                const alive = await probeSessionHealth(tenantId);
+                if (!alive) {
+                    console.warn(`[${tenantId}] 🧟 Watchdog: zombie connection detected — force restarting...`);
+                    await stopSession(tenantId, false);
+                    await new Promise((r) => setTimeout(r, 3000));
+                    await startSession(tenantId);
+                }
             } catch (err: any) {
-                console.error(`[${tenantId}] Watchdog restart failed:`, err.message);
+                console.error(`[${tenantId}] Watchdog zombie check failed:`, err.message);
             }
         }
     } catch (err: any) {

@@ -58,6 +58,19 @@ export function isReconnecting(tenantId: string): boolean {
 /** Track periodic intervals per tenant so we can clean them up on reconnect */
 const profilePicIntervals = new Map<string, NodeJS.Timeout>();
 
+/** Track presence heartbeat intervals per tenant (prevents WhatsApp idle disconnects) */
+const presenceHeartbeatIntervals = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Interval for sending presence heartbeats to WhatsApp.
+ * WhatsApp servers distinguish between WebSocket pings (transport-level) and
+ * XMPP presence stanzas (application-level). A connection that only sends
+ * WebSocket pings but never any XMPP-level activity may be treated as stale
+ * and disconnected (typically with code 408).
+ * Sending "available" every 5 minutes keeps the XMPP session active.
+ */
+const PRESENCE_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 /** Cache group metadata to avoid fetching from WhatsApp on every message */
 const groupMetadataCache = new Map<string, { subject: string; fetchedAt: number }>();
 const GROUP_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -387,6 +400,11 @@ export async function stopSession(
         clearInterval(picInterval);
         profilePicIntervals.delete(tenantId);
     }
+    const heartbeat = presenceHeartbeatIntervals.get(tenantId);
+    if (heartbeat) {
+        clearInterval(heartbeat);
+        presenceHeartbeatIntervals.delete(tenantId);
+    }
 
     // Reset the initial-sync guard so a fresh QR-scan triggers sync again
     hasRunInitialSync.delete(tenantId);
@@ -468,6 +486,27 @@ export function getSessionInfo(tenantId: string): {
 /** Get all active session IDs. */
 export function getActiveSessions(): string[] {
     return Array.from(sessions.keys());
+}
+
+/**
+ * Probe a connected session's health by sending a lightweight presence update.
+ * Returns true if the socket responds, false if it's a zombie (dead but still in map).
+ * Used by the watchdog to detect and restart stale connections.
+ */
+export async function probeSessionHealth(tenantId: string): Promise<boolean> {
+    const session = sessions.get(tenantId);
+    if (!session || session.status !== "connected") return false;
+    try {
+        await Promise.race([
+            session.socket.sendPresenceUpdate("available"),
+            new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error("probe timeout")), 10_000)
+            ),
+        ]);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export async function sendMessage(tenantId: string, jid: string, text: string): Promise<string> {
@@ -583,7 +622,15 @@ export async function restoreAllSessions(): Promise<void> {
 }
 
 // ─── Resolve group names from WhatsApp ────────────────────────────────
+const _groupNamesRunning = new Set<string>();
+
 async function resolveGroupNames(tenantId: string, socket: WASocket): Promise<void> {
+    // Prevent concurrent runs (setTimeout on connect + isLatest history sync can overlap)
+    if (_groupNamesRunning.has(tenantId)) {
+        console.log(`[${tenantId}] 🏷️ Skipping group name resolution — already running`);
+        return;
+    }
+    _groupNamesRunning.add(tenantId);
     try {
         const supabase = getSupabase();
         // Find all group conversations without a name
@@ -596,10 +643,13 @@ async function resolveGroupNames(tenantId: string, socket: WASocket): Promise<vo
 
         if (!namelessGroups || namelessGroups.length === 0) return;
 
-        console.log(`[${tenantId}] 🏷️ Resolving names for ${namelessGroups.length} groups...`);
+        // Cap batch size and add inter-request delay to avoid WhatsApp bulk-activity detection (408)
+        const MAX_GROUP_RESOLVE_BATCH = 10;
+        const batch = namelessGroups.slice(0, MAX_GROUP_RESOLVE_BATCH);
+        console.log(`[${tenantId}] 🏷️ Resolving names for ${batch.length} groups (of ${namelessGroups.length} total)...`);
         let resolved = 0;
 
-        for (const group of namelessGroups) {
+        for (const group of batch) {
             try {
                 // Reconstruct the JID: phone_number + @g.us
                 const jid = group.phone_number + "@g.us";
@@ -614,11 +664,15 @@ async function resolveGroupNames(tenantId: string, socket: WASocket): Promise<vo
             } catch {
                 // Group might not exist anymore or access denied
             }
+            // 3-second delay between calls to avoid WhatsApp bulk-activity detection
+            await delay(3_000);
         }
 
-        console.log(`[${tenantId}] ✅ Resolved ${resolved}/${namelessGroups.length} group names`);
+        console.log(`[${tenantId}] ✅ Resolved ${resolved}/${batch.length} group names`);
     } catch (err) {
         console.error(`[${tenantId}] Error resolving group names:`, err);
+    } finally {
+        _groupNamesRunning.delete(tenantId);
     }
 }
 
@@ -667,6 +721,8 @@ async function resolveLidPhoneMappings(tenantId: string, socket: any): Promise<v
                     map.set(lidNum, phoneNum);
                     console.log(`[${tenantId}] 🔗 LID resolved via onWhatsApp: ${lidNum} → ${phoneNum}`);
                 }
+                // Delay between chunks to avoid WhatsApp rate limiting
+                if (i + CHUNK < realPhones.length) await delay(3_000);
             }
         } catch (err: any) {
             console.error(`[${tenantId}] onWhatsApp LID resolution error:`, err.message);
@@ -849,7 +905,7 @@ async function createSession(tenantId: string): Promise<void> {
         generateHighQualityLinkPreview: false,
         syncFullHistory: false,
         markOnlineOnConnect: false,
-        keepAliveIntervalMs: 30_000,  // ping every 30s to prevent idle 408 disconnects (was 15s)
+        keepAliveIntervalMs: 25_000,  // ping every 25s — matches standard WhatsApp Web keepalive interval
         retryRequestDelayMs: 2_000,   // wait 2s before retrying failed WhatsApp requests
         maxMsgRetryCount: 5,          // limit Baileys message retry attempts to avoid infinite retry loops
         getMessage: async (key) => {
@@ -923,6 +979,27 @@ async function createSession(tenantId: string): Promise<void> {
 
             // Record the time this connection became active (used by reconnect guards)
             connectedAt.set(tenantId, Date.now());
+
+            // ── Presence Heartbeat: prevent WhatsApp idle disconnects ──
+            // WhatsApp servers may terminate connections that only send WebSocket pings
+            // but show no XMPP-level activity. Sending a presence stanza every 5 minutes
+            // keeps the application-layer session alive without affecting user visibility.
+            const prevHeartbeat = presenceHeartbeatIntervals.get(tenantId);
+            if (prevHeartbeat) clearInterval(prevHeartbeat);
+
+            // Send initial presence immediately so WhatsApp knows we're active
+            try { await socket.sendPresenceUpdate("available"); } catch { /* ignore */ }
+
+            const heartbeatInterval = setInterval(async () => {
+                const session = sessions.get(tenantId);
+                if (!session || session.status !== "connected") return;
+                try {
+                    await socket.sendPresenceUpdate("available");
+                } catch (err: any) {
+                    console.warn(`[${tenantId}] 💓 Presence heartbeat failed: ${err.message}`);
+                }
+            }, PRESENCE_HEARTBEAT_INTERVAL_MS);
+            presenceHeartbeatIntervals.set(tenantId, heartbeatInterval);
 
             // Only run expensive bulk syncs on the FIRST connect, not on every reconnect.
             // Repeated profile-pic / group-name storms after reconnects cause WhatsApp to
