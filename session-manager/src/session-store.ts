@@ -164,13 +164,50 @@ export async function useSupabaseAuthState(
     const cache = sessionCache.get(tenantId)!;
 
     console.log(`[${tenantId}] 🔄 Loading full WhatsApp crypto state into memory...`);
-    const { data: allRows, error } = await getSupabase()
-        .from("whatsapp_sessions")
-        .select("session_key, session_data")
-        .eq("tenant_id", tenantId);
 
+    // Retry with exponential backoff to handle transient DNS / network failures on reconnect.
+    // Without retries a single ENOTFOUND causes the session to start with an empty crypto
+    // state, which leads to Signal protocol errors (Invalid PreKey ID) on the next connection.
+    const RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
+    let allRows: any[] | null = null;
+    let loadError: any = null;
+
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        const { data, error } = await getSupabase()
+            .from("whatsapp_sessions")
+            .select("session_key, session_data")
+            .eq("tenant_id", tenantId);
+
+        if (!error) {
+            allRows = data;
+            loadError = null;
+            break; // success
+        }
+
+        loadError = error;
+        const isNetworkError = error?.message?.includes("ENOTFOUND") ||
+            error?.message?.includes("ECONNREFUSED") ||
+            error?.message?.includes("getaddrinfo") ||
+            error?.message?.includes("fetch failed");
+
+        if (attempt < RETRY_DELAYS_MS.length && isNetworkError) {
+            const waitMs = RETRY_DELAYS_MS[attempt];
+            console.warn(`[${tenantId}] ⚠️ DNS/network error loading crypto state (attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1}) — retrying in ${waitMs / 1000}s: ${error.message}`);
+            await new Promise(r => setTimeout(r, waitMs));
+        } else {
+            break; // non-network error or retries exhausted
+        }
+    }
+
+    const error = loadError;
     if (error) {
-        console.error(`[${tenantId}] Error loading existing session keys:`, error);
+        // Check if we already have keys in the in-memory cache from a previous successful load
+        const existingCache = sessionCache.get(tenantId);
+        if (existingCache && existingCache.size > 0) {
+            console.warn(`[${tenantId}] ⚠️ Using cached crypto state due to DNS failure (${existingCache.size} keys) — session may continue normally`);
+        } else {
+            console.error(`[${tenantId}] Error loading existing session keys:`, error);
+        }
     } else if (allRows) {
         let corruptedKeys: string[] = [];
         for (const row of allRows) {

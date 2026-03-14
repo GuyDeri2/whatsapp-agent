@@ -42,7 +42,7 @@ type QRUpdateCallback = (tenantId: string, qrDataUrl: string | null) => void;
 // ─── State ────────────────────────────────────────────────────────────
 const sessions = new Map<string, SessionInfo>();
 const MAX_RETRIES = 5;
-const MAX_PREKEY_ERRORS = 10; // after this many PreKeyErrors, clear session and reconnect
+const MAX_PREKEY_ERRORS = 50; // after this many PreKeyErrors, clear session and reconnect (raised from 10 — PreKey errors self-resolve via Baileys renegotiation)
 
 /** Track periodic intervals per tenant so we can clean them up on reconnect */
 const profilePicIntervals = new Map<string, NodeJS.Timeout>();
@@ -66,6 +66,13 @@ setInterval(() => {
  * (not on auto-reconnect) so we never re-run the expensive bulk calls after a drop.
  */
 const hasRunInitialSync = new Set<string>();
+
+/**
+ * Hard lock: prevents concurrent or duplicate invocations of resolveProfilePictures.
+ * A second invocation (e.g. from the 6-hour periodic interval firing while the first
+ * batch is still running) would double-flood WhatsApp and cause a 408 disconnect.
+ */
+const _profilePicRunning = new Set<string>();
 
 /** Minimum time (ms) a connection must be alive before the bulk sync is allowed. */
 const INITIAL_SYNC_MIN_AGE_MS = 30_000; // 30 seconds
@@ -687,13 +694,25 @@ async function fetchProfilePicture(
  * bulk-activity detection (which causes 408 disconnects).
  * A 2-second inter-request delay is enforced for the same reason.
  */
-const MAX_PROFILE_PIC_BATCH = 20;
+const MAX_PROFILE_PIC_BATCH = 5; // Reduced from 20 — lower batch size avoids WhatsApp bulk-activity detection
 
 async function resolveProfilePictures(
     tenantId: string,
     socket: WASocket,
     refreshStale = false
 ): Promise<void> {
+    // Hard lock: prevents concurrent runs (e.g. periodic 6h interval firing while initial batch runs)
+    if (_profilePicRunning.has(tenantId)) {
+        console.log(`[${tenantId}] 📸 Skipping profile pic fetch — already running`);
+        return;
+    }
+    // Primary gate: only run once per session (hasRunInitialSync is set before setTimeout fires)
+    if (!refreshStale && !hasRunInitialSync.has(tenantId)) {
+        // This should never happen (flag is set before we're called), but be defensive
+        console.log(`[${tenantId}] 📸 Skipping profile pic fetch — initial sync gate not set`);
+        return;
+    }
+    _profilePicRunning.add(tenantId);
     try {
         // Guard: don't run if the connection is too young (reconnect protection)
         const connectedTime = connectedAt.get(tenantId);
@@ -747,14 +766,18 @@ async function resolveProfilePictures(
                     console.warn(`[${tenantId}] 📸 Failed [${statusCode}] ${conv.phone_number}: ${msg}`);
                 }
             }
-            // 2-second delay between calls — prevents WhatsApp from treating this
+            // 5-second delay between calls — prevents WhatsApp from treating this
             // as suspicious bulk activity and dropping the connection (code 408)
-            await delay(2_000);
+            // Increased from 2s to 5s for extra safety margin.
+            await delay(5_000);
         }
 
         console.log(`[${tenantId}] ✅ Profile pictures: ${resolved} resolved, ${failed} failed (of ${conversations.length})`);
     } catch (err) {
         console.error(`[${tenantId}] Error resolving profile pictures:`, err);
+    } finally {
+        // Always release the lock so future runs (e.g. 6h periodic refresh) can proceed
+        _profilePicRunning.delete(tenantId);
     }
 }
 
@@ -775,7 +798,8 @@ async function createSession(tenantId: string): Promise<void> {
         generateHighQualityLinkPreview: false,
         syncFullHistory: false,
         markOnlineOnConnect: false,
-        keepAliveIntervalMs: 15_000,
+        keepAliveIntervalMs: 30_000,  // ping every 30s to prevent idle 408 disconnects (was 15s)
+        retryRequestDelayMs: 2_000,   // wait 2s before retrying failed WhatsApp requests
         getMessage: async (key) => {
             // Called by Baileys when WhatsApp requests a message retry (e.g. decryption failure).
             // We look up the real content from Supabase so retried messages contain the
@@ -896,8 +920,10 @@ async function createSession(tenantId: string): Promise<void> {
                 sessionInfo.retryCount++;
                 // Flush cache before reconnect to prevent data loss
                 await flushCacheToDB(tenantId);
-                // Use exponential backoff: 5s, 10s, 20s, 40s, 60s (capped)
-                const delay = Math.min(5000 * Math.pow(2, sessionInfo.retryCount - 1), 60000);
+                // Use exponential backoff: 5s, 15s, 30s, 60s, 120s (capped)
+                // Slower reconnects look less suspicious to WhatsApp servers.
+                const backoffSteps = [5000, 15000, 30000, 60000, 120000];
+                const delay = backoffSteps[Math.min(sessionInfo.retryCount - 1, backoffSteps.length - 1)];
                 console.log(
                     `[${tenantId}] ♻️ Reconnecting in ${delay / 1000}s (attempt ${sessionInfo.retryCount}/${MAX_RETRIES})...`
                 );
@@ -1148,103 +1174,25 @@ async function createSession(tenantId: string): Promise<void> {
             }
 
             if (hasMedia) {
-                try {
-                    console.log(`[${tenantId}] Downloading media message...`);
-                    const buffer = await downloadMediaMessage(
-                        msg,
-                        "buffer",
-                        {},
-                        { logger, reuploadRequest: socket.updateMediaMessage }
-                    );
+                // ── Media upload DISABLED ──────────────────────────────────────────────
+                // The 'whatsapp_media' Supabase Storage bucket does not exist.
+                // Attempting to upload causes StorageApiError (status 400) which triggers
+                // a Baileys stream ACK error → connection drop (code 500).
+                // We set mediaType only (so the DB knows what kind of media arrived) and
+                // leave mediaUrl as null. The descriptive textContent (e.g. "[Image received]")
+                // was already set above and is sufficient for the AI agent context.
+                //
+                // Audio transcription also requires the download, so it is disabled here too.
+                // To re-enable: create the 'whatsapp_media' bucket in Supabase Storage and
+                // uncomment the download + upload block below.
+                if (msg.message?.imageMessage) { mediaType = "image"; }
+                else if (msg.message?.videoMessage) { mediaType = "video"; }
+                else if (msg.message?.audioMessage) { mediaType = "audio"; }
+                else if (msg.message?.documentMessage) { mediaType = "document"; }
+                else if (msg.message?.stickerMessage) { mediaType = "sticker"; }
 
-                    // Determine type and extension
-                    let extension = "bin";
-                    if (msg.message?.imageMessage) { mediaType = "image"; extension = "jpeg"; }
-                    else if (msg.message?.videoMessage) { mediaType = "video"; extension = "mp4"; }
-                    else if (msg.message?.audioMessage) { mediaType = "audio"; extension = "ogg"; }
-                    else if (msg.message?.documentMessage) {
-                        mediaType = "document";
-                        // Extract real extension from filename or mimetype
-                        const docName = msg.message.documentMessage.fileName || "";
-                        const docMime = msg.message.documentMessage.mimetype || "";
-                        if (docName.endsWith(".pdf") || docMime.includes("pdf")) extension = "pdf";
-                        else if (docName.endsWith(".docx") || docMime.includes("wordprocessingml")) extension = "docx";
-                        else if (docName.endsWith(".doc") || docMime.includes("msword")) extension = "doc";
-                        else if (docName.endsWith(".xlsx") || docMime.includes("spreadsheetml")) extension = "xlsx";
-                        else if (docName.endsWith(".xls") || docMime.includes("ms-excel")) extension = "xls";
-                        else if (docName.endsWith(".pptx") || docMime.includes("presentationml")) extension = "pptx";
-                        else if (docName.endsWith(".csv")) extension = "csv";
-                        else if (docName.endsWith(".txt")) extension = "txt";
-                        else if (docName.endsWith(".zip")) extension = "zip";
-                        else {
-                            // Try to get extension from filename
-                            const parts = docName.split(".");
-                            if (parts.length > 1) extension = parts.pop()!;
-                        }
-                    }
-                    else if (msg.message?.stickerMessage) { mediaType = "sticker"; extension = "webp"; }
-
-                    // Upload to Supabase Storage
-                    const supabase = getSupabase();
-                    const fileName = `${tenantId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
-
-                    const { data, error } = await supabase
-                        .storage
-                        .from("whatsapp_media")
-                        .upload(fileName, buffer as Buffer, {
-                            contentType: msg.message?.imageMessage?.mimetype ||
-                                msg.message?.videoMessage?.mimetype ||
-                                msg.message?.audioMessage?.mimetype ||
-                                msg.message?.documentMessage?.mimetype ||
-                                msg.message?.stickerMessage?.mimetype || "application/octet-stream"
-                        });
-
-                    if (error) {
-                        // Detect missing storage bucket — log a clear warning and skip upload.
-                        // Do NOT throw or rethrow: Baileys will get a stream ACK error and
-                        // disconnect with code 500 if we let this propagate.
-                        const isBucketMissing =
-                            (error as any)?.status === 400 ||
-                            (error as any)?.status === 404 ||
-                            error?.message?.toLowerCase().includes("bucket not found") ||
-                            error?.message?.toLowerCase().includes("not found");
-
-                        if (isBucketMissing) {
-                            console.warn(`[${tenantId}] ⚠️ Storage bucket 'whatsapp_media' not found — skipping media upload. Message will be saved without media_url.`);
-                        } else {
-                            console.error(`[${tenantId}] Failed to upload media:`, error);
-                        }
-                        // mediaUrl stays null — message will still be saved to DB below
-                    } else if (data) {
-                        const { data: publicUrlData } = supabase.storage.from("whatsapp_media").getPublicUrl(data.path);
-                        mediaUrl = publicUrlData.publicUrl;
-                        console.log(`[${tenantId}] Media uploaded: ${mediaUrl}`);
-
-                        if (!textContent) {
-                            textContent = `[${mediaType} received]`;
-                        }
-
-                        // If it's an audio message, try to transcribe it with Whisper API
-                        if (mediaType === "audio") {
-                            console.log(`[${tenantId}] 🎙️ Attempting to transcribe audio message...`);
-                            const transcription = await transcribeAudioBuffer(buffer as Buffer, msg.message?.audioMessage?.mimetype || undefined);
-                            if (transcription) {
-                                console.log(`[${tenantId}] 📝 Transcription success: "${transcription.substring(0, 50)}..."`);
-                                // Append transcription to whatever caption existed (if any)
-                                textContent = textContent === `[${mediaType} received]`
-                                    ? `[🎤 Voice Note]: ${transcription}`
-                                    : `${textContent}\n\n[🎤 Voice Note]: ${transcription}`;
-                            } else {
-                                console.log(`[${tenantId}] ⚠️ Transcription returned empty or failed.`);
-                            }
-                        }
-                    }
-                } catch (err) {
-                    // Catch-all for unexpected errors (download failure, network issues, etc.)
-                    // Log and continue — the message must still be saved to DB even without media.
-                    console.error(`[${tenantId}] Media processing error (non-fatal — message will be saved without media_url):`, err);
-                    // mediaUrl stays null — message will be stored without it
-                }
+                console.log(`[${tenantId}] 📎 Media message received (${mediaType}) — stored without upload (bucket disabled)`);
+                // mediaUrl stays null — message saved to DB below without media_url
             }
 
             if (!textContent && !mediaUrl) continue;
