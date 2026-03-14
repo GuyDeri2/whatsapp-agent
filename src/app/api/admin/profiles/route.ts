@@ -6,11 +6,15 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 // for the actual data operations so RLS doesn't filter out other users' profiles.
 
 async function verifyAdmin() {
+    // Use the SSR client only to authenticate the caller (cookie-based).
+    // Then use the service-role admin client to read the profile so that
+    // the self-referential RLS policy on `profiles` doesn't cause infinite
+    // recursion and return an empty row for legitimate admins.
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data: profile } = await supabase
+    const { data: profile } = await getSupabaseAdmin()
         .from("profiles")
         .select("role")
         .eq("id", user.id)
