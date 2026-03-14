@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Building2, MessageSquare, Bot, Wifi, WifiOff } from "lucide-react";
+import { ArrowRight, Building2, MessageSquare, Wifi, WifiOff } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -37,24 +37,24 @@ export default async function CustomerDetailPage({
 
     const tenantIds = userTenants.map((t) => t.id);
 
-    // Fetch all messages for this user's tenants
-    let allMessages: { tenant_id: string; role: string; is_from_agent: boolean }[] = [];
+    // Fetch bot messages for this user's tenants
+    let allMessages: { tenant_id: string; is_from_agent: boolean }[] = [];
     if (tenantIds.length > 0) {
         const { data: messages } = await admin
             .from("messages")
-            .select("tenant_id, role, is_from_agent")
+            .select("tenant_id, is_from_agent")
+            .eq("is_from_agent", true)
             .in("tenant_id", tenantIds);
         allMessages = messages ?? [];
     }
 
-    // Build per-tenant message counts
+    // Build per-tenant bot message counts
     const messageCountByTenant: Record<string, number> = {};
     for (const msg of allMessages) {
         messageCountByTenant[msg.tenant_id] = (messageCountByTenant[msg.tenant_id] ?? 0) + 1;
     }
 
-    const totalMessages = allMessages.filter((m) => m.role === "user").length;
-    const totalAiReplies = allMessages.filter((m) => m.is_from_agent === true).length;
+    const totalBotMessages = allMessages.length;
 
     const agentModeLabel: Record<string, { label: string; cls: string }> = {
         active: { label: "פעיל", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
@@ -112,7 +112,7 @@ export default async function CustomerDetailPage({
             </div>
 
             {/* Summary stats */}
-            <div className="grid grid-cols-3 gap-4 mb-8">
+            <div className="grid grid-cols-2 gap-4 mb-8">
                 <div className="bg-neutral-900 border border-white/5 rounded-2xl p-5">
                     <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4">
                         <Building2 className="w-5 h-5 text-purple-400" />
@@ -121,18 +121,11 @@ export default async function CustomerDetailPage({
                     <div className="text-sm text-neutral-500">עסקים רשומים</div>
                 </div>
                 <div className="bg-neutral-900 border border-white/5 rounded-2xl p-5">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-4">
-                        <MessageSquare className="w-5 h-5 text-blue-400" />
-                    </div>
-                    <div className="text-3xl font-bold text-blue-400 mb-1">{totalMessages}</div>
-                    <div className="text-sm text-neutral-500">הודעות שהתקבלו</div>
-                </div>
-                <div className="bg-neutral-900 border border-white/5 rounded-2xl p-5">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-4">
-                        <Bot className="w-5 h-5 text-emerald-400" />
+                        <MessageSquare className="w-5 h-5 text-emerald-400" />
                     </div>
-                    <div className="text-3xl font-bold text-emerald-400 mb-1">{totalAiReplies}</div>
-                    <div className="text-sm text-neutral-500">תשובות AI</div>
+                    <div className="text-3xl font-bold text-emerald-400 mb-1">{totalBotMessages}</div>
+                    <div className="text-sm text-neutral-500">הודעות שנשלחו על ידי הבוט</div>
                 </div>
             </div>
 

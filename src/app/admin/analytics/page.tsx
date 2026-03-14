@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Users, Building2, MessageSquare, Bot, TrendingUp, BarChart2 } from "lucide-react";
+import { Users, Building2, MessageSquare, TrendingUp, BarChart2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -64,10 +64,10 @@ export default async function AnalyticsPage({
     ] = await Promise.all([
         admin.from("profiles").select("id, created_at, role").gte("created_at", fromStr).lte("created_at", toStr),
         admin.from("tenants").select("id, owner_id, business_name, agent_mode").gte("created_at", fromStr).lte("created_at", toStr),
-        admin.from("messages").select("tenant_id, role, is_from_agent, created_at").gte("created_at", fromStr).lte("created_at", toStr),
+        admin.from("messages").select("tenant_id, role, is_from_agent, created_at").eq("is_from_agent", true).gte("created_at", fromStr).lte("created_at", toStr),
         admin.from("conversations").select("id, created_at").gte("created_at", fromStr).lte("created_at", toStr),
-        // For top 5 businesses, we need all messages (not date filtered per business)
-        admin.from("messages").select("tenant_id, is_from_agent").gte("created_at", fromStr).lte("created_at", toStr),
+        // For top 5 businesses, we need all bot messages (not date filtered per business)
+        admin.from("messages").select("tenant_id, is_from_agent").eq("is_from_agent", true).gte("created_at", fromStr).lte("created_at", toStr),
     ]);
 
     // Also fetch totals without date filter for KPI cards
@@ -84,7 +84,6 @@ export default async function AnalyticsPage({
 
     const allMsgs = allMessagesResult.data ?? [];
     const totalMessagesInSystem = allMsgs.length;
-    const totalAiInSystem = allMsgs.filter(m => m.is_from_agent).length;
 
     const avgBusinessesPerCustomer = totalRegistered > 0
         ? (totalBusinesses / totalRegistered).toFixed(1)
@@ -158,8 +157,7 @@ export default async function AnalyticsPage({
         { label: "לקוחות רשומים", value: totalRegistered, icon: Users, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
         { label: "עסקים פעילים", value: totalBusinesses, icon: Building2, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
         { label: "ממוצע עסקים ללקוח", value: avgBusinessesPerCustomer, icon: TrendingUp, color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" },
-        { label: "הודעות במערכת", value: totalMessagesInSystem, icon: MessageSquare, color: "text-indigo-400", bg: "bg-indigo-500/10 border-indigo-500/20" },
-        { label: "תשובות AI", value: totalAiInSystem, icon: Bot, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
+        { label: "הודעות בוט", value: totalMessagesInSystem, icon: MessageSquare, color: "text-indigo-400", bg: "bg-indigo-500/10 border-indigo-500/20" },
         { label: "שיחות סה\"כ", value: totalConversations, icon: BarChart2, color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" },
     ];
 
@@ -216,7 +214,7 @@ export default async function AnalyticsPage({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 {/* Messages per day chart */}
                 <div className="bg-neutral-900 border border-white/5 rounded-2xl p-6">
-                    <h2 className="text-base font-semibold text-white mb-5">הודעות ב-14 הימים האחרונים</h2>
+                    <h2 className="text-base font-semibold text-white mb-5">הודעות בוט ב-14 הימים האחרונים</h2>
                     <div className="space-y-2">
                         {msgByDayEntries.map(([date, count]) => {
                             const barPct = Math.round((count / maxDayCount) * 100);
@@ -262,7 +260,7 @@ export default async function AnalyticsPage({
 
             {/* Top 5 businesses */}
             <div className="bg-neutral-900 border border-white/5 rounded-2xl p-6">
-                <h2 className="text-base font-semibold text-white mb-5">5 העסקים הפעילים ביותר (לפי מספר הודעות)</h2>
+                <h2 className="text-base font-semibold text-white mb-5">5 העסקים הפעילים ביותר (לפי הודעות בוט)</h2>
                 {topTenantsWithCount.length === 0 ? (
                     <p className="text-neutral-500 text-sm">אין נתונים לתקופה זו.</p>
                 ) : (
