@@ -9,6 +9,7 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { proto } from "@whiskeysockets/baileys";
 import { generateReply, summarizeConversationForHandoff } from "./ai-agent";
+import { getAvailableSlots } from "./scheduling";
 
 // ─── LID resolver (injected by session-manager to avoid circular dep) ─
 let _lidResolver: ((tenantId: string, jid: string) => string) | null = null;
@@ -557,6 +558,21 @@ async function checkContactFilter(
     }
 }
 
+// ─── Scheduling: simple one-shot AI call (no full history reload) ─────
+async function generateSimpleReply(
+    tenantId: string,
+    conversationId: string,
+    systemAddendum: string
+): Promise<string> {
+    // Re-use generateReply with the addendum injected as the latest user message.
+    // We fake a brief "user" message so the model responds to the slot context naturally.
+    try {
+        return await generateReply(tenantId, conversationId, systemAddendum);
+    } catch {
+        return systemAddendum; // graceful fallback — raw text is still useful
+    }
+}
+
 // ─── Active mode: AI auto-reply ───────────────────────────────────────
 async function handleActiveMode(
     tenantId: string,
@@ -572,6 +588,77 @@ async function handleActiveMode(
 
         let aiReply = await generateReply(tenantId, conversationId, messageText);
         let shouldPause = false;
+
+        // ── Scheduling: CHECK_SLOTS marker ──────────────────────────────────
+        const checkSlotsMatch = aiReply.match(/\[CHECK_SLOTS:\s*date=(\d{4}-\d{2}-\d{2})\]/);
+        if (checkSlotsMatch) {
+            const slotDate = checkSlotsMatch[1];
+            aiReply = aiReply.replace(checkSlotsMatch[0], "").trim();
+
+            try {
+                const slots = await getAvailableSlots(tenantId, slotDate);
+                if (slots.length > 0) {
+                    const slotsText = slots.slice(0, 6).join(", ");
+                    const slotContext = `השעות הפנויות ב-${slotDate}: ${slotsText}. כעת הצע אותן ללקוח בצורה נעימה.`;
+                    aiReply = await generateSimpleReply(tenantId, conversationId, slotContext);
+                } else {
+                    aiReply = "מצטער, אין שעות פנויות ביום המבוקש. אשמח לבדוק יום אחר — איזה יום מתאים לך?";
+                }
+            } catch (slotErr: any) {
+                console.error(`[${tenantId}] ❌ Error fetching available slots:`, slotErr.message);
+                aiReply = "מצטער, אירעה שגיאה בבדיקת השעות הפנויות. אנא נסה שוב.";
+            }
+        }
+
+        // ── Scheduling: BOOK_MEETING marker ────────────────────────────────
+        const bookMatch = aiReply.match(
+            /\[BOOK_MEETING:\s*date=(\d{4}-\d{2}-\d{2}),\s*time=(\d{2}:\d{2}),\s*name=([^\]]+)\]/
+        );
+        if (bookMatch) {
+            const [, bookDate, bookTime, rawName] = bookMatch;
+            const customerName = rawName.trim();
+            aiReply = aiReply.replace(bookMatch[0], "").trim();
+
+            try {
+                const startTime = new Date(`${bookDate}T${bookTime}:00`);
+                const { data: mtgSettings } = await getSupabase()
+                    .from("meeting_settings")
+                    .select("duration_minutes")
+                    .eq("tenant_id", tenantId)
+                    .single();
+                const durationMin = (mtgSettings as { duration_minutes: number } | null)?.duration_minutes ?? 30;
+                const endTime = new Date(startTime.getTime() + durationMin * 60_000);
+
+                const internationalPhone = remoteJid.split("@")[0];
+                const customerPhone = toLocalPhone(internationalPhone);
+
+                const { error: meetingError } = await getSupabase()
+                    .from("meetings")
+                    .insert({
+                        tenant_id: tenantId,
+                        conversation_id: conversationId,
+                        customer_name: customerName,
+                        customer_phone: customerPhone,
+                        start_time: startTime.toISOString(),
+                        end_time: endTime.toISOString(),
+                        status: "confirmed",
+                    });
+
+                if (!meetingError) {
+                    console.log(`[${tenantId}] 📅 Meeting booked: ${bookDate} ${bookTime} for ${customerName}`);
+                    if (!aiReply) {
+                        const localDate = startTime.toLocaleDateString("he-IL", { timeZone: "Asia/Jerusalem" });
+                        aiReply = `✅ הפגישה נקבעה!\n📅 תאריך: ${localDate}\n⏰ שעה: ${bookTime}\nנתראה! 😊`;
+                    }
+                } else {
+                    console.error(`[${tenantId}] ❌ Failed to book meeting:`, meetingError);
+                    aiReply = "מצטער, אירעה שגיאה בקביעת הפגישה. אנא נסה שוב.";
+                }
+            } catch (bookErr: any) {
+                console.error(`[${tenantId}] ❌ Error booking meeting:`, bookErr.message);
+                aiReply = "מצטער, אירעה שגיאה בקביעת הפגישה. אנא נסה שוב.";
+            }
+        }
 
         // Auto-pause if AI decides to handoff using the secret [PAUSE] marker
         if (aiReply.includes("[PAUSE]")) {

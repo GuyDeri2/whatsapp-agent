@@ -6,6 +6,7 @@
 
 import OpenAI from "openai";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { getSchedulingContext } from "./scheduling";
 
 // ─── Singletons ───────────────────────────────────────────────────────
 let _openai: OpenAI | null = null;
@@ -180,6 +181,17 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
 היה אדיב, סבלני וברור. אין להתווכח עם הלקוח. תמיד הגן על המוניטין של העסק.
 
 המשימה המרכזית שלך: לעזור ללקוח, לייצג את העסק במקצועיות, לתת מידע מדויק ולהעביר לנציג בעת הצורך.`;
+
+    // ── Scheduling context (injected only when scheduling_enabled = true) ──
+    try {
+        const schedulingCtx = await getSchedulingContext(tenantId);
+        if (schedulingCtx) {
+            prompt += `\n\n${schedulingCtx}`;
+        }
+    } catch (err: any) {
+        // Non-fatal — scheduling context is best-effort
+        console.warn(`[${tenantId}] ⚠️ Could not load scheduling context:`, err.message);
+    }
 
     return prompt;
 }

@@ -11,6 +11,7 @@ import { ConnectTab } from "@/components/tenant/ConnectTab";
 import { ContactsTab } from "@/components/tenant/ContactsTab";
 import { CapabilitiesTab } from "@/components/tenant/CapabilitiesTab";
 import { LeadsTab } from "@/components/tenant/LeadsTab";
+import { CalendarTab } from "@/components/tenant/CalendarTab";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -142,7 +143,7 @@ export default function TenantPage() {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
-    const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads">("chat");
+    const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads" | "calendar">("chat");
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [connectionStatus, setConnectionStatus] = useState<string>("unknown");
     const [saving, setSaving] = useState(false);
@@ -1012,6 +1013,7 @@ export default function TenantPage() {
                     { id: "connect", icon: "📱", label: "חיבור ווטסאפ" },
                     { id: "capabilities", icon: "🧠", label: "יכולות סוכן" },
                     { id: "leads", icon: "🎯", label: "לידים" },
+                    { id: "calendar", icon: "📅", label: "יומן ופגישות" },
                     { id: "settings", icon: "⚙️", label: "הגדרות" }
                 ].map((tab) => (
                     <button
@@ -1126,6 +1128,12 @@ export default function TenantPage() {
                 {activeTab === "leads" && (
                     <div className="flex-1 overflow-y-auto p-6">
                         <LeadsTab tenant={tenant} />
+                    </div>
+                )}
+
+                {activeTab === "calendar" && (
+                    <div className="flex-1 overflow-y-auto p-6">
+                        <CalendarTab tenant={tenant} />
                     </div>
                 )}
 
