@@ -44,6 +44,17 @@ const sessions = new Map<string, SessionInfo>();
 const MAX_RETRIES = 5;
 const MAX_PREKEY_ERRORS = 50; // after this many PreKeyErrors, clear session and reconnect (raised from 10 — PreKey errors self-resolve via Baileys renegotiation)
 
+/**
+ * Tracks tenants that are currently in the process of reconnecting.
+ * Used by the watchdog cron to avoid triggering a second concurrent reconnect.
+ */
+const _reconnecting = new Set<string>();
+
+/** Returns true if the given tenant is currently in a reconnect cycle. */
+export function isReconnecting(tenantId: string): boolean {
+    return _reconnecting.has(tenantId);
+}
+
 /** Track periodic intervals per tenant so we can clean them up on reconnect */
 const profilePicIntervals = new Map<string, NodeJS.Timeout>();
 
@@ -783,6 +794,35 @@ async function resolveProfilePictures(
 
 // ─── Internal: create Baileys socket ──────────────────────────────────
 async function createSession(tenantId: string): Promise<void> {
+    // Fix C: Clean up old socket's event listeners BEFORE creating a new socket.
+    // Without this, every reconnect accumulates stale event handlers on the dead socket
+    // (they never get GC'd because Baileys keeps internal references), causing memory
+    // leaks and duplicate message processing.
+    const existingSession = sessions.get(tenantId);
+    // Capture retry count BEFORE clearing the session so it survives the transition
+    const prevRetryCount = existingSession?.retryCount ?? 0;
+    if (existingSession) {
+        // Remove all known event listeners to prevent accumulation on reconnect.
+        // Baileys types ev.removeAllListeners per-event, so we list all events explicitly.
+        const ev = existingSession.socket.ev;
+        const baileysEvents = [
+            "connection.update", "creds.update", "messaging-history.set",
+            "messages.upsert", "messages.update", "contacts.upsert", "contacts.update",
+            "chats.upsert", "chats.update", "chats.delete", "presence.update",
+            "groups.upsert", "groups.update", "group-participants.update",
+            "blocklist.set", "blocklist.update", "call",
+        ] as const;
+        for (const event of baileysEvents) {
+            try { ev.removeAllListeners(event); } catch { /* ignore */ }
+        }
+        try {
+            existingSession.socket.end(undefined);
+        } catch { /* ignore */ }
+    }
+
+    // Mark this tenant as actively reconnecting so the watchdog doesn't pile on
+    _reconnecting.add(tenantId);
+
     const { state, saveCreds } = await useSupabaseAuthState(tenantId);
     const { version } = await fetchLatestBaileysVersion();
 
@@ -800,6 +840,7 @@ async function createSession(tenantId: string): Promise<void> {
         markOnlineOnConnect: false,
         keepAliveIntervalMs: 30_000,  // ping every 30s to prevent idle 408 disconnects (was 15s)
         retryRequestDelayMs: 2_000,   // wait 2s before retrying failed WhatsApp requests
+        maxMsgRetryCount: 5,          // limit Baileys message retry attempts to avoid infinite retry loops
         getMessage: async (key) => {
             // Called by Baileys when WhatsApp requests a message retry (e.g. decryption failure).
             // We look up the real content from Supabase so retried messages contain the
@@ -819,14 +860,13 @@ async function createSession(tenantId: string): Promise<void> {
         },
     });
 
-    // Preserve retry count from previous session if it exists
-    const prevSession = sessions.get(tenantId);
+    // Preserve retry count from previous session (captured before cleanup above)
     const sessionInfo: SessionInfo = {
         socket,
         qrCode: null,
         status: "connecting",
         tenantId,
-        retryCount: prevSession?.retryCount ?? 0,
+        retryCount: prevRetryCount,
         preKeyErrors: 0,
     };
     sessions.set(tenantId, sessionInfo);
@@ -852,6 +892,9 @@ async function createSession(tenantId: string): Promise<void> {
             sessionInfo.status = "connected";
             sessionInfo.qrCode = null;
             sessionInfo.retryCount = 0;
+
+            // Fix C/D: Clear the reconnecting flag — connection is now stable
+            _reconnecting.delete(tenantId);
 
             // Extract phone number from socket
             const phoneNumber = socket.user?.id?.split(":")[0] || null;
@@ -908,13 +951,40 @@ async function createSession(tenantId: string): Promise<void> {
             sessionInfo.status = "disconnected";
             const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
             const errorMessage = (lastDisconnect?.error as Boom)?.message || "";
-            const shouldReconnect =
-                statusCode !== DisconnectReason.loggedOut &&
-                sessionInfo.retryCount < MAX_RETRIES;
 
             console.log(
-                `[${tenantId}] ❌ Connection closed (code: ${statusCode}, msg: ${errorMessage}). Reconnect: ${shouldReconnect}`
+                `[${tenantId}] ❌ Connection closed (code: ${statusCode}, msg: ${errorMessage})`
             );
+
+            // Fix B: Handle badSession — clear corrupted crypto state and reconnect fresh
+            if (statusCode === DisconnectReason.badSession) {
+                console.log(`[${tenantId}] ❌ Bad session detected — clearing corrupted session data and reconnecting...`);
+                sessions.delete(tenantId);
+                await clearSessionData(tenantId);
+                tenantContactsCache.delete(tenantId);
+                await getSupabase()
+                    .from("tenants")
+                    .update({ whatsapp_connected: false })
+                    .eq("id", tenantId);
+                // Do NOT clear _reconnecting — we're about to reconnect immediately
+                setTimeout(() => createSession(tenantId), 5_000);
+                return;
+            }
+
+            // Fix B: Handle loggedOut — session expired, user must rescan QR
+            if (statusCode === DisconnectReason.loggedOut) {
+                console.log(`[${tenantId}] 🚪 Logged out — clearing session data, QR rescan required`);
+                sessions.delete(tenantId);
+                _reconnecting.delete(tenantId); // Terminal state — clear reconnecting flag
+                await getSupabase()
+                    .from("tenants")
+                    .update({ whatsapp_connected: false })
+                    .eq("id", tenantId);
+                await clearSessionData(tenantId);
+                return;
+            }
+
+            const shouldReconnect = sessionInfo.retryCount < MAX_RETRIES;
 
             if (shouldReconnect) {
                 sessionInfo.retryCount++;
@@ -923,24 +993,20 @@ async function createSession(tenantId: string): Promise<void> {
                 // Use exponential backoff: 5s, 15s, 30s, 60s, 120s (capped)
                 // Slower reconnects look less suspicious to WhatsApp servers.
                 const backoffSteps = [5000, 15000, 30000, 60000, 120000];
-                const delay = backoffSteps[Math.min(sessionInfo.retryCount - 1, backoffSteps.length - 1)];
+                const backoffDelay = backoffSteps[Math.min(sessionInfo.retryCount - 1, backoffSteps.length - 1)];
                 console.log(
-                    `[${tenantId}] ♻️ Reconnecting in ${delay / 1000}s (attempt ${sessionInfo.retryCount}/${MAX_RETRIES})...`
+                    `[${tenantId}] ♻️ Reconnecting in ${backoffDelay / 1000}s (attempt ${sessionInfo.retryCount}/${MAX_RETRIES})...`
                 );
-                setTimeout(() => createSession(tenantId), delay);
+                // _reconnecting stays set — createSession will clear it on "open"
+                setTimeout(() => createSession(tenantId), backoffDelay);
             } else {
                 sessions.delete(tenantId);
+                _reconnecting.delete(tenantId); // Terminal state — clear reconnecting flag
                 await getSupabase()
                     .from("tenants")
                     .update({ whatsapp_connected: false })
                     .eq("id", tenantId);
-
-                if (statusCode === DisconnectReason.loggedOut) {
-                    console.log(`[${tenantId}] 🚪 Logged out — clearing session data`);
-                    await clearSessionData(tenantId);
-                } else {
-                    console.log(`[${tenantId}] ⚠️ Max retries reached. Manual reconnect required.`);
-                }
+                console.log(`[${tenantId}] ⚠️ Max retries (${MAX_RETRIES}) reached. Manual reconnect required.`);
             }
         }
     });

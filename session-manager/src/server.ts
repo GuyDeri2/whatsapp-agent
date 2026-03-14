@@ -19,6 +19,7 @@ import {
     reconnectSession,
     checkWhatsAppNumber,
     normalizePhone,
+    isReconnecting,
 } from "./session-manager";
 import { invalidateTenantConfigCache } from "./message-handler";
 import { runBatchLearning } from "./learning-engine";
@@ -346,8 +347,20 @@ cron.schedule("*/5 * * * *", async () => {
 
         if (deadTenants.length === 0) return;
 
-        console.log(`🔍 Watchdog: ${deadTenants.length} dead session(s) detected. Restarting...`);
-        for (const tenantId of deadTenants) {
+        // Fix D: Filter out tenants already in an auto-reconnect cycle to prevent
+        // the watchdog from starting a second concurrent connection attempt.
+        const actionableTenants = deadTenants.filter((id) => {
+            if (isReconnecting(id)) {
+                console.log(`[${id}] ⏳ Watchdog: reconnect already in progress — skipping`);
+                return false;
+            }
+            return true;
+        });
+
+        if (actionableTenants.length === 0) return;
+
+        console.log(`🔍 Watchdog: ${actionableTenants.length} dead session(s) detected. Restarting...`);
+        for (const tenantId of actionableTenants) {
             try {
                 console.log(`[${tenantId}] 🔄 Watchdog restarting session...`);
                 await startSession(tenantId);
