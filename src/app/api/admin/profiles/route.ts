@@ -53,3 +53,25 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ success: true });
 }
+
+export async function DELETE(req: NextRequest) {
+    const admin = await verifyAdmin();
+    if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const body = await req.json();
+    const { profileId } = body;
+
+    if (!profileId || typeof profileId !== "string") {
+        return NextResponse.json({ error: "Invalid parameters" }, { status: 400 });
+    }
+
+    // Prevent self-deletion
+    if (profileId === admin.id) {
+        return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
+    }
+
+    const { error } = await getSupabaseAdmin().auth.admin.deleteUser(profileId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ success: true });
+}

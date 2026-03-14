@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { Users, Building2, Zap, Clock } from "lucide-react";
+import AdminClientTable from "./AdminClientTable";
 
 export const dynamic = "force-dynamic";
 
@@ -71,81 +72,7 @@ export default async function AdminDashboard() {
                 </Link>
             </div>
 
-            <div className="bg-neutral-900 border border-white/5 rounded-2xl overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-right text-sm">
-                        <thead className="bg-neutral-950 border-b border-white/5 text-neutral-400 font-medium">
-                            <tr>
-                                <th className="px-6 py-4 whitespace-nowrap">לקוח</th>
-                                <th className="px-6 py-4 whitespace-nowrap">תפקיד</th>
-                                <th className="px-6 py-4 whitespace-nowrap">סטטוס</th>
-                                <th className="px-6 py-4 whitespace-nowrap">אישור</th>
-                                <th className="px-6 py-4 whitespace-nowrap">עסקים</th>
-                                <th className="px-6 py-4 whitespace-nowrap">הצטרף</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                            {clients.map((client) => (
-                                <tr key={client.id} className="hover:bg-white/[0.02] transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="font-medium text-white">{client.email}</div>
-                                        {client.businesses.length > 0 && (
-                                            <div className="text-xs text-neutral-500 mt-0.5">
-                                                {client.businesses.map((b: any) => b.business_name).join(", ")}
-                                            </div>
-                                        )}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium border ${
-                                            client.role === "admin"
-                                                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                                : "bg-white/5 text-neutral-400 border-white/10"
-                                        }`}>
-                                            {client.role === "admin" ? "מנהל" : "לקוח"}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium border ${
-                                            client.subscription_status === "active"
-                                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                                : "bg-white/5 text-neutral-400 border-white/10"
-                                        }`}>
-                                            {client.subscription_status === "trial" && "ניסיון"}
-                                            {client.subscription_status === "active" && "פעיל"}
-                                            {client.subscription_status === "past_due" && "בפיגור"}
-                                            {client.subscription_status === "canceled" && "בוטל"}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium border ${
-                                            client.approval_status === "approved"
-                                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                                : client.approval_status === "pending"
-                                                ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
-                                                : "bg-red-500/10 text-red-400 border-red-500/20"
-                                        }`}>
-                                            {client.approval_status === "approved" && "מאושר"}
-                                            {client.approval_status === "pending" && "ממתין"}
-                                            {client.approval_status === "rejected" && "נדחה"}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-neutral-400">{client.businessCount}</td>
-                                    <td className="px-6 py-4 text-neutral-400 whitespace-nowrap">
-                                        {new Date(client.created_at).toLocaleDateString("he-IL")}
-                                    </td>
-                                </tr>
-                            ))}
-                            {clients.length === 0 && (
-                                <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-neutral-500">
-                                        אין משתמשים במערכת עדיין.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            <AdminClientTable clients={clients} />
         </div>
     );
 }
