@@ -29,10 +29,12 @@ interface Meeting {
     status: string;
 }
 
-interface CalendarIntegration {
+interface ProviderIntegration {
     connected: boolean;
     calendar_name: string | null;
 }
+
+type CalendarIntegrations = Record<string, ProviderIntegration>;
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
@@ -85,9 +87,17 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
     // Which day's inline form is open { dayIndex -> { start, end } }
     const [addingDay, setAddingDay] = useState<Record<number, { start: string; end: string }>>({});
 
-    /* ---- Google Calendar integration ---- */
-    const [calIntegration, setCalIntegration] = useState<CalendarIntegration>({ connected: false, calendar_name: null });
+    /* ---- Calendar integrations (multi-provider) ---- */
+    const defaultIntegrations: CalendarIntegrations = {
+        google: { connected: false, calendar_name: null },
+        outlook: { connected: false, calendar_name: null },
+        calendly: { connected: false, calendar_name: null },
+        apple: { connected: false, calendar_name: null },
+    };
+    const [calIntegrations, setCalIntegrations] = useState<CalendarIntegrations>(defaultIntegrations);
     const [calLoading, setCalLoading] = useState(true);
+    const [calendlyUrl, setCalendlyUrl] = useState("");
+    const [calendlySaving, setCalendlySaving] = useState(false);
 
     /* ---- Upcoming meetings ---- */
     const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -150,7 +160,7 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
     }, [tenant?.id]);
 
     /* ---------------------------------------------------------------- */
-    /* Fetch: Google Calendar integration                                */
+    /* Fetch: Calendar integrations (all providers)                      */
     /* ---------------------------------------------------------------- */
     const fetchCalIntegration = useCallback(async () => {
         if (!tenant?.id) return;
@@ -159,7 +169,13 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
             const res = await fetch(`/api/tenants/${tenant.id}/calendar-integration`);
             if (res.ok) {
                 const data = await res.json();
-                setCalIntegration(data);
+                // Support both legacy single-provider and new multi-provider response
+                if (data && typeof data.google !== "undefined") {
+                    setCalIntegrations(prev => ({ ...prev, ...data }));
+                } else if (data && typeof data.connected === "boolean") {
+                    // Legacy: single google integration
+                    setCalIntegrations(prev => ({ ...prev, google: { connected: data.connected, calendar_name: data.calendar_name } }));
+                }
             }
         } catch {
             // silently ignore
@@ -293,16 +309,39 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
     };
 
     /* ---------------------------------------------------------------- */
-    /* Google Calendar: disconnect                                       */
+    /* Calendar: disconnect provider                                     */
     /* ---------------------------------------------------------------- */
-    const handleDisconnectCalendar = async () => {
+    const handleDisconnectCalendar = async (provider: string) => {
         try {
-            const res = await fetch(`/api/tenants/${tenant.id}/calendar-integration`, { method: "DELETE" });
+            const res = await fetch(`/api/tenants/${tenant.id}/calendar-integration?provider=${provider}`, { method: "DELETE" });
             if (!res.ok) throw new Error();
-            setCalIntegration({ connected: false, calendar_name: null });
-            showToast("Google Calendar נותק", "success");
+            setCalIntegrations(prev => ({ ...prev, [provider]: { connected: false, calendar_name: null } }));
+            showToast(`${provider} נותק`, "success");
         } catch {
-            showToast("שגיאה בניתוק Google Calendar", "error");
+            showToast(`שגיאה בניתוק ${provider}`, "error");
+        }
+    };
+
+    /* ---------------------------------------------------------------- */
+    /* Calendar: save Calendly webhook URL                               */
+    /* ---------------------------------------------------------------- */
+    const handleSaveCalendly = async () => {
+        if (!calendlyUrl.trim()) return;
+        setCalendlySaving(true);
+        try {
+            const res = await fetch(`/api/tenants/${tenant.id}/calendar-integration/calendly`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ webhook_url: calendlyUrl.trim() }),
+            });
+            if (!res.ok) throw new Error();
+            setCalIntegrations(prev => ({ ...prev, calendly: { connected: true, calendar_name: "Calendly Webhook" } }));
+            setCalendlyUrl("");
+            showToast("Calendly חובר בהצלחה", "success");
+        } catch {
+            showToast("שגיאה בחיבור Calendly", "error");
+        } finally {
+            setCalendlySaving(false);
         }
     };
 
@@ -325,6 +364,27 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
             showToast("שגיאה בביטול הפגישה", "error");
         }
     };
+
+    /* ---------------------------------------------------------------- */
+    /* Compute next occurrence date for each weekday (0=Sun … 6=Sat)   */
+    /* ---------------------------------------------------------------- */
+    const nextDates: Record<number, string> = (() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayDay = today.getDay(); // 0=Sun
+        const result: Record<number, string> = {};
+        for (let d = 0; d <= 6; d++) {
+            let diff = d - todayDay;
+            if (diff < 0) diff += 7;
+            // if diff === 0 it's today itself
+            const target = new Date(today);
+            target.setDate(today.getDate() + diff);
+            const dd = String(target.getDate()).padStart(2, "0");
+            const mm = String(target.getMonth() + 1).padStart(2, "0");
+            result[d] = `${dd}/${mm}`;
+        }
+        return result;
+    })();
 
     /* ---------------------------------------------------------------- */
     /* Render                                                            */
@@ -523,8 +583,9 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
                                     className="flex flex-col sm:flex-row sm:items-start gap-3 py-3 border-b border-white/5 last:border-0"
                                 >
                                     {/* Day label */}
-                                    <div className="w-16 shrink-0 text-sm font-medium text-neutral-300 pt-1">
-                                        {DAY_LABELS[day]}
+                                    <div className="w-16 shrink-0 pt-1 flex flex-col gap-0.5">
+                                        <span className="text-sm font-medium text-neutral-300">{DAY_LABELS[day]}</span>
+                                        <span className="text-xs text-neutral-500">{nextDates[day]}</span>
                                     </div>
 
                                     {/* Slots + controls */}
@@ -620,43 +681,141 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
                 )}
             </div>
 
-            {/* ── Section 5: Google Calendar Integration ── */}
+            {/* ── Section 5: Calendar Integrations ── */}
             <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 md:p-8 backdrop-blur-xl relative overflow-hidden">
                 <h3 className="text-white font-semibold mb-1 flex items-center gap-2">
                     <Globe className="w-4 h-4 text-violet-400" />
-                    Google Calendar
+                    חיבור יומנים חיצוניים
                 </h3>
                 <p className="text-xs text-neutral-500 mb-5">
-                    כדי לחבר Google Calendar, יש להגדיר GOOGLE_CLIENT_ID ו-GOOGLE_CLIENT_SECRET בהגדרות השרת
+                    חבר יומן חיצוני כדי לסנכרן פגישות אוטומטית
                 </p>
 
                 {calLoading ? (
                     <div className="flex items-center gap-2 text-neutral-400 text-sm">
                         <div className="w-4 h-4 border-2 border-violet-500/40 border-t-violet-500 rounded-full animate-spin" />
-                        בודק חיבור...
-                    </div>
-                ) : calIntegration.connected ? (
-                    <div className="flex items-center gap-4 flex-wrap">
-                        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-4 py-2 rounded-xl text-sm">
-                            <CheckCircle2 className="w-4 h-4" />
-                            מחובר: {calIntegration.calendar_name ?? "My Calendar"}
-                        </div>
-                        <button
-                            onClick={handleDisconnectCalendar}
-                            className="flex items-center gap-2 text-sm text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 px-4 py-2 rounded-xl transition-colors"
-                        >
-                            <Link2Off className="w-4 h-4" />
-                            נתק
-                        </button>
+                        בודק חיבורים...
                     </div>
                 ) : (
-                    <a
-                        href={`/api/oauth/google?tenantId=${tenant.id}`}
-                        className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors"
-                    >
-                        <Link2 className="w-4 h-4" />
-                        חבר Google Calendar
-                    </a>
+                    <div className="space-y-3">
+                        {/* Google */}
+                        <div className="flex items-center gap-4 flex-wrap py-3 border-b border-white/5">
+                            <div className="flex items-center gap-2.5 w-36 shrink-0">
+                                <span className="text-xl leading-none">🔵</span>
+                                <span className="text-sm font-medium text-neutral-200">Google Calendar</span>
+                            </div>
+                            {calIntegrations.google?.connected ? (
+                                <>
+                                    <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl text-xs">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        {calIntegrations.google.calendar_name ?? "My Calendar"}
+                                    </div>
+                                    <button
+                                        onClick={() => handleDisconnectCalendar("google")}
+                                        className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 px-3 py-1.5 rounded-xl transition-colors"
+                                    >
+                                        <Link2Off className="w-3.5 h-3.5" />
+                                        נתק
+                                    </button>
+                                </>
+                            ) : (
+                                <a
+                                    href={`/api/oauth/google?tenantId=${tenant.id}`}
+                                    className="inline-flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 text-white px-4 py-1.5 rounded-xl font-medium text-xs transition-colors"
+                                >
+                                    <Link2 className="w-3.5 h-3.5" />
+                                    חבר
+                                </a>
+                            )}
+                        </div>
+
+                        {/* Outlook */}
+                        <div className="flex items-center gap-4 flex-wrap py-3 border-b border-white/5">
+                            <div className="flex items-center gap-2.5 w-36 shrink-0">
+                                <span className="text-xl leading-none">🟦</span>
+                                <span className="text-sm font-medium text-neutral-200">Outlook Calendar</span>
+                            </div>
+                            {calIntegrations.outlook?.connected ? (
+                                <>
+                                    <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl text-xs">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        {calIntegrations.outlook.calendar_name ?? "Outlook Calendar"}
+                                    </div>
+                                    <button
+                                        onClick={() => handleDisconnectCalendar("outlook")}
+                                        className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 px-3 py-1.5 rounded-xl transition-colors"
+                                    >
+                                        <Link2Off className="w-3.5 h-3.5" />
+                                        נתק
+                                    </button>
+                                </>
+                            ) : (
+                                <a
+                                    href={`/api/oauth/outlook?tenantId=${tenant.id}`}
+                                    className="inline-flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 text-white px-4 py-1.5 rounded-xl font-medium text-xs transition-colors"
+                                >
+                                    <Link2 className="w-3.5 h-3.5" />
+                                    חבר
+                                </a>
+                            )}
+                        </div>
+
+                        {/* Calendly */}
+                        <div className="flex items-start gap-4 flex-wrap py-3 border-b border-white/5">
+                            <div className="flex items-center gap-2.5 w-36 shrink-0 pt-1">
+                                <span className="text-xl leading-none">🟢</span>
+                                <span className="text-sm font-medium text-neutral-200">Calendly</span>
+                            </div>
+                            {calIntegrations.calendly?.connected ? (
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl text-xs">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        {calIntegrations.calendly.calendar_name ?? "Calendly Webhook"}
+                                    </div>
+                                    <button
+                                        onClick={() => handleDisconnectCalendar("calendly")}
+                                        className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 px-3 py-1.5 rounded-xl transition-colors"
+                                    >
+                                        <Link2Off className="w-3.5 h-3.5" />
+                                        נתק
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+                                    <input
+                                        type="url"
+                                        value={calendlyUrl}
+                                        onChange={e => setCalendlyUrl(e.target.value)}
+                                        placeholder="הדבק Calendly Webhook URL..."
+                                        dir="ltr"
+                                        className="flex-1 min-w-48 bg-black/40 border border-white/10 rounded-xl py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-violet-500/50 text-white text-xs placeholder:text-neutral-600"
+                                    />
+                                    <button
+                                        onClick={handleSaveCalendly}
+                                        disabled={calendlySaving || !calendlyUrl.trim()}
+                                        className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-4 py-1.5 rounded-xl font-medium text-xs transition-colors"
+                                    >
+                                        <Save className="w-3.5 h-3.5" />
+                                        {calendlySaving ? "שומר..." : "שמור"}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Apple */}
+                        <div className="flex items-center gap-4 flex-wrap py-3">
+                            <div className="flex items-center gap-2.5 w-36 shrink-0">
+                                <span className="text-xl leading-none">⬜</span>
+                                <span className="text-sm font-medium text-neutral-200">Apple Calendar</span>
+                            </div>
+                            <button
+                                disabled
+                                className="inline-flex items-center gap-1.5 text-xs text-neutral-500 border border-white/5 bg-white/[0.02] px-4 py-1.5 rounded-xl cursor-not-allowed"
+                            >
+                                בקרוב
+                            </button>
+                        </div>
+                    </div>
                 )}
             </div>
 

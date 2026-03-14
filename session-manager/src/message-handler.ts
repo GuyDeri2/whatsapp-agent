@@ -650,6 +650,41 @@ async function handleActiveMode(
                         const localDate = startTime.toLocaleDateString("he-IL", { timeZone: "Asia/Jerusalem" });
                         aiReply = `✅ הפגישה נקבעה!\n📅 תאריך: ${localDate}\n⏰ שעה: ${bookTime}\nנתראה! 😊`;
                     }
+
+                    // Notify the business owner about the new booking
+                    if (ownerPhone) {
+                        try {
+                            const formattedDate = startTime.toLocaleDateString("he-IL", {
+                                weekday: "long",
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                                timeZone: "Asia/Jerusalem",
+                            });
+
+                            const ownerNotification =
+                                `📅 פגישה חדשה נקבעה!\n\n` +
+                                `👤 שם: ${customerName}\n` +
+                                `📱 טלפון: ${customerPhone}\n` +
+                                `📆 תאריך: ${formattedDate}\n` +
+                                `⏰ שעה: ${bookTime}\n\n` +
+                                `הפגישה נקבעה אוטומטית דרך הבוט.`;
+
+                            let ownerDigits = ownerPhone.replace(/\D/g, "");
+                            if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
+                                ownerDigits = "972" + ownerDigits.substring(1);
+                            }
+                            const ownerJid = `${ownerDigits}@s.whatsapp.net`;
+
+                            const ownerSent = await sendMessage(ownerJid, { text: ownerNotification });
+                            markAgentSent(ownerSent?.key?.id);
+                            console.log(`[${tenantId}] 📱 Owner notified of new meeting at ${ownerJid}`);
+                        } catch (notifyErr: any) {
+                            console.error(`[${tenantId}] ❌ Failed to notify owner of meeting:`, notifyErr.message);
+                        }
+                    } else {
+                        console.warn(`[${tenantId}] ⚠️ No owner_phone configured — skipping meeting booking notification`);
+                    }
                 } else {
                     console.error(`[${tenantId}] ❌ Failed to book meeting:`, meetingError);
                     aiReply = "מצטער, אירעה שגיאה בקביעת הפגישה. אנא נסה שוב.";
