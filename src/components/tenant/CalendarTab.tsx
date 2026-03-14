@@ -83,6 +83,7 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
     /* ---- Availability ---- */
     const [availability, setAvailability] = useState<WeeklyAvailability>({});
     const [availLoading, setAvailLoading] = useState(true);
+    const [weekOffset, setWeekOffset] = useState(0); // 0=current week, max 3
 
     // Which day's inline form is open { dayIndex -> { start, end } }
     const [addingDay, setAddingDay] = useState<Record<number, { start: string; end: string }>>({});
@@ -366,24 +367,30 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
     };
 
     /* ---------------------------------------------------------------- */
-    /* Compute next occurrence date for each weekday (0=Sun … 6=Sat)   */
+    /* Compute dates for the selected week (weekOffset 0=current week) */
     /* ---------------------------------------------------------------- */
-    const nextDates: Record<number, string> = (() => {
+    const { nextDates, weekLabel } = (() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const todayDay = today.getDay(); // 0=Sun
+        // Start of current week (Sunday)
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay() + weekOffset * 7);
+
         const result: Record<number, string> = {};
         for (let d = 0; d <= 6; d++) {
-            let diff = d - todayDay;
-            if (diff < 0) diff += 7;
-            // if diff === 0 it's today itself
-            const target = new Date(today);
-            target.setDate(today.getDate() + diff);
+            const target = new Date(startOfWeek);
+            target.setDate(startOfWeek.getDate() + d);
             const dd = String(target.getDate()).padStart(2, "0");
             const mm = String(target.getMonth() + 1).padStart(2, "0");
             result[d] = `${dd}/${mm}`;
         }
-        return result;
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        const fmt = (d: Date) => `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}`;
+        const label = weekOffset === 0 ? `השבוע (${fmt(startOfWeek)}–${fmt(endOfWeek)})` : `${fmt(startOfWeek)}–${fmt(endOfWeek)}`;
+
+        return { nextDates: result, weekLabel: label };
     })();
 
     /* ---------------------------------------------------------------- */
@@ -497,26 +504,29 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
 
                         {/* Min notice */}
                         <div>
-                            <label className="block text-xs text-neutral-400 mb-1.5">הודעה מינימלית מראש</label>
+                            <label className="block text-xs text-neutral-400 mb-0.5">זמן מינימלי לפני פגישה</label>
+                            <p className="text-xs text-neutral-600 mb-1.5">כמה שעות מראש לכל הפחות ניתן לקבוע</p>
                             <select
                                 value={settings.min_notice_hours}
                                 onChange={e => setSettings(prev => ({ ...prev, min_notice_hours: Number(e.target.value) }))}
                                 className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-violet-500/50 text-white text-sm"
                             >
                                 {[1, 2, 4, 6, 12, 24].map(v => (
-                                    <option key={v} value={v}>{v} שעות</option>
+                                    <option key={v} value={v}>{v} שעות לפני</option>
                                 ))}
                             </select>
                         </div>
 
                         {/* Booking window */}
                         <div>
-                            <label className="block text-xs text-neutral-400 mb-1.5">חלון הזמנה</label>
+                            <label className="block text-xs text-neutral-400 mb-0.5">טווח הזמנה מראש</label>
+                            <p className="text-xs text-neutral-600 mb-1.5">עד כמה קדימה ניתן לקבוע</p>
                             <select
                                 value={settings.booking_window_days}
                                 onChange={e => setSettings(prev => ({ ...prev, booking_window_days: Number(e.target.value) }))}
                                 className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-violet-500/50 text-white text-sm"
                             >
+                                <option value={0}>ללא הגבלה (כל עוד יש מקום)</option>
                                 {[7, 14, 30, 60].map(v => (
                                     <option key={v} value={v}>{v} יום קדימה</option>
                                 ))}
@@ -525,7 +535,8 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
 
                         {/* Meeting label */}
                         <div>
-                            <label className="block text-xs text-neutral-400 mb-1.5">תווית פגישה</label>
+                            <label className="block text-xs text-neutral-400 mb-0.5">שם הפגישה ביומן</label>
+                            <p className="text-xs text-neutral-600 mb-1.5">יופיע ביומן כ: &quot;{settings.meeting_label} - שם הלקוח&quot;</p>
                             <input
                                 type="text"
                                 value={settings.meeting_label}
@@ -560,10 +571,32 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any })
 
             {/* ── Section 4: Weekly Availability Scheduler ── */}
             <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-6 md:p-8 backdrop-blur-xl relative overflow-hidden">
-                <h3 className="text-white font-semibold mb-5 flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-violet-400" />
-                    שעות זמינות שבועיות
-                </h3>
+                <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                    <h3 className="text-white font-semibold flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-violet-400" />
+                        שעות זמינות שבועיות
+                    </h3>
+                    {/* Week navigation */}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setWeekOffset(prev => Math.max(0, prev - 1))}
+                            disabled={weekOffset === 0}
+                            className="p-1.5 rounded-lg border border-white/10 text-neutral-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            aria-label="שבוע קודם"
+                        >
+                            <span className="text-sm">›</span>
+                        </button>
+                        <span className="text-xs text-neutral-400 min-w-36 text-center">{weekLabel}</span>
+                        <button
+                            onClick={() => setWeekOffset(prev => Math.min(3, prev + 1))}
+                            disabled={weekOffset === 3}
+                            className="p-1.5 rounded-lg border border-white/10 text-neutral-400 hover:text-white hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            aria-label="שבוע הבא"
+                        >
+                            <span className="text-sm">‹</span>
+                        </button>
+                    </div>
+                </div>
 
                 {availLoading ? (
                     <div className="flex items-center gap-2 text-neutral-400 text-sm py-4">

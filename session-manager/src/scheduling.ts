@@ -25,6 +25,7 @@ interface MeetingSettings {
     duration_minutes: number;
     buffer_minutes: number | null;
     booking_notice_hours: number | null;
+    booking_window_days: number | null; // 0 = no limit
 }
 
 interface AvailabilityRule {
@@ -81,12 +82,17 @@ export async function getSchedulingContext(tenantId: string): Promise<string> {
         .map(([day, ranges]) => `${DAY_NAMES_HE[day]}: ${ranges.join(", ")}`)
         .join(" | ");
 
-    const durationNote = `משך כל פגישה: ${(settings as MeetingSettings).duration_minutes} דקות`;
+    const s = settings as MeetingSettings;
+    const durationNote = `משך כל פגישה: ${s.duration_minutes} דקות`;
+    const windowNote = !s.booking_window_days
+        ? "ניתן לקבוע פגישה בכל תאריך עתידי (ללא הגבלת זמן)"
+        : `ניתן לקבוע עד ${s.booking_window_days} ימים קדימה`;
 
     return `
 === מערכת קביעת פגישות ===
 ${daysLine ? `שעות זמינות: ${daysLine}` : ""}
 ${durationNote}
+${windowNote}
 
 כאשר לקוח מבקש לקבוע פגישה:
 
@@ -143,6 +149,14 @@ export async function getAvailableSlots(
     const existingMeetings = (meetingsResult.data ?? []) as ExistingMeeting[];
 
     if (!settings?.scheduling_enabled || !rules.length) return [];
+
+    // Enforce booking window (0 = no limit)
+    const windowDays = settings.booking_window_days ?? 14;
+    if (windowDays > 0) {
+        const maxDate = new Date();
+        maxDate.setDate(maxDate.getDate() + windowDays);
+        if (date > maxDate) return [];
+    }
 
     const duration = settings.duration_minutes;
     const buffer = settings.buffer_minutes ?? 0;
