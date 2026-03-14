@@ -1044,6 +1044,13 @@ async function createSession(tenantId: string): Promise<void> {
                 `[${tenantId}] ❌ Connection closed (code: ${statusCode}, msg: ${errorMessage})`
             );
 
+            // Immediately mark as disconnected in DB so the dashboard reflects reality.
+            // Will be set back to true as soon as connection re-opens.
+            await getSupabase()
+                .from("tenants")
+                .update({ whatsapp_connected: false })
+                .eq("id", tenantId);
+
             // Handle 515 (restartRequired) — WhatsApp server asks us to restart the connection.
             // This is NOT a permanent failure; reconnect quickly without clearing auth.
             if (statusCode === 515) {
@@ -1060,10 +1067,6 @@ async function createSession(tenantId: string): Promise<void> {
                 sessions.delete(tenantId);
                 await clearSessionData(tenantId);
                 tenantContactsCache.delete(tenantId);
-                await getSupabase()
-                    .from("tenants")
-                    .update({ whatsapp_connected: false })
-                    .eq("id", tenantId);
                 // Do NOT clear _reconnecting — we're about to reconnect immediately
                 setTimeout(() => createSession(tenantId), 5_000);
                 return;
@@ -1074,10 +1077,6 @@ async function createSession(tenantId: string): Promise<void> {
                 console.log(`[${tenantId}] 🚪 Logged out — clearing session data, QR rescan required`);
                 sessions.delete(tenantId);
                 _reconnecting.delete(tenantId); // Terminal state — clear reconnecting flag
-                await getSupabase()
-                    .from("tenants")
-                    .update({ whatsapp_connected: false })
-                    .eq("id", tenantId);
                 await clearSessionData(tenantId);
                 return;
             }
@@ -1100,10 +1099,6 @@ async function createSession(tenantId: string): Promise<void> {
             } else {
                 sessions.delete(tenantId);
                 _reconnecting.delete(tenantId); // Terminal state — clear reconnecting flag
-                await getSupabase()
-                    .from("tenants")
-                    .update({ whatsapp_connected: false })
-                    .eq("id", tenantId);
                 console.log(`[${tenantId}] ⚠️ Max retries (${MAX_RETRIES}) reached. Manual reconnect required.`);
             }
         }

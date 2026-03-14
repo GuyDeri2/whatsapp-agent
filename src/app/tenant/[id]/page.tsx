@@ -278,6 +278,23 @@ export default function TenantPage() {
         fetchConversations();
         fetchContactRules();
 
+        // Fetch live connection status from session-manager on load
+        // so connectionStatus reflects reality even after a page refresh
+        fetch(`/api/sessions/${tenantId}/status`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data) return;
+                if (data.status === "connected") {
+                    setConnectionStatus("connected");
+                } else if (data.qrCode) {
+                    setQrCode(data.qrCode);
+                    setConnectionStatus("waiting_scan");
+                } else {
+                    setConnectionStatus("disconnected");
+                }
+            })
+            .catch(() => { /* ignore — session-manager may be unreachable */ });
+
         const channels: RealtimeChannel[] = [];
 
         const debouncedFetch = () => {
@@ -387,9 +404,29 @@ export default function TenantPage() {
             .subscribe();
         channels.push(msgChannel);
 
+        // ── Realtime: tenant row changes (whatsapp_connected, agent_mode, etc.) ──
+        const tenantChannel = supabase
+            .channel(`tenant-${tenantId}`)
+            .on(
+                "postgres_changes",
+                {
+                    event: "UPDATE",
+                    schema: "public",
+                    table: "tenants",
+                    filter: `id=eq.${tenantId}`,
+                },
+                () => {
+                    // Re-fetch tenant so whatsapp_connected badge updates immediately
+                    fetchTenant();
+                }
+            )
+            .subscribe();
+        channels.push(tenantChannel);
+
         // ── Refresh when tab regains focus ──
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
+                fetchTenant();
                 fetchConversations();
                 if (selectedConvIdRef.current) {
                     fetchMessagesRef.current(selectedConvIdRef.current);
