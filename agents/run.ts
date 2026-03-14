@@ -47,6 +47,7 @@ const ROLE_LABELS: Record<string, string> = {
   security: 'Security',
   devops: 'DevOps',
   qa: 'QA',
+  database: 'Database',
 };
 
 // ─── Print helpers ─────────────────────────────────────────────
@@ -77,7 +78,7 @@ function feedback(role: string, score: number, quality: string) {
 async function runTask(command: string) {
   // Ensure memory files exist
   const allRoles: (AgentRole | 'shared')[] = [
-    'shared', 'pm', 'frontend', 'backend', 'ux', 'security', 'devops', 'qa',
+    'shared', 'pm', 'frontend', 'backend', 'ux', 'security', 'devops', 'qa', 'database',
   ];
   initMemoryFiles(allRoles, {});
 
@@ -167,7 +168,7 @@ async function runFeedback(
   comment: string
 ) {
   const validRoles: (AgentRole | 'pm')[] = [
-    'pm', 'frontend', 'backend', 'ux', 'security', 'devops', 'qa',
+    'pm', 'frontend', 'backend', 'ux', 'security', 'devops', 'qa', 'database',
   ];
 
   if (!validRoles.includes(role as AgentRole)) {
@@ -206,7 +207,7 @@ ${c.cyan}Give explicit feedback:${c.reset}
   npx tsx agents/run.ts feedback frontend 9 "Great component structure!"
   npx tsx agents/run.ts feedback backend 5 "Missed the RLS policy"
 
-${c.cyan}Roles:${c.reset} pm, frontend, backend, ux, security, devops, qa
+${c.cyan}Roles:${c.reset} pm, frontend, backend, ux, security, devops, qa, database
 `);
     process.exit(0);
   }

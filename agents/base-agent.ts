@@ -49,15 +49,31 @@ export abstract class BaseAgent {
   }
 
   /**
+   * Load the agent's skills/code patterns from its skills/skills.md file.
+   */
+  protected loadSkills(): string {
+    const skillsPath = path.join(__dirname, this.role, 'skills', 'skills.md');
+    if (fs.existsSync(skillsPath)) {
+      return fs.readFileSync(skillsPath, 'utf-8').trim();
+    }
+    return '';
+  }
+
+  /**
    * Build the full system prompt:
-   * role definition (from README.md) + shared project context + personal memory
+   * role definition (from README.md) + skills + shared project context + personal memory
    */
   protected buildSystemPrompt(): string {
     const basePrompt = this.loadBasePrompt();
+    const skills = this.loadSkills();
     const sharedMemory = loadMemory('shared');
     const personalMemory = loadMemory(this.role);
 
     let prompt = basePrompt;
+
+    if (skills) {
+      prompt += `\n\n## Skills & Code Patterns Reference\n${skills}`;
+    }
 
     if (sharedMemory) {
       prompt += `\n\n## Shared Project Context\n${sharedMemory}`;
@@ -135,7 +151,7 @@ export abstract class BaseAgent {
         const completion = await getAI().chat.completions.create({
           model: LLM_MODEL,
           messages,
-          max_tokens: 2500,
+          max_tokens: 4000,
           temperature: 0.7,
           tools,
         });
@@ -169,7 +185,7 @@ export abstract class BaseAgent {
               const result = execSync(command, {
                 cwd: path.resolve(__dirname, '..'), // The parent of the agents/ folder (which is the main WhatsApp agent root)
                 encoding: 'utf-8',
-                timeout: 30000, // 30 second strict timeout
+                timeout: 60000, // 60 second timeout for builds/deploys
                 stdio: 'pipe'  // Capture stdout/err
               });
               toolOutput = result;

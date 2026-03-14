@@ -215,6 +215,40 @@ export function resolveLidJid(tenantId: string, jid: string): string {
     return realPhone ? `${realPhone}@s.whatsapp.net` : jid;
 }
 
+/** Save LID→phone mapping to DB so it survives restarts */
+async function saveLidMappingToDB(tenantId: string) {
+    const map = tenantLidToPhone.get(tenantId);
+    if (!map || map.size === 0) return;
+    try {
+        await getSupabase().from("whatsapp_sessions").upsert(
+            { tenant_id: tenantId, session_key: "lid_mapping", session_data: Object.fromEntries(map) },
+            { onConflict: "tenant_id,session_key" }
+        );
+    } catch (err) {
+        console.error(`[${tenantId}] Failed to save LID mapping to DB:`, err);
+    }
+}
+
+/** Load LID→phone mapping from DB into RAM */
+async function loadLidMappingFromDB(tenantId: string) {
+    try {
+        const { data } = await getSupabase()
+            .from("whatsapp_sessions")
+            .select("session_data")
+            .eq("tenant_id", tenantId)
+            .eq("session_key", "lid_mapping")
+            .single();
+
+        if (data?.session_data) {
+            const lidMap = new Map<string, string>(Object.entries(data.session_data));
+            tenantLidToPhone.set(tenantId, lidMap);
+            console.log(`[${tenantId}] 🔗 Loaded ${lidMap.size} LID mappings from database into RAM.`);
+        }
+    } catch {
+        // Normal if 'lid_mapping' session_key doesn't exist yet
+    }
+}
+
 /** Save contacts cache to DB */
 async function saveContactsToDB(tenantId: string) {
     const cache = tenantContactsCache.get(tenantId);
@@ -417,6 +451,7 @@ export async function stopSession(
     if (clearData) {
         await clearSessionData(tenantId);
         tenantContactsCache.delete(tenantId); // Clear contact RAM map too
+        tenantLidToPhone.delete(tenantId);    // Clear LID mapping RAM too
     }
 
     // Update tenant status
@@ -741,6 +776,9 @@ async function resolveLidPhoneMappings(tenantId: string, socket: any): Promise<v
             await fixLidConversation(tenantId, lidConv.phone_number as string, realPhone);
         }
     }
+
+    // Persist the freshly-built LID map so restarts don't lose it
+    await saveLidMappingToDB(tenantId);
 }
 
 // ─── Fetch a single profile picture (on-demand for new conversations) ──
@@ -938,8 +976,9 @@ async function createSession(tenantId: string): Promise<void> {
     };
     sessions.set(tenantId, sessionInfo);
 
-    // 2. Load contacts from persistent storage immediately so incoming messages map properly
+    // 2. Load contacts and LID mappings from persistent storage immediately so incoming messages map properly
     await loadContactsFromDB(tenantId);
+    await loadLidMappingFromDB(tenantId);
 
     // ── Event: connection update ──
     socket.ev.on("connection.update", async (update) => {
@@ -1376,7 +1415,9 @@ async function createSession(tenantId: string): Promise<void> {
                     map.set(lidNum, realPhone);
                     remoteJid = `${realPhone}@s.whatsapp.net`;
                     console.log(`[${tenantId}] 🔗 LID resolved via pushName: ${lidNum} → ${realPhone} (${msg.pushName})`);
-                    fixLidConversation(tenantId, lidNum, realPhone).catch(() => {});
+                    fixLidConversation(tenantId, lidNum, realPhone).catch((err) => {
+                        console.error(`[${tenantId}] ❌ fixLidConversation failed: ${err.message}`);
+                    });
                 }
             }
 
@@ -1519,12 +1560,14 @@ async function createSession(tenantId: string): Promise<void> {
 
         // Two-pass name correlation:
         // Baileys sends separate entries for phone-JID and LID-JID of the same person.
-        // If both arrive in the same batch with the same name, we can cross-map them.
+        // Index @s.whatsapp.net contacts by BOTH phonebook name AND push name so we can
+        // match LID contacts regardless of which name they carry.
         const batchNameToPhone = new Map<string, string>();
         for (const c of contacts) {
             if (c.id?.endsWith("@s.whatsapp.net")) {
-                const name = c.name || c.notify;
-                if (name) batchNameToPhone.set(name.toLowerCase(), c.id.split("@")[0]);
+                const phone = c.id.split("@")[0];
+                if (c.name) batchNameToPhone.set(c.name.toLowerCase(), phone);
+                if (c.notify) batchNameToPhone.set(c.notify.toLowerCase(), phone);
             }
         }
         for (const c of contacts) {
@@ -1539,7 +1582,9 @@ async function createSession(tenantId: string): Promise<void> {
                 if (!map.has(lidNum)) {
                     map.set(lidNum, realPhone);
                     console.log(`[${tenantId}] 🔗 LID resolved via batch name: ${lidNum} → ${realPhone} (${name})`);
-                    fixLidConversation(tenantId, lidNum, realPhone).catch(() => {});
+                    fixLidConversation(tenantId, lidNum, realPhone).catch((err) => {
+                        console.error(`[${tenantId}] ❌ fixLidConversation failed: ${err.message}`);
+                    });
                 }
             }
         }
@@ -1555,11 +1600,14 @@ async function createSession(tenantId: string): Promise<void> {
             const resolvedId = resolveLidJid(tenantId, contact.id);
             const phoneNumber = resolvedId.split("@")[0];
 
-            // contact.name = device contact name (what's in the phone book) — HIGHEST PRIORITY
-            // contact.notify = WhatsApp push name (what the person set) — fallback
-            const phonebookName = contact.name || null;
+            // contact.notify = WhatsApp push name (what the person set) — PRIMARY
+            // contact.name = device contact name (what's in the phone book) — FALLBACK only
+            // Push name is the customer's own identity on WhatsApp and is authoritative.
+            // Phonebook name reflects how the business owner labeled the contact on their device,
+            // which may be wrong or use a nickname unrelated to the customer's actual name.
             const pushName = contact.notify || null;
-            const bestName = phonebookName || pushName;
+            const phonebookName = contact.name || null;
+            const bestName = pushName || phonebookName;
 
             // Debug: log contacts that have phonebook names
             if (phonebookName) {
@@ -1571,25 +1619,25 @@ async function createSession(tenantId: string): Promise<void> {
                 continue;
             }
 
-            // Save to RAM dictionary (phonebook name preferred)
+            // Save to RAM dictionary (push name preferred)
             // Don't cache LID-like numbers — only real phone numbers belong in this map
             if (phoneNumber.length < 14) {
                 cache.set(phoneNumber, bestName!);
             }
 
-            if (phonebookName) {
-                // Phonebook name available — ALWAYS overwrite, it's the highest priority source
-                // (even manually-set names get overwritten by phonebook names)
+            if (pushName) {
+                // Push name — customer's own WhatsApp name — overwrite unless manually set
+                await supabase
+                    .from("conversations")
+                    .update({ contact_name: pushName, ...(phonebookName ? { is_saved_contact: true } : {}) })
+                    .eq("tenant_id", tenantId)
+                    .eq("phone_number", phoneNumber)
+                    .or("name_manually_set.is.null,name_manually_set.eq.false");
+            } else if (phonebookName) {
+                // Only phonebook name — set if no name exists yet AND not manually set
                 await supabase
                     .from("conversations")
                     .update({ contact_name: phonebookName, is_saved_contact: true })
-                    .eq("tenant_id", tenantId)
-                    .eq("phone_number", phoneNumber);
-            } else if (pushName) {
-                // Only pushName — set it only if no name exists yet AND not manually set
-                await supabase
-                    .from("conversations")
-                    .update({ contact_name: pushName })
                     .eq("tenant_id", tenantId)
                     .eq("phone_number", phoneNumber)
                     .is("contact_name", null)
@@ -1597,8 +1645,9 @@ async function createSession(tenantId: string): Promise<void> {
             }
         }
         console.log(`[${tenantId}] 📇 contacts.upsert summary: ${withPhonebook} phonebook, ${withPushOnly} pushName only, ${noName} no name`);
-        // Commit RAM dictionary back to database persistent storage
+        // Commit RAM dictionaries back to database persistent storage
         await saveContactsToDB(tenantId);
+        await saveLidMappingToDB(tenantId);
     });
 
     // ── Event: contacts update (e.g. contact renamed in phone book) ──
@@ -1618,33 +1667,40 @@ async function createSession(tenantId: string): Promise<void> {
             buildLidMapping(tenantId, update);
             const resolvedId = resolveLidJid(tenantId, update.id);
             const phoneNumber = resolvedId.split("@")[0];
-            const phonebookName = update.name || null;  // Device contact name — HIGH priority
-            const pushName = update.notify || null;       // WhatsApp push name — LOW priority
+            const pushName = update.notify || null;       // WhatsApp push name — PRIMARY
+            const phonebookName = update.name || null;  // Device contact name — FALLBACK
 
-            if (phonebookName) {
-                // Phonebook name — ALWAYS overwrite, this is the highest priority source
+            if (pushName) {
+                // Push name — customer's own WhatsApp name — overwrite unless manually set
+                cache.set(phoneNumber, pushName);
+                const { error } = await supabase
+                    .from("conversations")
+                    .update({ contact_name: pushName, ...(phonebookName ? { is_saved_contact: true } : {}) })
+                    .eq("tenant_id", tenantId)
+                    .eq("phone_number", phoneNumber)
+                    .or("name_manually_set.is.null,name_manually_set.eq.false");
+
+                if (error) {
+                    console.error(`[${tenantId}] Failed to update contact name:`, error.message);
+                } else {
+                    console.log(`[${tenantId}] 📇 Contact updated (pushName): ${phoneNumber} -> ${pushName}`);
+                }
+            } else if (phonebookName) {
+                // Only phonebook name — set if no name exists yet AND not manually set
                 cache.set(phoneNumber, phonebookName);
                 const { error } = await supabase
                     .from("conversations")
                     .update({ contact_name: phonebookName, is_saved_contact: true })
                     .eq("tenant_id", tenantId)
-                    .eq("phone_number", phoneNumber);
+                    .eq("phone_number", phoneNumber)
+                    .is("contact_name", null)
+                    .or("name_manually_set.is.null,name_manually_set.eq.false");
 
                 if (error) {
                     console.error(`[${tenantId}] Failed to update contact name:`, error.message);
                 } else {
                     console.log(`[${tenantId}] 📇 Contact updated (phonebook): ${phoneNumber} -> ${phonebookName}`);
                 }
-            } else if (pushName) {
-                // Push name — only set if contact_name is currently null AND not manually set
-                cache.set(phoneNumber, pushName);
-                await supabase
-                    .from("conversations")
-                    .update({ contact_name: pushName })
-                    .eq("tenant_id", tenantId)
-                    .eq("phone_number", phoneNumber)
-                    .is("contact_name", null)
-                    .or("name_manually_set.is.null,name_manually_set.eq.false");
             }
         }
         // Commit RAM dictionary back to database persistent storage

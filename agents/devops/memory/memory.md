@@ -61,3 +61,6 @@ For endpoints that call DeepSeek AI (learning engine, manual triggers):
 - Always verify deploy succeeded after triggering — don't assume success
 - Env vars needed for CLI: VERCEL_TOKEN, RENDER_API_KEY, SUPABASE_ACCESS_TOKEN
 - Run `npm run build` before any Vercel deploy to catch errors early
+
+## Improvement Note (2026-03-14)
+[Score: 1/10] For frontend Supabase Realtime tasks, DevOps typically only needs to ensure: 1) Supabase project has Realtime enabled, 2) WebSocket connections are allowed in firewall rules, 3) No deployment conflicts with existing subscriptions.

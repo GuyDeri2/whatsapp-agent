@@ -73,3 +73,6 @@ jest.mock('openai', () => ({
 - Test React.memo: verify components still update when their actual props change
 - Test cache invalidation: verify tenant config cache clears when settings change
 - N+1 fix: verify batch query returns correct "previous message" for each handoff
+
+## Improvement Note (2026-03-14)
+[Score: 1/10] For testing Supabase Realtime: 1) Test subscription/unsubscription lifecycle, 2) Verify UI updates on INSERT/UPDATE/DELETE events, 3) Test network disconnection recovery, 4) Verify tenant isolation in subscriptions.

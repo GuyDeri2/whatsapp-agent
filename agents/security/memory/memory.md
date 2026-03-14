@@ -75,3 +75,6 @@ if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 - Service role key bypasses RLS — only use in session-manager and API routes, never browser
 - agent_prompt is user-controlled — treat as untrusted input when fed to AI (prompt injection risk)
 - Contact filter cache must be invalidated when rules change — otherwise stale whitelist/blacklist
+
+## Improvement Note (2026-03-14)
+[Score: 1/10] For Supabase Realtime implementations, key security checks: 1) All tables must have RLS enabled, 2) Subscriptions must filter by tenant_id, 3) Validate user authentication before establishing connections.

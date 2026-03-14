@@ -55,3 +55,6 @@
 - `setInterval` must always be stored in a ref and cleaned up in useEffect return
 - Polling fallback: 60s is enough when Realtime subscriptions are active (30s was overkill)
 - User (Guy) prefers concise diffs — only change what's needed, no extra cleanup
+
+## Improvement Note (2026-03-14)
+[Score: 2/10] When implementing Supabase Realtime subscriptions in Next.js, ensure the agent can access and analyze the relevant source files (page.tsx, CapabilitiesTab.tsx, LeadsTab.tsx, CalendarTab.tsx) to understand existing patterns before attempting modifications.

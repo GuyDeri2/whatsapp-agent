@@ -61,3 +61,6 @@
 - Learning engine: batch all "add" actions into single .insert([...]) call
 - Dead code must be deleted, not kept — webhook/route.ts with wrong API key was removed
 - Always run `npm run build` after changes to verify no TypeScript errors
+
+## Improvement Note (2026-03-14)
+[Score: 1/10] For Supabase Realtime implementation tasks, backend work is typically limited to ensuring tables have Realtime enabled and proper RLS policies. Avoid excessive iterations when the core work is frontend integration.
