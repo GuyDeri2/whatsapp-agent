@@ -21,7 +21,7 @@ import QRCode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
-import { useSupabaseAuthState, clearSessionData, flushCacheToDB, stopBackgroundSync } from "./session-store";
+import { useSupabaseAuthState, clearSessionData, clearAuthState, flushCacheToDB, stopBackgroundSync } from "./session-store";
 import { handleIncomingMessage, clearPendingAiReply, setLidResolver, markOwnerSent } from "./message-handler";
 // Inject LID resolver so message-handler can re-resolve JIDs at send time
 setLidResolver((tenantId, jid) => resolveLidJid(tenantId, jid));
@@ -410,6 +410,13 @@ export async function startSession(tenantId: string): Promise<void> {
         sessions.delete(tenantId);
     }
 
+    // Clear stale crypto keys so Baileys starts completely fresh and generates
+    // a valid QR code. Without this, leftover creds (registered: true) from a
+    // previous session cause WhatsApp to reject the QR scan with "can't link device".
+    // Conversations are preserved — only the Signal crypto keys are wiped.
+    console.log(`[${tenantId}] 🔑 Clearing stale auth state before fresh QR session...`);
+    await clearAuthState(tenantId);
+
     console.log(`[${tenantId}] Starting new WhatsApp session...`);
     await createSession(tenantId);
 }
@@ -652,7 +659,9 @@ export async function restoreAllSessions(): Promise<void> {
     console.log(`Restoring ${uniqueTenants.length} session(s)...`);
     for (const tenantId of uniqueTenants) {
         try {
-            await startSession(tenantId);
+            // Use createSession directly (not startSession) so we do NOT wipe the
+            // saved auth state — restoring an existing session must keep the creds.
+            await createSession(tenantId);
             // small delay between starts to avoid rate-limiting
             await new Promise((r) => setTimeout(r, 2000));
         } catch (err) {
@@ -902,8 +911,10 @@ async function resolveProfilePictures(
     }
 }
 
-// ─── Internal: create Baileys socket ──────────────────────────────────
-async function createSession(tenantId: string): Promise<void> {
+// ─── Internal/exported: create Baileys socket (reconnect with existing auth) ──
+// Exported so the watchdog cron in server.ts can call it directly without
+// going through startSession (which clears auth and forces a QR rescan).
+export async function createSession(tenantId: string): Promise<void> {
     // Fix C: Clean up old socket's event listeners BEFORE creating a new socket.
     // Without this, every reconnect accumulates stale event handlers on the dead socket
     // (they never get GC'd because Baileys keeps internal references), causing memory
@@ -1176,6 +1187,18 @@ async function createSession(tenantId: string): Promise<void> {
                 console.log(`[${tenantId}] 🌐 WhatsApp service unavailable (503) — waiting 60s before reconnect...`);
                 sessions.delete(tenantId);
                 setTimeout(() => createSession(tenantId), 60_000);
+                return;
+            }
+
+            // Handle connectionLost (408) — pure network dropout, NOT an auth failure.
+            // Reconnect quickly and reset retry counter so transient outages never exhaust
+            // the retry budget. Auth state is always preserved (no QR needed).
+            if (statusCode === DisconnectReason.connectionLost) {
+                sessionInfo.retryCount = 0; // network drop doesn't count as a failure
+                const delay = 4_000;
+                console.log(`[${tenantId}] 📡 Connection lost (408) — reconnecting in ${delay / 1000}s (auth preserved)...`);
+                sessions.delete(tenantId);
+                setTimeout(() => createSession(tenantId), delay);
                 return;
             }
 

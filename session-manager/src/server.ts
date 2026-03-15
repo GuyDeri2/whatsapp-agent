@@ -9,6 +9,7 @@ import express from "express";
 import cors from "cors";
 import {
     startSession,
+    createSession,
     stopSession,
     getSessionInfo,
     getActiveSessions,
@@ -371,12 +372,14 @@ cron.schedule("*/5 * * * *", async () => {
         if (actionableTenants.length === 0 && activeSessions.length === 0) return;
 
         // ── Phase 1: Restart dead sessions (not in sessions Map) ──
+        // IMPORTANT: use createSession (not startSession) to preserve saved auth state.
+        // startSession clears crypto keys and forces a QR rescan — never do that automatically.
         if (actionableTenants.length > 0) {
             console.log(`🔍 Watchdog: ${actionableTenants.length} dead session(s) detected. Restarting...`);
             for (const tenantId of actionableTenants) {
                 try {
-                    console.log(`[${tenantId}] 🔄 Watchdog restarting session...`);
-                    await startSession(tenantId);
+                    console.log(`[${tenantId}] 🔄 Watchdog restarting session (auth preserved)...`);
+                    await createSession(tenantId);
                     await new Promise((r) => setTimeout(r, 3000));
                 } catch (err: any) {
                     console.error(`[${tenantId}] Watchdog restart failed:`, err.message);
@@ -385,6 +388,7 @@ cron.schedule("*/5 * * * *", async () => {
         }
 
         // ── Phase 2: Detect zombie connections (in Map but socket is dead) ──
+        // Same: use createSession to reconnect without wiping auth.
         for (const tenantId of activeSessions) {
             try {
                 const info = getSessionInfo(tenantId);
@@ -392,10 +396,10 @@ cron.schedule("*/5 * * * *", async () => {
 
                 const alive = await probeSessionHealth(tenantId);
                 if (!alive) {
-                    console.warn(`[${tenantId}] 🧟 Watchdog: zombie connection detected — force restarting...`);
+                    console.warn(`[${tenantId}] 🧟 Watchdog: zombie connection detected — force restarting (auth preserved)...`);
                     await stopSession(tenantId, false);
                     await new Promise((r) => setTimeout(r, 3000));
-                    await startSession(tenantId);
+                    await createSession(tenantId);
                 }
             } catch (err: any) {
                 console.error(`[${tenantId}] Watchdog zombie check failed:`, err.message);
