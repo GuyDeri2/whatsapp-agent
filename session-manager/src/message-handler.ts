@@ -129,6 +129,25 @@ function toLocalPhone(phone: string): string {
     return phone;
 }
 
+/**
+ * Normalize any phone format to a WhatsApp JID string.
+ * Handles: "05X...", "9725X...", "+972...", already-clean "972..."
+ * Returns null if the result looks invalid (< 10 digits).
+ */
+function toOwnerJid(phone: string): string | null {
+    const digits = phone.replace(/\D/g, "");
+    if (!digits) return null;
+    // Local Israeli: 05XXXXXXXX → 97205XXXXXXXX → 972 5XXXXXXXX
+    if (digits.startsWith("0") && digits.length === 10) {
+        return `972${digits.substring(1)}@s.whatsapp.net`;
+    }
+    // Already international
+    if (digits.length >= 10) {
+        return `${digits}@s.whatsapp.net`;
+    }
+    return null;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────
 interface TenantConfig {
     agent_mode: "learning" | "active" | "paused";
@@ -718,9 +737,8 @@ async function handleActiveMode(
                             const startDate = new Date(`${bookDate}T${bookTime}:00`);
                             const formattedDate = formatDateHebrew(startDate, tz);
 
-                            let ownerDigits = ownerPhone.replace(/\D/g, "");
-                            if (ownerDigits.startsWith("0") && ownerDigits.length === 10) ownerDigits = "972" + ownerDigits.substring(1);
-                            const ownerJid = `${ownerDigits}@s.whatsapp.net`;
+                            const ownerJid = toOwnerJid(ownerPhone);
+                            if (!ownerJid) throw new Error(`Invalid owner_phone: ${ownerPhone}`);
                             const ownerNotification =
                                 `📅 פגישה חדשה נקבעה!\n\n` +
                                 `👤 שם: ${customerName}\n` +
@@ -743,6 +761,40 @@ async function handleActiveMode(
             } catch (bookErr: any) {
                 console.error(`[${tenantId}] ❌ Error booking meeting:`, bookErr.message);
                 aiReply = "מצטער, אירעה שגיאה בקביעת הפגישה. אנא נסה שוב.";
+            }
+        }
+
+        // ── Scheduling: CANCEL_MEETING marker ──────────────────────────────
+        if (aiReply.includes("[CANCEL_MEETING]")) {
+            aiReply = aiReply.replace("[CANCEL_MEETING]", "").trim();
+
+            // Find the customer's next upcoming confirmed meeting
+            const { data: upcomingMeeting } = await getSupabase()
+                .from("meetings")
+                .select("id, start_time")
+                .eq("tenant_id", tenantId)
+                .eq("customer_phone", toLocalPhone(remoteJid.split("@")[0]))
+                .eq("status", "confirmed")
+                .gte("start_time", new Date().toISOString())
+                .order("start_time", { ascending: true })
+                .limit(1)
+                .maybeSingle();
+
+            if (upcomingMeeting) {
+                // Set pending cancellation and ask confirmation
+                await getSupabase()
+                    .from("conversations")
+                    .update({ pending_cancellation_meeting_id: upcomingMeeting.id })
+                    .eq("id", conversationId);
+
+                const { data: tRow } = await getSupabase().from("tenants").select("timezone").eq("id", tenantId).single();
+                const tz = (tRow as any)?.timezone ?? "Asia/Jerusalem";
+                const meetingDate = formatDateHebrew(new Date(upcomingMeeting.start_time), tz);
+                aiReply = `האם אתה בטוח שברצונך לבטל את הפגישה ב${meetingDate}?\nהשב *כן* לאישור ביטול או *לא* להשארת הפגישה.`;
+                console.log(`[${tenantId}] 📅 [CANCEL_MEETING] marker — pending cancellation set for meeting ${upcomingMeeting.id}`);
+            } else {
+                // No upcoming meeting — let the AI reply stand (it should explain there's nothing to cancel)
+                console.log(`[${tenantId}] 📅 [CANCEL_MEETING] marker — no upcoming meeting found for ${remoteJid}`);
             }
         }
 
@@ -780,7 +832,14 @@ async function handleActiveMode(
                 console.log(`[${tenantId}] 🔗 Late LID resolution before send: ${sendJid} → ${resolved}`);
                 sendJid = resolved;
             } else {
-                console.warn(`[${tenantId}] ⚠️ Cannot resolve LID ${sendJid} — AI reply will NOT be delivered on WhatsApp`);
+                // LID unresolvable — sending would silently fail. Pause conversation so
+                // owner can step in; the customer's message is already stored in DB.
+                console.warn(`[${tenantId}] ⚠️ Cannot resolve LID ${sendJid} — pausing conversation for owner review`);
+                await getSupabase()
+                    .from("conversations")
+                    .update({ is_paused: true, paused_until: new Date(Date.now() + 40 * 60_000).toISOString() })
+                    .eq("id", conversationId);
+                return;
             }
         }
 
@@ -866,11 +925,11 @@ async function handleActiveMode(
                     `כדי לענות — פתח את הצ'אט עם הלקוח בוואטסאפ העסקי שלך.`,
                 ].filter((l) => l !== null).join("\n");
 
-                let ownerDigits = ownerPhone.replace(/\D/g, "");
-                if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
-                    ownerDigits = "972" + ownerDigits.substring(1);
+                const ownerJid = toOwnerJid(ownerPhone);
+                if (!ownerJid) {
+                    console.warn(`[${tenantId}] ⚠️ Invalid owner_phone "${ownerPhone}" — skipping owner notification`);
+                    return;
                 }
-                const ownerJid = `${ownerDigits}@s.whatsapp.net`;
 
                 try {
                     const ownerSent = await sendMessage(ownerJid, { text: ownerNotification });
