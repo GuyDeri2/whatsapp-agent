@@ -67,9 +67,13 @@ const presenceHeartbeatIntervals = new Map<string, NodeJS.Timeout>();
  * XMPP presence stanzas (application-level). A connection that only sends
  * WebSocket pings but never any XMPP-level activity may be treated as stale
  * and disconnected (typically with code 408).
- * Sending "available" every 5 minutes keeps the XMPP session active.
+ *
+ * WhatsApp's server-side presence expiry is ~10 seconds — meaning if we send
+ * presence every 5 minutes, the session appears "dead" to WhatsApp for ~4:50.
+ * Sending every 20 seconds keeps the XMPP session continuously active and
+ * prevents 408 (connectionLost) disconnects.
  */
-const PRESENCE_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const PRESENCE_HEARTBEAT_INTERVAL_MS = 20_000; // 20 seconds
 
 /** Cache group metadata to avoid fetching from WhatsApp on every message */
 const groupMetadataCache = new Map<string, { subject: string; fetchedAt: number }>();
