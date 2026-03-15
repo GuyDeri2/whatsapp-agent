@@ -62,18 +62,19 @@ const profilePicIntervals = new Map<string, NodeJS.Timeout>();
 const presenceHeartbeatIntervals = new Map<string, NodeJS.Timeout>();
 
 /**
- * Interval for sending presence heartbeats to WhatsApp.
- * WhatsApp servers distinguish between WebSocket pings (transport-level) and
- * XMPP presence stanzas (application-level). A connection that only sends
- * WebSocket pings but never any XMPP-level activity may be treated as stale
- * and disconnected (typically with code 408).
+ * Base interval for the autonomous presence heartbeat (with ±50% jitter applied).
+ * Actual delay per tick is randomized to 2.5–7.5 minutes so the pattern never
+ * looks like a fixed machine timer — a rigid 20-second pulse is a bot signature.
  *
- * WhatsApp's server-side presence expiry is ~10 seconds — meaning if we send
- * presence every 5 minutes, the session appears "dead" to WhatsApp for ~4:50.
- * Sending every 20 seconds keeps the XMPP session continuously active and
- * prevents 408 (connectionLost) disconnects.
+ * Why not more frequent?
+ *  - keepAliveIntervalMs (25s) already keeps the TCP/WebSocket alive.
+ *  - The heartbeat is only a fallback for long idle periods (no messages).
+ *  - The composing → available cycle fired on every AI reply is the primary
+ *    human-like presence signal; that is what WhatsApp Web actually does.
+ *  - Sending presence every 20s looks machine-generated to WhatsApp's
+ *    behavioral fingerprinting — human WhatsApp Web sends it reactively.
  */
-const PRESENCE_HEARTBEAT_INTERVAL_MS = 20_000; // 20 seconds
+const PRESENCE_HEARTBEAT_BASE_MS = 5 * 60 * 1000; // 5 min base (actual: 2.5–7.5 min)
 
 /** Cache group metadata to avoid fetching from WhatsApp on every message */
 const groupMetadataCache = new Map<string, { subject: string; fetchedAt: number }>();
@@ -440,7 +441,7 @@ export async function stopSession(
     }
     const heartbeat = presenceHeartbeatIntervals.get(tenantId);
     if (heartbeat) {
-        clearInterval(heartbeat);
+        clearTimeout(heartbeat);
         presenceHeartbeatIntervals.delete(tenantId);
     }
 
@@ -1024,25 +1025,33 @@ async function createSession(tenantId: string): Promise<void> {
             connectedAt.set(tenantId, Date.now());
 
             // ── Presence Heartbeat: prevent WhatsApp idle disconnects ──
-            // WhatsApp servers may terminate connections that only send WebSocket pings
-            // but show no XMPP-level activity. Sending a presence stanza every 5 minutes
-            // keeps the application-layer session alive without affecting user visibility.
+            // keepAliveIntervalMs (25s) keeps the TCP/WebSocket alive at transport level.
+            // This heartbeat covers the XMPP application layer — a low-frequency fallback
+            // for long idle periods (no messages). It uses randomised delays so the timing
+            // never forms a machine-regular pattern that behavioural fingerprinting can flag.
             const prevHeartbeat = presenceHeartbeatIntervals.get(tenantId);
-            if (prevHeartbeat) clearInterval(prevHeartbeat);
+            if (prevHeartbeat) clearTimeout(prevHeartbeat);
 
             // Send initial presence immediately so WhatsApp knows we're active
             try { await socket.sendPresenceUpdate("available"); } catch { /* ignore */ }
 
-            const heartbeatInterval = setInterval(async () => {
-                const session = sessions.get(tenantId);
-                if (!session || session.status !== "connected") return;
-                try {
-                    await socket.sendPresenceUpdate("available");
-                } catch (err: any) {
-                    console.warn(`[${tenantId}] 💓 Presence heartbeat failed: ${err.message}`);
-                }
-            }, PRESENCE_HEARTBEAT_INTERVAL_MS);
-            presenceHeartbeatIntervals.set(tenantId, heartbeatInterval);
+            const scheduleHeartbeat = () => {
+                // Jitter: ±50% of base → actual range 2.5–7.5 minutes
+                const jitter = (Math.random() - 0.5) * PRESENCE_HEARTBEAT_BASE_MS;
+                const delay = PRESENCE_HEARTBEAT_BASE_MS + jitter;
+                const t = setTimeout(async () => {
+                    const session = sessions.get(tenantId);
+                    if (!session || session.status !== "connected") return;
+                    try {
+                        await socket.sendPresenceUpdate("available");
+                    } catch (err: any) {
+                        console.warn(`[${tenantId}] 💓 Presence heartbeat failed: ${err.message}`);
+                    }
+                    scheduleHeartbeat(); // reschedule with new random delay
+                }, delay);
+                presenceHeartbeatIntervals.set(tenantId, t);
+            };
+            scheduleHeartbeat();
 
             // Only run expensive bulk syncs on the FIRST connect, not on every reconnect.
             // Repeated profile-pic / group-name storms after reconnects cause WhatsApp to
