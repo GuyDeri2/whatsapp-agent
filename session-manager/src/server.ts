@@ -208,6 +208,15 @@ app.post("/sessions/:tenantId/invalidate-cache", (req, res) => {
 app.post("/sessions/:tenantId/learn", async (req, res) => {
     const { tenantId } = req.params;
     const hours = parseInt(req.body?.hours || "24", 10);
+
+    // Verify tenant exists before running learning
+    const { createClient: mkClient } = await import("@supabase/supabase-js");
+    const sb = mkClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: tenant } = await sb.from("tenants").select("id").eq("id", tenantId).maybeSingle();
+    if (!tenant) {
+        return res.status(404).json({ success: false, error: "Tenant not found" });
+    }
+
     try {
         const result = await runBatchLearning(tenantId, hours);
         res.json(result);

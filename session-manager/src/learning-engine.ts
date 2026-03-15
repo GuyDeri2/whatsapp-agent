@@ -78,11 +78,13 @@ export async function runBatchLearning(tenantId: string, hoursBack: number = 24)
         conversationsMap.get(msg.conversation_id)!.push(msg);
     }
 
-    // Only keep conversations that have at least one reply (from owner or assistant)
+    // Only keep conversations where the OWNER manually replied.
+    // Using "assistant" here would cause the engine to learn from its own AI responses —
+    // a feedback loop that amplifies hallucinations over time.
     let chatsToProcess = "";
     for (const [convId, msgs] of conversationsMap.entries()) {
-        const hasReply = msgs.some(m => m.role === "owner" || m.role === "assistant");
-        if (!hasReply) continue;
+        const hasOwnerReply = msgs.some(m => m.role === "owner");
+        if (!hasOwnerReply) continue;
 
         const convInfo = msgs[0].conversations as any;
         chatsToProcess += `\n--- Conversation with ${convInfo?.contact_name || convInfo?.phone_number || "Customer"} ---\n`;
@@ -203,15 +205,28 @@ ${existingKnowledgeStr || "(Empty)"}
             const { error } = await supabase.from("knowledge_base").insert(addRows);
             if (!error) {
                 processedCount += addRows.length;
-                console.log(`[${tenantId}] 💡 Batch-added ${addRows.length} new fact(s)`);
+                for (const r of addRows) {
+                    console.log(`[${tenantId}] 💡 Learned: "${r.question}" → "${r.answer?.substring(0, 60)}"`);
+                }
             } else {
                 console.error(`[${tenantId}] Batch add error:`, error);
             }
         }
 
+        // Fetch valid IDs for this tenant to verify AI-generated IDs before mutation
+        const { data: validFacts } = await supabase
+            .from("knowledge_base")
+            .select("id")
+            .eq("tenant_id", tenantId);
+        const validIds = new Set((validFacts ?? []).map((f: any) => f.id));
+
         // Updates and deletes target specific IDs — keep them individual
         for (const actionRow of extractedActions) {
             if (actionRow.action === "update" && actionRow.id && actionRow.question && actionRow.answer) {
+                if (!validIds.has(actionRow.id)) {
+                    console.warn(`[${tenantId}] ⚠️ Update skipped — ID ${actionRow.id} not found in knowledge base`);
+                    continue;
+                }
                 const { error } = await supabase.from("knowledge_base").update({
                     category: actionRow.category,
                     question: actionRow.question,
@@ -220,10 +235,14 @@ ${existingKnowledgeStr || "(Empty)"}
                 }).eq("id", actionRow.id).eq("tenant_id", tenantId);
                 if (!error) {
                     processedCount++;
-                    console.log(`[${tenantId}] ✏️ Updated fact ID: ${actionRow.id}`);
+                    console.log(`[${tenantId}] ✏️ Updated: "${actionRow.question}" → "${actionRow.answer?.substring(0, 60)}"`);
                 } else console.error(`[${tenantId}] Update error:`, error);
             }
             else if (actionRow.action === "delete" && actionRow.id) {
+                if (!validIds.has(actionRow.id)) {
+                    console.warn(`[${tenantId}] ⚠️ Delete skipped — ID ${actionRow.id} not found in knowledge base`);
+                    continue;
+                }
                 const { error } = await supabase.from("knowledge_base").delete()
                     .eq("id", actionRow.id).eq("tenant_id", tenantId);
                 if (!error) {
