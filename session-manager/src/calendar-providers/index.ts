@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { CalendarProvider, ProviderName } from "./types";
 import { googleCalendarProvider } from "./google";
 import { calendlyProvider } from "./calendly";
+import { outlookCalendarProvider } from "./outlook";
 
 function getSupabase() {
     return createClient(
@@ -40,7 +41,8 @@ export async function getCalendarProvider(
             return { provider: googleCalendarProvider, name };
         case "calendly":
             return { provider: calendlyProvider, name };
-        // outlook will be added in a future phase
+        case "outlook":
+            return { provider: outlookCalendarProvider, name };
         default:
             return null;
     }
