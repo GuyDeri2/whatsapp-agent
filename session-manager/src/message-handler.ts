@@ -247,10 +247,13 @@ export async function handleIncomingMessage(
         return;
     }
 
-    // Only set contact_name from pushName if no name exists yet.
+    // Only set contact_name from pushName if no name exists yet AND the message
+    // is from the other person (not from the owner).
+    // When isFromMe=true, pushName is the owner's own WhatsApp display name — never
+    // the recipient's name — so we must not use it as the contact_name.
     // Phonebook names (set by contacts.upsert) take priority — we never
     // overwrite them with a pushName (the user's self-chosen WA name).
-    if (pushName && !conversation.contact_name) {
+    if (!isFromMe && pushName && !conversation.contact_name) {
         await supabase
             .from("conversations")
             .update({ contact_name: pushName })

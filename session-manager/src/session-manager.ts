@@ -1447,8 +1447,11 @@ async function createSession(tenantId: string): Promise<void> {
                     }
                 }
             } else {
-                // 1-to-1 chats: default to phonebook cached name
-                contactName = cachedName || msg.pushName || null;
+                // 1-to-1 chats: default to phonebook cached name.
+                // For outgoing messages (isFromMe=true), msg.pushName is the owner's own
+                // WhatsApp display name — NOT the recipient's name. Only use pushName as
+                // contactName when the message is incoming (from the other person).
+                contactName = cachedName || (!isFromMe ? msg.pushName : null) || null;
                 senderName = cachedName || msg.pushName || lookupPhone;
             }
 
