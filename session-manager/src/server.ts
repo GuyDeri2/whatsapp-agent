@@ -454,25 +454,64 @@ cron.schedule("*/5 * * * *", async () => {
         // For each active tenant session, find paused conversations with unanswered user messages
         for (const tenantId of activeSessions) {
             try {
-                // Get tenant owner_phone
+                // Get tenant owner_phone + filter config
                 const { data: tenant } = await supabase
                     .from("tenants")
-                    .select("owner_phone")
+                    .select("owner_phone, agent_filter_mode")
                     .eq("id", tenantId)
                     .single();
 
                 if (!tenant?.owner_phone) continue;
 
-                // Find paused conversations for this tenant
+                // Find paused conversations for this tenant (individual chats only)
                 const { data: pausedConvs } = await supabase
                     .from("conversations")
                     .select("id, phone_number, contact_name, updated_at")
                     .eq("tenant_id", tenantId)
-                    .eq("is_paused", true);
+                    .eq("is_paused", true)
+                    .eq("is_group", false);
 
                 if (!pausedConvs || pausedConvs.length === 0) continue;
 
+                // Fetch contact rules once for this tenant (needed for whitelist/blacklist)
+                let contactRules: { phone_number: string; rule_type: string }[] = [];
+                const filterMode = tenant.agent_filter_mode ?? "all";
+                if (filterMode !== "all") {
+                    const { data: rulesData } = await supabase
+                        .from("contact_rules")
+                        .select("phone_number, rule_type")
+                        .eq("tenant_id", tenantId);
+                    contactRules = rulesData ?? [];
+                }
+
+                // Helper: is this phone eligible for reminders under the current filter mode?
+                const isEligible = (phone: string): boolean => {
+                    if (filterMode === "all") return true;
+                    // Normalise: strip leading + if present
+                    const normalize = (p: string) => p.replace(/^\+/, "");
+                    const international = normalize(phone);
+                    // Also check local Israeli format (0xxxxxxxxx)
+                    const local =
+                        international.startsWith("972") && international.length >= 11
+                            ? "0" + international.substring(3)
+                            : null;
+                    const matched = contactRules.find(
+                        (r) =>
+                            normalize(r.phone_number) === international ||
+                            (local !== null && normalize(r.phone_number) === local)
+                    );
+                    if (filterMode === "whitelist") {
+                        return matched?.rule_type === "allow";
+                    } else {
+                        // blacklist
+                        return matched?.rule_type !== "block";
+                    }
+                };
+
                 for (const conv of pausedConvs) {
+                    // Skip contacts not eligible under the tenant's filter mode
+                    if (!isEligible(conv.phone_number)) continue;
+
                     // Debounce: skip if reminder was sent in the last 30 minutes
                     const lastSent = _reminderSentAt.get(conv.id) ?? 0;
                     if (Date.now() - lastSent < REMINDER_DEBOUNCE_MS) continue;
