@@ -180,66 +180,74 @@ export default function TenantPage() {
         setToast({ message, type });
     };
 
-    // ── Fetch tenant info ──
+    // ── Apply tenant data (shared between cache and fresh fetch) ──
+    const applyTenantData = useCallback((data: Tenant) => {
+        setTenant(data);
+        setEditForm({
+            business_name: data.business_name || "",
+            description: data.description || "",
+            products: data.products || "",
+            target_customers: data.target_customers || "",
+            agent_respond_to_saved_contacts: (data as any).agent_respond_to_saved_contacts ?? true,
+            owner_phone: (() => {
+                const p = (data as any).owner_phone || "";
+                if (p.startsWith("972") && p.length === 12) return "0" + p.substring(3);
+                return p;
+            })(),
+        });
+    }, []);
+
+    // ── Fetch tenant info (with sessionStorage cache for instant first paint) ──
     const fetchTenant = useCallback(async () => {
+        const cacheKey = `tenant_cache_${tenantId}`;
+        // Show cached data instantly on first render (avoids skeleton on repeat visits)
+        try {
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) applyTenantData(JSON.parse(cached));
+        } catch { /* ignore */ }
+
         const { data } = await supabase
             .from("tenants")
             .select("*")
             .eq("id", tenantId)
             .single();
         if (data) {
-            setTenant(data);
-            setEditForm({
-                business_name: data.business_name || "",
-                description: data.description || "",
-                products: data.products || "",
-                target_customers: data.target_customers || "",
-                agent_respond_to_saved_contacts: data.agent_respond_to_saved_contacts ?? true,
-                owner_phone: (() => {
-                    const p = data.owner_phone || "";
-                    // Display in local Israeli format (05XXXXXXXX) even if stored as 972XXXXXXXXX
-                    if (p.startsWith("972") && p.length === 12) return "0" + p.substring(3);
-                    return p;
-                })(),
-            });
+            applyTenantData(data);
+            try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* ignore */ }
         }
-    }, [supabase, tenantId]);
+    }, [supabase, tenantId, applyTenantData]);
 
-    // ── Fetch conversations with last messages ──
-    const fetchConversations = useCallback(async () => {
-        const { data } = await supabase
-            .from("conversations")
-            .select("*")
-            .eq("tenant_id", tenantId)
-            .order("updated_at", { ascending: false });
-        if (data) {
-            setConversations(data);
-
-            // Batch fetch last messages in ONE query instead of N+1
-            const topConvIds = data.slice(0, 30).map(c => c.id);
-            if (topConvIds.length === 0) return;
-
-            const { data: recentMsgs } = await supabase
-                .from("messages")
-                .select("conversation_id, content, media_type, created_at")
-                .in("conversation_id", topConvIds)
-                .order("created_at", { ascending: false })
-                .limit(topConvIds.length * 3);
-
-            if (recentMsgs) {
-                const lastMsgMap: Record<string, string> = {};
-                for (const m of recentMsgs) {
-                    if (lastMsgMap[m.conversation_id]) continue; // Already have latest
-                    if (m.media_type && (m.content === `[${m.media_type} received]` || !m.content)) {
-                        lastMsgMap[m.conversation_id] = MEDIA_LABELS[m.media_type] || "📎 קובץ";
-                    } else {
-                        lastMsgMap[m.conversation_id] = m.content?.substring(0, 50) || "";
-                    }
-                }
-                setLastMessages(prev => ({ ...prev, ...lastMsgMap }));
+    // ── Apply conversations + last messages (shared between cache and fresh fetch) ──
+    const applyConversationsData = useCallback((rows: any[]) => {
+        setConversations(rows);
+        const lastMsgMap: Record<string, string> = {};
+        for (const row of rows) {
+            if (!row.last_message && !row.last_media_type) continue;
+            if (row.last_media_type && (row.last_message === `[${row.last_media_type} received]` || !row.last_message)) {
+                lastMsgMap[row.id] = MEDIA_LABELS[row.last_media_type] || "📎 קובץ";
+            } else {
+                lastMsgMap[row.id] = row.last_message?.substring(0, 50) || "";
             }
         }
-    }, [supabase, tenantId]);
+        setLastMessages(prev => ({ ...prev, ...lastMsgMap }));
+    }, []);
+
+    // ── Fetch conversations with last message preview — single round-trip via RPC ──
+    const fetchConversations = useCallback(async () => {
+        const cacheKey = `conv_cache_${tenantId}`;
+        // Show cached conversations instantly while fetching fresh data
+        try {
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) applyConversationsData(JSON.parse(cached));
+        } catch { /* ignore */ }
+
+        const { data } = await supabase
+            .rpc("get_conversations_with_preview", { p_tenant_id: tenantId, p_limit: 50 });
+        if (data) {
+            applyConversationsData(data);
+            try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* ignore */ }
+        }
+    }, [supabase, tenantId, applyConversationsData]);
 
     // ── Fetch messages ──
     const fetchMessages = useCallback(
@@ -274,6 +282,9 @@ export default function TenantPage() {
 
     // ── Initial load + realtime ──
     useEffect(() => {
+        // Prefetch dashboard so back-navigation is instant
+        router.prefetch("/dashboard");
+
         fetchTenant();
         fetchConversations();
         fetchContactRules();
@@ -947,23 +958,31 @@ export default function TenantPage() {
     // Skeleton Loader for initial state
     if (!tenant) {
         return (
-            <div className="tenant-page">
-                <header className="tenant-header" style={{ opacity: 0.6 }}>
-                    <div style={{ width: 60, height: 24, background: 'var(--bg-card)', borderRadius: 4 }} />
-                    <div className="tenant-title" style={{ gap: 16 }}>
-                        <div style={{ width: 200, height: 28, background: 'var(--bg-glass)', borderRadius: 8 }} />
-                        <div style={{ width: 80, height: 24, background: 'var(--bg-glass)', borderRadius: 12 }} />
+            <div className="min-h-screen flex flex-col" style={{ background: "#080810" }}>
+                {/* Header skeleton */}
+                <div className="px-4 sm:px-6 py-3 border-b border-white/[0.06] bg-black/60 backdrop-blur-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="skeleton w-16 h-7 rounded-lg" />
+                        <div className="w-px h-5 bg-white/10" />
+                        <div className="skeleton w-40 h-6 rounded-lg" />
+                        <div className="skeleton w-20 h-5 rounded-full" />
                     </div>
-                </header>
-                <nav className="tab-nav" style={{ opacity: 0.6 }}>
-                    <div style={{ width: 100, height: 40, background: 'var(--bg-glass)', margin: '0 12px' }} />
-                    <div style={{ width: 140, height: 40, background: 'var(--bg-glass)', margin: '0 12px' }} />
-                    <div style={{ width: 120, height: 40, background: 'var(--bg-glass)', margin: '0 12px' }} />
-                </nav>
-                <div className="tab-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div className="loading-state">
-                        <div className="spinner" />
-                        <p style={{ marginTop: 16 }}>טוען נתוני עסק...</p>
+                    <div className="flex items-center gap-2">
+                        <div className="skeleton w-20 h-7 rounded-xl" />
+                        <div className="skeleton w-28 h-7 rounded-xl" />
+                    </div>
+                </div>
+                {/* Tab nav skeleton */}
+                <div className="border-b border-white/[0.06] bg-black/30 px-6 flex gap-1 py-0">
+                    {[80, 70, 65, 70, 55, 50, 65].map((w, i) => (
+                        <div key={i} className="skeleton mx-1 my-3 rounded-md" style={{ width: w, height: 20 }} />
+                    ))}
+                </div>
+                {/* Content skeleton */}
+                <div className="flex-1 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3 text-neutral-600">
+                        <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                        <span className="text-sm">טוען נתוני עסק...</span>
                     </div>
                 </div>
             </div>
@@ -971,71 +990,72 @@ export default function TenantPage() {
     }
 
     const modeConfig = {
-        learning: { label: "בוט לא פעיל", emoji: "📚", color: "#f59e0b" },
-        active: { label: "בוט פעיל", emoji: "🤖", color: "#10b981" },
-        paused: { label: "מושהה", emoji: "⏸️", color: "#6b7280" },
+        learning: { label: "בוט לא פעיל", emoji: "📚", badge: "bg-amber-500/15 text-amber-400 ring-amber-500/25" },
+        active:   { label: "בוט פעיל",    emoji: "🤖", badge: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/25" },
+        paused:   { label: "מושהה",        emoji: "⏸️", badge: "bg-neutral-500/15 text-neutral-400 ring-neutral-500/25" },
     };
 
     return (
-        <div className="min-h-screen bg-black text-neutral-200 font-sans selection:bg-emerald-500/30 flex flex-col">
+        <div className="h-screen text-neutral-200 font-sans selection:bg-emerald-500/30 flex flex-col overflow-hidden" style={{ background: "#080810" }}>
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-            {/* Background Gradients */}
+            {/* Background */}
             <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-emerald-600/10 blur-[100px]" />
-                <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-emerald-600/10 blur-[120px]" />
+                <div className="absolute top-[-15%] right-[-10%] w-[500px] h-[500px] rounded-full opacity-15" style={{ background: "radial-gradient(circle, #10b981 0%, transparent 70%)", filter: "blur(80px)" }} />
+                <div className="absolute bottom-[-15%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-8" style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)", filter: "blur(100px)" }} />
             </div>
 
             {/* Top Bar */}
-            <header className="relative z-10 px-6 py-4 border-b border-white/10 bg-black/50 backdrop-blur-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div className="flex items-center gap-4">
+            <header className="relative z-10 px-4 sm:px-6 py-3 border-b border-white/[0.06] bg-black/60 backdrop-blur-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                     <button
-                        className="p-2 text-neutral-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex items-center gap-2"
+                        className="shrink-0 p-2 text-neutral-500 hover:text-white hover:bg-white/8 rounded-lg transition-all flex items-center gap-1.5 text-sm"
+                        onMouseEnter={() => router.prefetch("/dashboard")}
                         onClick={() => router.push("/dashboard")}
                     >
-                        <svg className="w-5 h-5 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
-                        <span className="hidden sm:inline">חזרה לדשבורד</span>
+                        <svg className="w-4 h-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                        <span className="hidden sm:inline">חזרה</span>
                     </button>
-                    <div className="h-6 w-px bg-white/10 hidden sm:block"></div>
-                    <div>
-                        <h1 className="text-xl font-bold text-white flex items-center gap-2">
-                            {tenant.business_name}
-                            <span className={`text-xs px-2 py-0.5 rounded-full ring-1 ring-inset ${modeConfig[tenant.agent_mode].color.replace('ring-amber-500/30', 'ring-amber-500/20').replace('ring-emerald-500/30', 'ring-emerald-500/20')}`}>
+                    <div className="w-px h-5 bg-white/10 hidden sm:block shrink-0" />
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h1 className="text-base font-bold text-white truncate">{tenant.business_name}</h1>
+                            <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ring-1 ring-inset font-medium ${modeConfig[tenant.agent_mode].badge}`}>
                                 {modeConfig[tenant.agent_mode].emoji} {modeConfig[tenant.agent_mode].label}
                             </span>
-                        </h1>
+                        </div>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+                <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto hide-scrollbar">
+                    {/* WhatsApp status */}
                     <button
                         onClick={() => setActiveTab("connect")}
-                        className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ring-inset transition-colors ${tenant.whatsapp_connected
-                                ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20 hover:bg-emerald-500/20'
-                                : 'bg-red-500/10 text-red-400 ring-red-500/20 hover:bg-red-500/20'
-                            }`}
+                        className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold ring-1 ring-inset transition-all ${tenant.whatsapp_connected
+                            ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20 hover:bg-emerald-500/15'
+                            : 'bg-red-500/10 text-red-400 ring-red-500/20 hover:bg-red-500/15'
+                        }`}
                     >
-                        <div className="relative flex h-2 w-2">
-                            {tenant.whatsapp_connected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
-                            <span className={`relative inline-flex rounded-full h-2 w-2 ${tenant.whatsapp_connected ? "bg-emerald-500" : "bg-red-500"}`}></span>
-                        </div>
-                        {tenant.whatsapp_connected ? 'ווטסאפ מחובר' : 'ווטסאפ מנותק'}
+                        <span className="relative flex h-2 w-2 shrink-0">
+                            {tenant.whatsapp_connected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />}
+                            <span className={`relative inline-flex rounded-full h-2 w-2 ${tenant.whatsapp_connected ? "bg-emerald-500" : "bg-red-500"}`} />
+                        </span>
+                        {tenant.whatsapp_connected ? 'מחובר' : 'מנותק'}
                     </button>
 
-                    <div className="flex bg-white/5 rounded-lg p-1 border border-white/10 shrink-0">
+                    {/* Mode toggle */}
+                    <div className="flex bg-white/5 rounded-xl p-1 border border-white/8 shrink-0">
                         {(["learning", "active"] as const).map((mode) => (
                             <button
                                 key={mode}
                                 onClick={() => setAgentMode(mode)}
-                                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${tenant.agent_mode === mode
-                                        ? 'bg-emerald-600 text-white shadow-md'
-                                        : 'text-neutral-400 hover:text-white hover:bg-white/5'
-                                    }`}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${tenant.agent_mode === mode
+                                    ? 'bg-emerald-600 text-white shadow-[0_2px_8px_rgba(16,185,129,0.3)]'
+                                    : 'text-neutral-500 hover:text-white hover:bg-white/5'
+                                }`}
                             >
                                 <span>{modeConfig[mode].emoji}</span>
-                                <span>{modeConfig[mode].label}</span>
+                                <span className="hidden sm:inline">{modeConfig[mode].label}</span>
                             </button>
                         ))}
                     </div>
@@ -1043,31 +1063,28 @@ export default function TenantPage() {
             </header>
 
             {/* Tab Navigation */}
-            <nav className="relative z-10 flex overflow-x-auto border-b border-white/5 px-6 hide-scrollbar gap-2 py-2">
+            <nav className="relative z-10 flex overflow-x-auto border-b border-white/[0.06] px-2 sm:px-6 hide-scrollbar bg-black/30">
                 {[
-                    { id: "chat", icon: "💬", label: "שיחות" },
-                    { id: "contacts", icon: "👥", label: "סינון אנשי קשר", action: fetchContactRules },
-                    { id: "connect", icon: "📱", label: "חיבור ווטסאפ" },
-                    { id: "capabilities", icon: "🧠", label: "יכולות סוכן" },
-                    { id: "leads", icon: "🎯", label: "לידים" },
-                    { id: "calendar", icon: "📅", label: "יומן ופגישות" },
-                    { id: "settings", icon: "⚙️", label: "הגדרות" }
+                    { id: "chat",         icon: "💬", label: "שיחות" },
+                    { id: "contacts",     icon: "👥", label: "אנשי קשר", action: fetchContactRules },
+                    { id: "connect",      icon: "📱", label: "ווטסאפ" },
+                    { id: "capabilities", icon: "🧠", label: "יכולות" },
+                    { id: "leads",        icon: "🎯", label: "לידים" },
+                    { id: "calendar",     icon: "📅", label: "יומן" },
+                    { id: "settings",     icon: "⚙️", label: "הגדרות" }
                 ].map((tab) => (
                     <button
                         key={tab.id}
-                        onClick={() => {
-                            setActiveTab(tab.id as any);
-                            if (tab.action) tab.action();
-                        }}
-                        className={`flex items-center gap-2 px-4 py-2.5 whitespace-nowrap text-sm font-medium transition-colors rounded-t-lg relative ${activeTab === tab.id
-                                ? "text-emerald-400"
-                                : "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
-                            }`}
+                        onClick={() => { setActiveTab(tab.id as any); if (tab.action) tab.action(); }}
+                        className={`relative flex items-center gap-2 px-4 py-3 whitespace-nowrap text-sm font-medium transition-all ${activeTab === tab.id
+                            ? "text-white"
+                            : "text-neutral-500 hover:text-neutral-300"
+                        }`}
                     >
-                        <span>{tab.icon}</span>
-                        {tab.label}
+                        <span className="text-base leading-none">{tab.icon}</span>
+                        <span>{tab.label}</span>
                         {activeTab === tab.id && (
-                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 shadow-[0_-2px_8px_rgba(99,102,241,0.5)]" />
+                            <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
                         )}
                     </button>
                 ))}
