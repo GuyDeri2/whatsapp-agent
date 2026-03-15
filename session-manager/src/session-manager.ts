@@ -22,9 +22,30 @@ import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
 import { useSupabaseAuthState, clearSessionData, clearAuthState, flushCacheToDB, stopBackgroundSync } from "./session-store";
-import { handleIncomingMessage, clearPendingAiReply, setLidResolver, markOwnerSent } from "./message-handler";
-// Inject LID resolver so message-handler can re-resolve JIDs at send time
+import { handleIncomingMessage, clearPendingAiReply, setLidResolver, setLidDbResolver, markOwnerSent } from "./message-handler";
+// Inject synchronous LID resolver (memory-only fast path)
 setLidResolver((tenantId, jid) => resolveLidJid(tenantId, jid));
+// Inject async DB fallback resolver (used when memory map is empty after restart)
+setLidDbResolver(async (tenantId: string, lidNum: string): Promise<string | null> => {
+    try {
+        const { data, error } = await getSupabase()
+            .from("whatsapp_sessions")
+            .select("session_data")
+            .eq("tenant_id", tenantId)
+            .eq("session_key", `lid_${lidNum}`)
+            .single();
+        if (error || !data?.session_data) return null;
+        const realPhone = (data.session_data as { real_phone: string }).real_phone;
+        if (!realPhone) return null;
+        // Warm up in-memory map so next call hits memory
+        let map = tenantLidToPhone.get(tenantId);
+        if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
+        map.set(lidNum, realPhone);
+        return realPhone;
+    } catch {
+        return null;
+    }
+});
 import { transcribeAudioBuffer } from "./transcribe";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -127,6 +148,25 @@ export function getCachedContactName(tenantId: string, phoneNumber: string): str
  */
 const tenantLidToPhone = new Map<string, Map<string, string>>();
 
+/**
+ * Persist a single LID→phone mapping to both memory and the DB.
+ * Uses individual rows (`session_key = "lid_<lidNum>"`) so each mapping
+ * survives restarts independently — no full-map blob required.
+ */
+async function persistLidMapping(tenantId: string, lidNum: string, realPhone: string): Promise<void> {
+    let map = tenantLidToPhone.get(tenantId);
+    if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
+    if (map.get(lidNum) === realPhone) return; // already known — skip DB write
+    map.set(lidNum, realPhone);
+    console.log(`[${tenantId}] 🔗 LID resolved: ${lidNum} → ${realPhone}`);
+    await getSupabase().from("whatsapp_sessions").upsert(
+        { tenant_id: tenantId, session_key: `lid_${lidNum}`, session_data: { real_phone: realPhone } },
+        { onConflict: "tenant_id,session_key" }
+    ).then(({ error }) => {
+        if (error) console.error(`[${tenantId}] ❌ Failed to persist LID mapping ${lidNum}:`, error.message);
+    });
+}
+
 function buildLidMapping(tenantId: string, contact: { id?: string; lid?: string; jid?: string }): void {
     let lidJid: string | null = null;
     let phoneJid: string | null = null;
@@ -143,17 +183,12 @@ function buildLidMapping(tenantId: string, contact: { id?: string; lid?: string;
 
     if (!lidJid || !phoneJid) return;
 
-    let map = tenantLidToPhone.get(tenantId);
-    if (!map) {
-        map = new Map();
-        tenantLidToPhone.set(tenantId, map);
-    }
     const lidNum = lidJid.split("@")[0];
     const phoneNum = phoneJid.split("@")[0];
-    if (map.get(lidNum) !== phoneNum) {
-        map.set(lidNum, phoneNum);
-        console.log(`[${tenantId}] 🔗 LID resolved: ${lidNum} → ${phoneNum}`);
-    }
+    // Fire-and-forget: persist to memory + DB (non-blocking)
+    persistLidMapping(tenantId, lidNum, phoneNum).catch((err) =>
+        console.error(`[${tenantId}] ❌ persistLidMapping error in buildLidMapping:`, err.message)
+    );
 }
 
 /**
@@ -242,37 +277,29 @@ export function resolveLidPhone(tenantId: string, phone: string): string {
     return realPhone ?? phone;
 }
 
-/** Save LID→phone mapping to DB so it survives restarts */
-async function saveLidMappingToDB(tenantId: string) {
-    const map = tenantLidToPhone.get(tenantId);
-    if (!map || map.size === 0) return;
-    try {
-        await getSupabase().from("whatsapp_sessions").upsert(
-            { tenant_id: tenantId, session_key: "lid_mapping", session_data: Object.fromEntries(map) },
-            { onConflict: "tenant_id,session_key" }
-        );
-    } catch (err) {
-        console.error(`[${tenantId}] Failed to save LID mapping to DB:`, err);
-    }
-}
-
-/** Load LID→phone mapping from DB into RAM */
+/** Load all LID→phone mappings from DB into RAM (individual rows, key prefix "lid_") */
 async function loadLidMappingFromDB(tenantId: string) {
     try {
-        const { data } = await getSupabase()
+        const { data, error } = await getSupabase()
             .from("whatsapp_sessions")
-            .select("session_data")
+            .select("session_key, session_data")
             .eq("tenant_id", tenantId)
-            .eq("session_key", "lid_mapping")
-            .single();
+            .like("session_key", "lid_%");
 
-        if (data?.session_data) {
-            const lidMap = new Map<string, string>(Object.entries(data.session_data));
-            tenantLidToPhone.set(tenantId, lidMap);
-            console.log(`[${tenantId}] 🔗 Loaded ${lidMap.size} LID mappings from database into RAM.`);
+        if (error) { console.error(`[${tenantId}] ❌ loadLidMappingFromDB error:`, error.message); return; }
+        if (!data || data.length === 0) return;
+
+        let map = tenantLidToPhone.get(tenantId);
+        if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
+
+        for (const row of data) {
+            const lidNum = (row.session_key as string).slice(4); // strip "lid_" prefix
+            const realPhone = (row.session_data as { real_phone: string })?.real_phone;
+            if (lidNum && realPhone) map.set(lidNum, realPhone);
         }
-    } catch {
-        // Normal if 'lid_mapping' session_key doesn't exist yet
+        console.log(`[${tenantId}] 🔗 Loaded ${data.length} LID mappings from DB into RAM.`);
+    } catch (err: any) {
+        console.error(`[${tenantId}] ❌ loadLidMappingFromDB exception:`, err.message);
     }
 }
 
@@ -800,10 +827,8 @@ async function resolveLidPhoneMappings(tenantId: string, socket: any): Promise<v
                     if (!r.lid || !r.jid) continue;
                     const lidNum = r.lid.split("@")[0];
                     const phoneNum = r.jid.split("@")[0];
-
-                    let map = tenantLidToPhone.get(tenantId);
-                    if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
-                    map.set(lidNum, phoneNum);
+                    // persistLidMapping updates memory + persists individual DB row
+                    await persistLidMapping(tenantId, lidNum, phoneNum);
                     console.log(`[${tenantId}] 🔗 LID resolved via onWhatsApp: ${lidNum} → ${phoneNum}`);
                 }
                 // Delay between chunks to avoid WhatsApp rate limiting
@@ -826,9 +851,6 @@ async function resolveLidPhoneMappings(tenantId: string, socket: any): Promise<v
             await fixLidConversation(tenantId, lidConv.phone_number as string, realPhone);
         }
     }
-
-    // Persist the freshly-built LID map so restarts don't lose it
-    await saveLidMappingToDB(tenantId);
 }
 
 // ─── Fetch a single profile picture (on-demand for new conversations) ──
@@ -1114,7 +1136,7 @@ export async function createSession(tenantId: string): Promise<void> {
                 setTimeout(() => syncCachedContactsToDB(tenantId), 12_000); // Retroactively fix missing names
                 setTimeout(() => resolveProfilePictures(tenantId, socket), 15_000);
                 // Resolve LID JIDs after contacts have synced (contacts.upsert fires first)
-                setTimeout(() => resolveLidPhoneMappings(tenantId, socket), 25_000);
+                setTimeout(() => resolveLidPhoneMappings(tenantId, socket), 5_000);
             } else {
                 console.log(`[${tenantId}] ♻️ Reconnect detected — skipping bulk sync to protect connection`);
             }
@@ -1545,11 +1567,12 @@ export async function createSession(tenantId: string): Promise<void> {
                 const realPhone = findPhoneByPushName(tenantId, msg.pushName);
                 if (realPhone) {
                     const lidNum = rawJid.split("@")[0];
-                    let map = tenantLidToPhone.get(tenantId);
-                    if (!map) { map = new Map(); tenantLidToPhone.set(tenantId, map); }
-                    map.set(lidNum, realPhone);
                     remoteJid = `${realPhone}@s.whatsapp.net`;
                     console.log(`[${tenantId}] 🔗 LID resolved via pushName: ${lidNum} → ${realPhone} (${msg.pushName})`);
+                    // Persist to memory + DB so future restarts don't lose this mapping
+                    persistLidMapping(tenantId, lidNum, realPhone).catch((err) =>
+                        console.error(`[${tenantId}] ❌ persistLidMapping (pushName) failed:`, err.message)
+                    );
                     fixLidConversation(tenantId, lidNum, realPhone).catch((err) => {
                         console.error(`[${tenantId}] ❌ fixLidConversation failed: ${err.message}`);
                     });
@@ -1785,7 +1808,7 @@ export async function createSession(tenantId: string): Promise<void> {
         console.log(`[${tenantId}] 📇 contacts.upsert summary: ${withPhonebook} phonebook, ${withPushOnly} pushName only, ${noName} no name`);
         // Commit RAM dictionaries back to database persistent storage
         await saveContactsToDB(tenantId);
-        await saveLidMappingToDB(tenantId);
+        // LID mappings are now persisted per-entry via persistLidMapping() — no bulk save needed
     });
 
     // ── Event: contacts update (e.g. contact renamed in phone book) ──

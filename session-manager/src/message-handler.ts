@@ -19,6 +19,15 @@ export function setLidResolver(fn: (tenantId: string, jid: string) => string): v
     _lidResolver = fn;
 }
 
+/**
+ * Async DB fallback for LID resolution — called when in-memory map is empty (e.g. after restart).
+ * Injected by session-manager.ts to avoid circular dependency.
+ */
+let _lidDbResolver: ((tenantId: string, lidNum: string) => Promise<string | null>) | null = null;
+export function setLidDbResolver(fn: (tenantId: string, lidNum: string) => Promise<string | null>): void {
+    _lidDbResolver = fn;
+}
+
 // ─── Supabase singleton ───────────────────────────────────────────────
 let _supabase: SupabaseClient | null = null;
 
@@ -225,11 +234,25 @@ export async function handleIncomingMessage(
     // the raw LID digits — fixLidConversation will rename/merge later.
     const isGroupChat = remoteJid.endsWith("@g.us");
     let effectiveJid = remoteJid;
-    if (remoteJid.endsWith("@lid") && _lidResolver) {
-        const resolved = _lidResolver(tenantId, remoteJid);
-        if (!resolved.endsWith("@lid")) {
-            console.log(`[${tenantId}] 🔗 LID resolved at message arrival: ${remoteJid} → ${resolved}`);
-            effectiveJid = resolved;
+    if (remoteJid.endsWith("@lid")) {
+        // First try in-memory map (fast path)
+        if (_lidResolver) {
+            const resolved = _lidResolver(tenantId, remoteJid);
+            if (!resolved.endsWith("@lid")) {
+                console.log(`[${tenantId}] 🔗 LID resolved (memory): ${remoteJid} → ${resolved}`);
+                effectiveJid = resolved;
+            }
+        }
+        // If still unresolved, try DB fallback (covers server restarts where memory is empty)
+        if (effectiveJid.endsWith("@lid") && _lidDbResolver) {
+            const lidNum = remoteJid.split("@")[0];
+            const realPhone = await _lidDbResolver(tenantId, lidNum);
+            if (realPhone) {
+                console.log(`[${tenantId}] 🔗 LID resolved (DB fallback): ${remoteJid} → ${realPhone}`);
+                effectiveJid = `${realPhone}@s.whatsapp.net`;
+                // Also warm up memory so subsequent in-process messages skip the DB round-trip
+                if (_lidResolver) _lidResolver(tenantId, remoteJid); // resolver re-checks memory after DB load
+            }
         }
     }
     const phoneNumber = effectiveJid.split("@")[0];
