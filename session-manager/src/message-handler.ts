@@ -162,6 +162,10 @@ interface TenantConfig {
 const tenantConfigCache = new Map<string, { config: TenantConfig; fetchedAt: number }>();
 const CONFIG_CACHE_TTL_MS = 300_000; // 5 minutes
 
+// ─── Learning mode notification cooldown (60 min per conversation) ────
+const learningNotifCooldown = new Map<string, number>(); // conversationId → lastNotifiedAt ms
+const LEARNING_NOTIF_COOLDOWN_MS = 60 * 60_000; // 60 minutes
+
 // ─── Contact rules cache (60s TTL) to avoid DB hit on every message ──
 interface ContactRulesCacheEntry {
     rules: { phone_number: string; rule_type: string }[];
@@ -211,9 +215,24 @@ export async function handleIncomingMessage(
         tenantConfigCache.set(tenantId, { config, fetchedAt: Date.now() });
     }
 
-    // Extract clean phone number from JID (e.g., "972501234567@s.whatsapp.net" → "972501234567")
-    const phoneNumber = remoteJid.split("@")[0];
+    // Resolve LID JID to real phone BEFORE conversation lookup/creation.
+    // WhatsApp sometimes sends messages from the same contact via both their LID
+    // ("200274408960102@lid") and their real phone ("972522827528@s.whatsapp.net"),
+    // which would otherwise create two separate conversations.
+    // If the LID→phone mapping is already known (from a prior contacts.upsert), we
+    // resolve it here so the conversation is always keyed on the real phone number.
+    // If the map isn't built yet (first-ever message from this LID), we fall back to
+    // the raw LID digits — fixLidConversation will rename/merge later.
     const isGroupChat = remoteJid.endsWith("@g.us");
+    let effectiveJid = remoteJid;
+    if (remoteJid.endsWith("@lid") && _lidResolver) {
+        const resolved = _lidResolver(tenantId, remoteJid);
+        if (!resolved.endsWith("@lid")) {
+            console.log(`[${tenantId}] 🔗 LID resolved at message arrival: ${remoteJid} → ${resolved}`);
+            effectiveJid = resolved;
+        }
+    }
+    const phoneNumber = effectiveJid.split("@")[0];
 
     // ── Ignore Baileys echo of messages sent by the AI agent ──────────────
     // When we send a message via socket.sendMessage, Baileys fires messages.upsert
@@ -547,10 +566,28 @@ export async function handleIncomingMessage(
 
             break;
 
-        case "learning":
+        case "learning": {
             // Just store — the owner handles replies, and we learn from them
             console.log(`[${tenantId}] 📚 Learning mode — stored message, waiting for owner reply`);
+
+            // Notify owner on WhatsApp (once per 60 min per conversation, to avoid spam)
+            const ownerJidForNotif = config.owner_phone ? toOwnerJid(config.owner_phone) : null;
+            if (ownerJidForNotif && ownerJidForNotif !== remoteJid) {
+                const lastNotified = learningNotifCooldown.get(conversationId) ?? 0;
+                if (Date.now() - lastNotified > LEARNING_NOTIF_COOLDOWN_MS) {
+                    learningNotifCooldown.set(conversationId, Date.now());
+                    const senderDisplay = conversation.contact_name || pushName || phoneNumber;
+                    const preview = messageText.length > 120 ? messageText.substring(0, 120) + "…" : messageText;
+                    const notifText = `📨 הודעה חדשה מ *${senderDisplay}*:\n\n${preview}`;
+                    try {
+                        await sendMessage(ownerJidForNotif, { text: notifText });
+                    } catch (notifErr: any) {
+                        console.error(`[${tenantId}] ❌ Failed to notify owner in learning mode:`, notifErr.message);
+                    }
+                }
+            }
             break;
+        }
 
         case "paused":
             console.log(`[${tenantId}] ⏸️ Paused mode — message stored silently`);

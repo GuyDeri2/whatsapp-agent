@@ -186,12 +186,12 @@ async function fixLidConversation(tenantId: string, lidNum: string, realPhone: s
     const supabase = getSupabase();
 
     const { data: lidConv } = await supabase
-        .from("conversations").select("id")
+        .from("conversations").select("id, contact_name")
         .eq("tenant_id", tenantId).eq("phone_number", lidNum).maybeSingle();
     if (!lidConv) return; // Nothing to fix
 
     const { data: realConv } = await supabase
-        .from("conversations").select("id")
+        .from("conversations").select("id, contact_name")
         .eq("tenant_id", tenantId).eq("phone_number", realPhone).maybeSingle();
 
     if (!realConv) {
@@ -200,9 +200,15 @@ async function fixLidConversation(tenantId: string, lidNum: string, realPhone: s
             .update({ phone_number: realPhone }).eq("id", lidConv.id);
         console.log(`[${tenantId}] ✅ LID conversation renamed: ${lidNum} → ${realPhone}`);
     } else {
-        // Both exist: move messages from LID conversation to real one, then delete LID
+        // Both exist: move messages from LID conversation to real one, then delete LID.
+        // Also carry over contact_name from the LID conv if the real conv lacks one
+        // (the real-phone conv was often created by the owner replying, with no name).
         await supabase.from("messages")
             .update({ conversation_id: realConv.id }).eq("conversation_id", lidConv.id);
+        if (!realConv.contact_name && lidConv.contact_name) {
+            await supabase.from("conversations")
+                .update({ contact_name: lidConv.contact_name }).eq("id", realConv.id);
+        }
         await supabase.from("conversations").delete().eq("id", lidConv.id);
         console.log(`[${tenantId}] 🔀 LID conversation merged into real: ${lidNum} → ${realPhone}`);
     }
@@ -218,6 +224,22 @@ export function resolveLidJid(tenantId: string, jid: string): string {
     const map = tenantLidToPhone.get(tenantId);
     const realPhone = map?.get(lidNum);
     return realPhone ? `${realPhone}@s.whatsapp.net` : jid;
+}
+
+/**
+ * If `phone` is a raw LID number (stored in tenantLidToPhone as a key),
+ * return the resolved real phone number. Otherwise return `phone` unchanged.
+ *
+ * This handles the case where a JID like "200274408960102@s.whatsapp.net"
+ * was constructed from a LID number (no @lid suffix). We look up the raw
+ * digits in the LID map so owner replies and outgoing messages always land
+ * in the correct (real-phone) conversation.
+ */
+export function resolveLidPhone(tenantId: string, phone: string): string {
+    const map = tenantLidToPhone.get(tenantId);
+    if (!map) return phone;
+    const realPhone = map.get(phone);
+    return realPhone ?? phone;
 }
 
 /** Save LID→phone mapping to DB so it survives restarts */
@@ -562,8 +584,22 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
         throw new Error("Session not connected");
     }
 
+    // Resolve LID JIDs before sending.
+    // Case A: jid ends with @lid   → resolveLidJid converts to real PHONE@s.whatsapp.net
+    // Case B: jid is LID@s.whatsapp.net (LID digits used as phone) → resolveLidPhone fixes it
+    // Without this, owner replies go to a ghost JID and are saved in a separate
+    // conversation from the one that holds the incoming LID messages.
+    const rawPhone = jid.split("@")[0];
+    const resolvedPhone = resolveLidPhone(tenantId, rawPhone);
+    const resolvedJid = jid.endsWith("@lid")
+        ? resolveLidJid(tenantId, jid)
+        : `${resolvedPhone}@s.whatsapp.net`;
+    if (resolvedJid !== jid) {
+        console.log(`[${tenantId}] 🔗 LID resolved at send: ${jid} → ${resolvedJid}`);
+    }
+
     // 1. Send via Baileys
-    const sentMsg = await session.socket.sendMessage(jid, { text });
+    const sentMsg = await session.socket.sendMessage(resolvedJid, { text });
     const waMessageId = sentMsg?.key?.id || "unknown";
 
     // Suppress the Baileys echo (fromMe=true upsert) that fires almost immediately
@@ -575,7 +611,7 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
 
     // 2. Save to DB as owner message
     const supabase = getSupabase();
-    const phoneNumber = jid.split("@")[0];
+    const phoneNumber = resolvedPhone;
 
     // Ensure conversation exists and update its timestamp
     const { data: conversation, error: convError } = await supabase
