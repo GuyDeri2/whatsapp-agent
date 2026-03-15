@@ -24,6 +24,7 @@ import {
 } from "./session-manager";
 import { invalidateTenantConfigCache } from "./message-handler";
 import { runBatchLearning } from "./learning-engine";
+import { sendDayBeforeReminders, sendTwoHourReminders } from "./reminders";
 
 const app = express();
 // Default port for the session manager (dashboard runs on 3000)
@@ -582,6 +583,41 @@ cron.schedule("*/5 * * * *", async () => {
     }
 });
 
+// ─── Meeting day-before reminders (every hour) ─────────────────────────────
+// Sends customer a reminder + cancellation offer 23–25h before their meeting.
+cron.schedule("0 * * * *", async () => {
+    const activeSessions = getActiveSessions();
+    if (activeSessions.length === 0) return;
+    try {
+        await sendDayBeforeReminders(
+            activeSessions,
+            async (tenantId, jid, text) => {
+                await sendMessage(tenantId, jid, text);
+            }
+        );
+    } catch (err: any) {
+        console.error("Day-before reminder cron fatal:", err.message);
+    }
+});
+
+// ─── Meeting 2h-before reminders (every 15 minutes) ────────────────────────
+// Sends customer + owner a reminder 1h45m–2h15m before their meeting.
+cron.schedule("*/15 * * * *", async () => {
+    const activeSessions = getActiveSessions();
+    if (activeSessions.length === 0) return;
+    try {
+        await sendTwoHourReminders(
+            activeSessions,
+            async (tenantId, jid, text) => {
+                await sendMessage(tenantId, jid, text);
+            }
+        );
+    } catch (err: any) {
+        console.error("2h-before reminder cron fatal:", err.message);
+    }
+});
+
+// ─── Daily batch learning (02:00) ───────────────────────────────────────────
 // Run every night at 02:00 server time
 cron.schedule("0 2 * * *", async () => {
     if (_learningRunning) {

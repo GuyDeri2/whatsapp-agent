@@ -2,12 +2,14 @@
  * Scheduling helpers for the WhatsApp AI agent.
  * Provides:
  *  - getSchedulingContext()  — formatted string injected into the AI system prompt
- *  - getAvailableSlots()     — computes free time slots for a given date
+ *  - getAvailableSlots()     — computes free time slots for a given date (2-layer check)
+ *  - bookMeeting()           — creates meeting in DB + calendar provider
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { buildTzDate, buildSlotTimestamp, toDateString } from "./date-utils";
 
-// ─── Supabase singleton (separate from the ones in ai-agent / message-handler) ─
+// ─── Supabase singleton ──────────────────────────────────────────────────────
 let _supabase: SupabaseClient | null = null;
 
 export function getSupabase(): SupabaseClient {
@@ -19,13 +21,14 @@ export function getSupabase(): SupabaseClient {
     return _supabase;
 }
 
-// ─── Types ─────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface MeetingSettings {
     scheduling_enabled: boolean;
     duration_minutes: number;
     buffer_minutes: number | null;
     booking_notice_hours: number | null;
     booking_window_days: number | null; // 0 = no limit
+    timezone: string | null;
 }
 
 interface AvailabilityRule {
@@ -39,10 +42,10 @@ interface ExistingMeeting {
     end_time: string;
 }
 
-// ─── Day names (Hebrew) ─────────────────────────────────────────────────────
+// ─── Day names (Hebrew) ───────────────────────────────────────────────────────
 const DAY_NAMES_HE = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 
-// ─── getSchedulingContext ───────────────────────────────────────────────────
+// ─── getSchedulingContext ─────────────────────────────────────────────────────
 /**
  * Returns a Hebrew scheduling instructions block to inject into the AI system
  * prompt, or an empty string if scheduling is disabled / not configured.
@@ -70,8 +73,8 @@ export async function getSchedulingContext(tenantId: string): Promise<string> {
     // Group rules by day_of_week → "ראשון: 09:00-12:00, 14:00-18:00"
     const grouped = new Map<number, string[]>();
     for (const rule of ruleList) {
-        const start = rule.start_time.substring(0, 5); // "HH:MM"
-        const end = rule.end_time.substring(0, 5);
+        const start = rule.start_time.substring(0, 5);
+        const end   = rule.end_time.substring(0, 5);
         const existing = grouped.get(rule.day_of_week) ?? [];
         existing.push(`${start}-${end}`);
         grouped.set(rule.day_of_week, existing);
@@ -101,18 +104,25 @@ ${windowNote}
    המערכת תחזיר לך את השעות הפנויות ותוכל להציע אותן ללקוח
 3. כשהלקוח בחר שעה, אשר איתו ואז השתמש במרקר: [BOOK_MEETING: date=YYYY-MM-DD, time=HH:MM, name=CUSTOMER_NAME]
 4. לאחר קביעת הפגישה - שלח הודעת אישור עם הפרטים
+5. אם לקוח מבקש לבטל פגישה - השתמש במרקר: [CANCEL_MEETING]
 
 חוקים:
 - אסור לקבוע פגישות מחוץ לשעות הזמינות
 - תמיד לאשר עם הלקוח לפני קביעה
 - אם אין שעות פנויות ביום המבוקש - הצע ימים חלופיים
+- תאריכים תמיד בפורמט YYYY-MM-DD (לדוגמה: 2026-03-25)
 `.trim();
 }
 
-// ─── getAvailableSlots ─────────────────────────────────────────────────────
+// ─── getAvailableSlots ────────────────────────────────────────────────────────
 /**
  * Returns a list of available HH:MM slot strings for the given tenant + date.
- * Returns an empty array when scheduling is disabled or no rules exist.
+ *
+ * TWO-LAYER CHECK:
+ *   Layer 1 — availability_rules (configured business hours)
+ *   Layer 2 — calendar provider freeBusy (real calendar conflicts)
+ *
+ * Returns [] when scheduling is disabled, no rules exist, or date is out of window.
  */
 export async function getAvailableSlots(
     tenantId: string,
@@ -120,8 +130,19 @@ export async function getAvailableSlots(
 ): Promise<string[]> {
     const supabase = getSupabase();
 
-    const date = new Date(`${dateStr}T00:00:00`);
-    const dayOfWeek = date.getDay();
+    // Fetch tenant timezone
+    const { data: tenantRow } = await supabase
+        .from("tenants")
+        .select("timezone")
+        .eq("id", tenantId)
+        .single();
+    const tz = (tenantRow as { timezone?: string } | null)?.timezone ?? "Asia/Jerusalem";
+
+    // Build start-of-day in tenant's timezone
+    const [y, mo, d] = dateStr.split("-").map(Number);
+    const dateInTz = buildTzDate(tz, y, mo, d);
+    const dayOfWeek = new Date(dateStr + "T12:00:00Z").getUTCDay();
+    // Use noon UTC to get stable day-of-week regardless of timezone
 
     const [settingsResult, rulesResult, meetingsResult] = await Promise.all([
         supabase
@@ -140,8 +161,8 @@ export async function getAvailableSlots(
             .select("start_time, end_time")
             .eq("tenant_id", tenantId)
             .eq("status", "confirmed")
-            .gte("start_time", `${dateStr}T00:00:00`)
-            .lte("start_time", `${dateStr}T23:59:59`),
+            .gte("start_time", buildTzDate(tz, y, mo, d, 0, 0, 0).toISOString())
+            .lte("start_time", buildTzDate(tz, y, mo, d, 23, 59, 59).toISOString()),
     ]);
 
     const settings = settingsResult.data as MeetingSettings | null;
@@ -155,13 +176,29 @@ export async function getAvailableSlots(
     if (windowDays > 0) {
         const maxDate = new Date();
         maxDate.setDate(maxDate.getDate() + windowDays);
-        if (date > maxDate) return [];
+        if (dateInTz > maxDate) return [];
     }
 
-    const duration = settings.duration_minutes;
-    const buffer = settings.buffer_minutes ?? 0;
+    const duration   = settings.duration_minutes;
+    const buffer     = settings.buffer_minutes ?? 0;
     const minNoticeMs = (settings.booking_notice_hours ?? 2) * 3_600_000;
     const now = Date.now();
+
+    // ── Layer 2: fetch real calendar busy blocks ──────────────────────────────
+    let calendarBusyBlocks: { start: Date; end: Date }[] = [];
+    try {
+        const { getCalendarProvider } = await import("./calendar-providers/index");
+        const providerResult = await getCalendarProvider(tenantId);
+        if (providerResult) {
+            const dayStart = buildTzDate(tz, y, mo, d, 0, 0, 0);
+            const dayEnd   = buildTzDate(tz, y, mo, d, 23, 59, 59);
+            calendarBusyBlocks = await providerResult.provider.getFreeBusy(tenantId, dayStart, dayEnd);
+            console.log(`[${tenantId}] 🗓️ Layer 2 (${providerResult.name}): ${calendarBusyBlocks.length} busy block(s) on ${dateStr}`);
+        }
+    } catch (err: any) {
+        // Non-fatal: if calendar API fails, fall back to Layer 1 only
+        console.error(`[${tenantId}] ⚠️ Calendar freeBusy failed, falling back to Layer 1 only:`, err.message);
+    }
 
     const slots: string[] = [];
 
@@ -169,10 +206,8 @@ export async function getAvailableSlots(
         const [sh, sm] = rule.start_time.split(":").map(Number);
         const [eh, em] = rule.end_time.split(":").map(Number);
 
-        let slotStart = new Date(date);
-        slotStart.setHours(sh, sm, 0, 0);
-        const windowEnd = new Date(date);
-        windowEnd.setHours(eh, em, 0, 0);
+        let slotStart = buildTzDate(tz, y, mo, d, sh, sm, 0);
+        const windowEnd = buildTzDate(tz, y, mo, d, eh, em, 0);
 
         while (true) {
             const slotEnd = new Date(slotStart.getTime() + duration * 60_000);
@@ -184,16 +219,25 @@ export async function getAvailableSlots(
                 continue;
             }
 
-            // Check for conflicts with existing confirmed meetings
-            const conflict = existingMeetings.some((m) => {
+            // ── Layer 1: check DB meetings ────────────────────────────────────
+            const dbConflict = existingMeetings.some((m) => {
                 const ms = new Date(m.start_time);
                 const me = new Date(m.end_time);
                 return slotStart < me && slotEnd > ms;
             });
 
-            if (!conflict) {
-                const hh = String(slotStart.getHours()).padStart(2, "0");
-                const mm = String(slotStart.getMinutes()).padStart(2, "0");
+            // ── Layer 2: check calendar busy blocks ───────────────────────────
+            const calConflict = calendarBusyBlocks.some((b) => {
+                return slotStart < b.end && slotEnd > b.start;
+            });
+
+            if (!dbConflict && !calConflict) {
+                const hh = String(
+                    new Date(slotStart).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", hour12: false }).split(":")[0]
+                ).padStart(2, "0");
+                const mm = String(
+                    new Date(slotStart).toLocaleTimeString("en-GB", { timeZone: tz, minute: "2-digit" }).split(":").pop()
+                ).padStart(2, "0");
                 slots.push(`${hh}:${mm}`);
             }
 
@@ -202,4 +246,97 @@ export async function getAvailableSlots(
     }
 
     return slots;
+}
+
+// ─── bookMeeting ──────────────────────────────────────────────────────────────
+
+export interface BookingResult {
+    success: boolean;
+    meetingId?: string;
+    conflictError?: boolean; // true if the slot was taken (race condition)
+    error?: string;
+}
+
+/**
+ * Book a meeting: insert into DB (with unique constraint protection) +
+ * create calendar event if a provider is connected.
+ */
+export async function bookMeeting(
+    tenantId: string,
+    conversationId: string,
+    dateStr: string,   // YYYY-MM-DD
+    timeStr: string,   // HH:MM
+    customerName: string,
+    customerPhone: string
+): Promise<BookingResult> {
+    const supabase = getSupabase();
+
+    // Fetch timezone + duration
+    const [tenantRow, settingsRow] = await Promise.all([
+        supabase.from("tenants").select("timezone").eq("id", tenantId).single(),
+        supabase.from("meeting_settings").select("duration_minutes").eq("tenant_id", tenantId).single(),
+    ]);
+
+    const tz = (tenantRow.data as { timezone?: string } | null)?.timezone ?? "Asia/Jerusalem";
+    const durationMin = (settingsRow.data as { duration_minutes?: number } | null)?.duration_minutes ?? 30;
+
+    const startIso = buildSlotTimestamp(dateStr, timeStr, tz);
+    const startDate = new Date(startIso);
+    const endDate   = new Date(startDate.getTime() + durationMin * 60_000);
+
+    // Insert meeting — unique constraint on (tenant_id, start_time) WHERE status='confirmed'
+    // will raise a conflict if someone else booked the same slot
+    const { data: meeting, error: insertError } = await supabase
+        .from("meetings")
+        .insert({
+            tenant_id:       tenantId,
+            conversation_id: conversationId,
+            customer_name:   customerName,
+            customer_phone:  customerPhone,
+            start_time:      startDate.toISOString(),
+            end_time:        endDate.toISOString(),
+            status:          "confirmed",
+        })
+        .select("id")
+        .single();
+
+    if (insertError) {
+        // Unique violation = race condition (slot taken)
+        if (insertError.code === "23505") {
+            return { success: false, conflictError: true };
+        }
+        return { success: false, error: insertError.message };
+    }
+
+    const meetingId = meeting.id as string;
+
+    // Try to create calendar event (non-fatal if it fails)
+    try {
+        const { getCalendarProvider } = await import("./calendar-providers/index");
+        const providerResult = await getCalendarProvider(tenantId);
+        if (providerResult) {
+            const { eventId } = await providerResult.provider.createEvent(tenantId, {
+                title:        `פגישה עם ${customerName}`,
+                description:  `לקוח: ${customerName}\nטלפון: ${customerPhone}`,
+                start:        startDate,
+                end:          endDate,
+                customerName,
+                customerPhone,
+            });
+
+            await supabase
+                .from("meetings")
+                .update({
+                    calendar_event_id: eventId,
+                    calendar_provider: providerResult.name,
+                })
+                .eq("id", meetingId);
+
+            console.log(`[${tenantId}] 🗓️ Calendar event created (${providerResult.name}): ${eventId}`);
+        }
+    } catch (err: any) {
+        console.error(`[${tenantId}] ⚠️ Calendar event creation failed (non-fatal):`, err.message);
+    }
+
+    return { success: true, meetingId };
 }

@@ -9,7 +9,9 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { proto } from "@whiskeysockets/baileys";
 import { generateReply, summarizeConversationForHandoff } from "./ai-agent";
-import { getAvailableSlots } from "./scheduling";
+import { getAvailableSlots, bookMeeting, getSupabase as getSchedulingSupabase } from "./scheduling";
+import { cancelMeeting } from "./reminders";
+import { formatDateHebrew, formatTimeHebrew } from "./date-utils";
 
 // ─── LID resolver (injected by session-manager to avoid circular dep) ─
 let _lidResolver: ((tenantId: string, jid: string) => string) | null = null;
@@ -237,7 +239,7 @@ export async function handleIncomingMessage(
             },
             { onConflict: "tenant_id,phone_number", ignoreDuplicates: false }
         )
-        .select("id, contact_name, is_paused, paused_until, is_saved_contact, updated_at")
+        .select("id, contact_name, is_paused, paused_until, is_saved_contact, updated_at, pending_cancellation_meeting_id")
         .single();
 
     if (convError || !conversation) {
@@ -302,6 +304,79 @@ export async function handleIncomingMessage(
     );
 
     const debounceKey = `${tenantId}_${conversationId}`;
+
+    // 5b. Cancellation flow — check before agent mode routing
+    if (!isFromMe) {
+        const pendingMeetingId = (conversation as any).pending_cancellation_meeting_id as string | null;
+        const msgLower = messageText.toLowerCase().trim();
+
+        // Case A: customer is confirming a pending cancellation
+        if (pendingMeetingId) {
+            const isConfirm = /^(כן|yes|אכן|בטל|ביטול|confirm|ok|אוקי|אוק)$/i.test(msgLower);
+            const isDeny    = /^(לא|no|השאר|נשאר)$/i.test(msgLower);
+
+            if (isConfirm) {
+                await supabase
+                    .from("conversations")
+                    .update({ pending_cancellation_meeting_id: null })
+                    .eq("id", conversationId);
+
+                const { data: tenantForCancel } = await supabase
+                    .from("tenants").select("owner_phone, timezone").eq("id", tenantId).single();
+
+                const cancelled = await cancelMeeting(
+                    tenantId, pendingMeetingId,
+                    async (_tid, jid, text) => { const s = await sendMessage(jid, { text }); markAgentSent(s?.key?.id); },
+                    (tenantForCancel as any)?.owner_phone ?? null,
+                    (tenantForCancel as any)?.timezone ?? "Asia/Jerusalem"
+                );
+
+                const reply = cancelled
+                    ? "✅ הפגישה בוטלה בהצלחה. נתראה בפעם הבאה! 😊"
+                    : "מצטער, לא הצלחתי לבטל את הפגישה. ייתכן שכבר בוטלה.";
+                const sent = await sendMessage(remoteJid, { text: reply });
+                markAgentSent(sent?.key?.id);
+                await supabase.from("messages").insert({ conversation_id: conversationId, tenant_id: tenantId, role: "assistant", content: reply, is_from_agent: true });
+                return;
+            }
+
+            if (isDeny) {
+                await supabase.from("conversations").update({ pending_cancellation_meeting_id: null }).eq("id", conversationId);
+                const reply = "בסדר, הפגישה נשארת! נתראה 😊";
+                const sent = await sendMessage(remoteJid, { text: reply });
+                markAgentSent(sent?.key?.id);
+                await supabase.from("messages").insert({ conversation_id: conversationId, tenant_id: tenantId, role: "assistant", content: reply, is_from_agent: true });
+                return;
+            }
+            // Not a clear yes/no — clear the pending flag and fall through
+            await supabase.from("conversations").update({ pending_cancellation_meeting_id: null }).eq("id", conversationId);
+        }
+
+        // Case B: customer initiates cancellation
+        const isCancelIntent = /ביטול פגישה|לבטל פגישה|cancel meeting|בטל פגישה/i.test(messageText);
+        if (isCancelIntent) {
+            const localPhone = phoneNumber.startsWith("972") ? "0" + phoneNumber.substring(3) : phoneNumber;
+            const { data: upcomingMeeting } = await supabase
+                .from("meetings").select("id, start_time")
+                .eq("tenant_id", tenantId).eq("customer_phone", localPhone)
+                .eq("status", "confirmed").gt("start_time", new Date().toISOString())
+                .order("start_time", { ascending: true }).limit(1).maybeSingle();
+
+            if (upcomingMeeting) {
+                const { data: tenantTz } = await supabase.from("tenants").select("timezone").eq("id", tenantId).single();
+                const tz = (tenantTz as any)?.timezone ?? "Asia/Jerusalem";
+                const dateDisplay = formatDateHebrew(new Date(upcomingMeeting.start_time), tz);
+
+                await supabase.from("conversations").update({ pending_cancellation_meeting_id: upcomingMeeting.id }).eq("id", conversationId);
+
+                const reply = `האם אתה בטוח שברצונך לבטל את הפגישה?\n\n📅 ${dateDisplay}\n\nהשב *כן* לאישור הביטול או *לא* להשארת הפגישה.`;
+                const sent = await sendMessage(remoteJid, { text: reply });
+                markAgentSent(sent?.key?.id);
+                await supabase.from("messages").insert({ conversation_id: conversationId, tenant_id: tenantId, role: "assistant", content: reply, is_from_agent: true });
+                return;
+            }
+        }
+    }
 
     // 6. Route based on agent mode (only for incoming user messages)
     if (isFromMe) {
@@ -620,73 +695,46 @@ async function handleActiveMode(
             aiReply = aiReply.replace(bookMatch[0], "").trim();
 
             try {
-                const startTime = new Date(`${bookDate}T${bookTime}:00`);
-                const { data: mtgSettings } = await getSupabase()
-                    .from("meeting_settings")
-                    .select("duration_minutes")
-                    .eq("tenant_id", tenantId)
-                    .single();
-                const durationMin = (mtgSettings as { duration_minutes: number } | null)?.duration_minutes ?? 30;
-                const endTime = new Date(startTime.getTime() + durationMin * 60_000);
+                const customerPhone = toLocalPhone(remoteJid.split("@")[0]);
+                const result = await bookMeeting(tenantId, conversationId, bookDate, bookTime, customerName, customerPhone);
 
-                const internationalPhone = remoteJid.split("@")[0];
-                const customerPhone = toLocalPhone(internationalPhone);
-
-                const { error: meetingError } = await getSupabase()
-                    .from("meetings")
-                    .insert({
-                        tenant_id: tenantId,
-                        conversation_id: conversationId,
-                        customer_name: customerName,
-                        customer_phone: customerPhone,
-                        start_time: startTime.toISOString(),
-                        end_time: endTime.toISOString(),
-                        status: "confirmed",
-                    });
-
-                if (!meetingError) {
-                    console.log(`[${tenantId}] 📅 Meeting booked: ${bookDate} ${bookTime} for ${customerName}`);
+                if (result.success) {
+                    console.log(`[${tenantId}] 📅 Meeting booked (${result.meetingId}): ${bookDate} ${bookTime} for ${customerName}`);
                     if (!aiReply) {
-                        const localDate = startTime.toLocaleDateString("he-IL", { timeZone: "Asia/Jerusalem" });
-                        aiReply = `✅ הפגישה נקבעה!\n📅 תאריך: ${localDate}\n⏰ שעה: ${bookTime}\nנתראה! 😊`;
+                        const { data: tRow } = await getSupabase().from("tenants").select("timezone").eq("id", tenantId).single();
+                        const tz = (tRow as any)?.timezone ?? "Asia/Jerusalem";
+                        const startDate = new Date(`${bookDate}T${bookTime}:00`);
+                        aiReply = `✅ הפגישה נקבעה!\n📅 ${formatDateHebrew(startDate, tz)}\nנתראה! 😊`;
                     }
 
-                    // Notify the business owner about the new booking
+                    // Notify owner
                     if (ownerPhone) {
                         try {
-                            const formattedDate = startTime.toLocaleDateString("he-IL", {
-                                weekday: "long",
-                                year: "numeric",
-                                month: "long",
-                                day: "numeric",
-                                timeZone: "Asia/Jerusalem",
-                            });
+                            const { data: tRow } = await getSupabase().from("tenants").select("timezone").eq("id", tenantId).single();
+                            const tz = (tRow as any)?.timezone ?? "Asia/Jerusalem";
+                            const startDate = new Date(`${bookDate}T${bookTime}:00`);
+                            const formattedDate = formatDateHebrew(startDate, tz);
 
+                            let ownerDigits = ownerPhone.replace(/\D/g, "");
+                            if (ownerDigits.startsWith("0") && ownerDigits.length === 10) ownerDigits = "972" + ownerDigits.substring(1);
+                            const ownerJid = `${ownerDigits}@s.whatsapp.net`;
                             const ownerNotification =
                                 `📅 פגישה חדשה נקבעה!\n\n` +
                                 `👤 שם: ${customerName}\n` +
                                 `📱 טלפון: ${customerPhone}\n` +
-                                `📆 תאריך: ${formattedDate}\n` +
-                                `⏰ שעה: ${bookTime}\n\n` +
+                                `📆 ${formattedDate}\n\n` +
                                 `הפגישה נקבעה אוטומטית דרך הבוט.`;
-
-                            let ownerDigits = ownerPhone.replace(/\D/g, "");
-                            if (ownerDigits.startsWith("0") && ownerDigits.length === 10) {
-                                ownerDigits = "972" + ownerDigits.substring(1);
-                            }
-                            const ownerJid = `${ownerDigits}@s.whatsapp.net`;
-
                             const ownerSent = await sendMessage(ownerJid, { text: ownerNotification });
                             markAgentSent(ownerSent?.key?.id);
-                            console.log(`[${tenantId}] 📱 Owner notified of new meeting at ${ownerJid}`);
                         } catch (notifyErr: any) {
                             console.error(`[${tenantId}] ❌ Failed to notify owner of meeting:`, notifyErr.message);
                         }
-                    } else {
-                        console.warn(`[${tenantId}] ⚠️ No owner_phone configured — skipping meeting booking notification`);
                     }
+                } else if (result.conflictError) {
+                    console.warn(`[${tenantId}] ⚠️ Booking conflict (slot taken) for ${bookDate} ${bookTime}`);
+                    aiReply = "מצטער, השעה הזו כבר נתפסה על ידי מישהו אחר. בוא נמצא שעה אחרת — איזו שעה מתאימה לך?";
                 } else {
-                    console.error(`[${tenantId}] ❌ Failed to book meeting:`, meetingError);
+                    console.error(`[${tenantId}] ❌ Failed to book meeting:`, result.error);
                     aiReply = "מצטער, אירעה שגיאה בקביעת הפגישה. אנא נסה שוב.";
                 }
             } catch (bookErr: any) {
