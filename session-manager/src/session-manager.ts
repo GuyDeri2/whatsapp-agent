@@ -1083,11 +1083,22 @@ async function createSession(tenantId: string): Promise<void> {
                 `[${tenantId}] ❌ Connection closed (code: ${statusCode}, msg: ${errorMessage})`
             );
 
+            // Resolve human-readable disconnect reason name
+            const disconnectReasonName = (Object.entries(DisconnectReason) as [string, number][])
+                .find(([, v]) => v === statusCode)?.[0] ?? "unknown";
+
+            console.log(
+                `[${tenantId}] ❌ Connection closed — code: ${statusCode} (${disconnectReasonName}), msg: ${errorMessage}`
+            );
+
             // Immediately mark as disconnected in DB so the dashboard reflects reality.
-            // Will be set back to true as soon as connection re-opens.
+            // Also persist the disconnect reason so it's visible in the UI/logs.
             await getSupabase()
                 .from("tenants")
-                .update({ whatsapp_connected: false })
+                .update({
+                    whatsapp_connected: false,
+                    last_disconnect_reason: `${statusCode} (${disconnectReasonName})`,
+                })
                 .eq("id", tenantId);
 
             // Handle 515 (restartRequired) — WhatsApp server asks us to restart the connection.
@@ -1100,23 +1111,58 @@ async function createSession(tenantId: string): Promise<void> {
                 return;
             }
 
-            // Fix B: Handle badSession — clear corrupted crypto state and reconnect fresh
+            // Handle badSession — clear corrupted crypto state and reconnect fresh
             if (statusCode === DisconnectReason.badSession) {
                 console.log(`[${tenantId}] ❌ Bad session detected — clearing corrupted session data and reconnecting...`);
                 sessions.delete(tenantId);
                 await clearSessionData(tenantId);
                 tenantContactsCache.delete(tenantId);
-                // Do NOT clear _reconnecting — we're about to reconnect immediately
                 setTimeout(() => createSession(tenantId), 5_000);
                 return;
             }
 
-            // Fix B: Handle loggedOut — session expired, user must rescan QR
+            // Handle loggedOut (401) — session expired, user must rescan QR
             if (statusCode === DisconnectReason.loggedOut) {
                 console.log(`[${tenantId}] 🚪 Logged out — clearing session data, QR rescan required`);
                 sessions.delete(tenantId);
-                _reconnecting.delete(tenantId); // Terminal state — clear reconnecting flag
+                _reconnecting.delete(tenantId);
                 await clearSessionData(tenantId);
+                return;
+            }
+
+            // Handle connectionReplaced (440) — another WhatsApp client took over this session.
+            // Reconnecting immediately would just get replaced again. Require fresh QR scan.
+            if (statusCode === DisconnectReason.connectionReplaced) {
+                console.log(`[${tenantId}] 🔁 Connection replaced by another device — clearing session, QR rescan required`);
+                sessions.delete(tenantId);
+                _reconnecting.delete(tenantId);
+                await clearSessionData(tenantId);
+                return;
+            }
+
+            // Handle forbidden (403) — WhatsApp banned/blocked this number. Terminal state.
+            if (statusCode === DisconnectReason.forbidden) {
+                console.log(`[${tenantId}] 🚫 Forbidden (403) — number may be banned by WhatsApp`);
+                sessions.delete(tenantId);
+                _reconnecting.delete(tenantId);
+                return;
+            }
+
+            // Handle multideviceMismatch (411) — device registration mismatch; clear and reconnect fresh.
+            if (statusCode === DisconnectReason.multideviceMismatch) {
+                console.log(`[${tenantId}] 📱 Multidevice mismatch (411) — clearing session and reconnecting fresh...`);
+                sessions.delete(tenantId);
+                await clearSessionData(tenantId);
+                tenantContactsCache.delete(tenantId);
+                setTimeout(() => createSession(tenantId), 5_000);
+                return;
+            }
+
+            // Handle unavailableService (503) — WhatsApp servers down; use longer backoff.
+            if (statusCode === DisconnectReason.unavailableService) {
+                console.log(`[${tenantId}] 🌐 WhatsApp service unavailable (503) — waiting 60s before reconnect...`);
+                sessions.delete(tenantId);
+                setTimeout(() => createSession(tenantId), 60_000);
                 return;
             }
 
@@ -1131,13 +1177,13 @@ async function createSession(tenantId: string): Promise<void> {
                 const backoffSteps = [5000, 15000, 30000, 60000, 120000];
                 const backoffDelay = backoffSteps[Math.min(sessionInfo.retryCount - 1, backoffSteps.length - 1)];
                 console.log(
-                    `[${tenantId}] ♻️ Reconnecting in ${backoffDelay / 1000}s (attempt ${sessionInfo.retryCount}/${MAX_RETRIES})...`
+                    `[${tenantId}] ♻️ Reconnecting in ${backoffDelay / 1000}s (attempt ${sessionInfo.retryCount}/${MAX_RETRIES}) — code: ${statusCode} (${disconnectReasonName})...`
                 );
                 // _reconnecting stays set — createSession will clear it on "open"
                 setTimeout(() => createSession(tenantId), backoffDelay);
             } else {
                 sessions.delete(tenantId);
-                _reconnecting.delete(tenantId); // Terminal state — clear reconnecting flag
+                _reconnecting.delete(tenantId);
                 console.log(`[${tenantId}] ⚠️ Max retries (${MAX_RETRIES}) reached. Manual reconnect required.`);
             }
         }
