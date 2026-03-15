@@ -172,11 +172,14 @@ export async function getAvailableSlots(
     if (!settings?.scheduling_enabled || !rules.length) return [];
 
     // Enforce booking window (0 = no limit)
+    // Compare date strings in tenant timezone — avoids UTC vs. local midnight boundary bugs.
     const windowDays = settings.booking_window_days ?? 14;
     if (windowDays > 0) {
-        const maxDate = new Date();
-        maxDate.setDate(maxDate.getDate() + windowDays);
-        if (dateInTz > maxDate) return [];
+        const todayInTz = new Date().toLocaleDateString("en-CA", { timeZone: tz }); // "YYYY-MM-DD"
+        const maxDateInTz = new Date(Date.now() + windowDays * 86_400_000)
+            .toLocaleDateString("en-CA", { timeZone: tz });
+        if (dateStr > maxDateInTz) return [];
+        if (dateStr < todayInTz) return []; // also reject past dates
     }
 
     const duration   = settings.duration_minutes;

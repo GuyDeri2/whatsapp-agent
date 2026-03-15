@@ -1437,25 +1437,42 @@ async function createSession(tenantId: string): Promise<void> {
             }
 
             if (hasMedia) {
-                // ── Media upload DISABLED ──────────────────────────────────────────────
-                // The 'whatsapp_media' Supabase Storage bucket does not exist.
-                // Attempting to upload causes StorageApiError (status 400) which triggers
-                // a Baileys stream ACK error → connection drop (code 500).
-                // We set mediaType only (so the DB knows what kind of media arrived) and
-                // leave mediaUrl as null. The descriptive textContent (e.g. "[Image received]")
-                // was already set above and is sufficient for the AI agent context.
-                //
-                // Audio transcription also requires the download, so it is disabled here too.
-                // To re-enable: create the 'whatsapp_media' bucket in Supabase Storage and
-                // uncomment the download + upload block below.
                 if (msg.message?.imageMessage) { mediaType = "image"; }
                 else if (msg.message?.videoMessage) { mediaType = "video"; }
                 else if (msg.message?.audioMessage) { mediaType = "audio"; }
                 else if (msg.message?.documentMessage) { mediaType = "document"; }
                 else if (msg.message?.stickerMessage) { mediaType = "sticker"; }
 
-                console.log(`[${tenantId}] 📎 Media message received (${mediaType}) — stored without upload (bucket disabled)`);
-                // mediaUrl stays null — message saved to DB below without media_url
+                // Only upload images and documents (skip large videos/audio to save storage)
+                if (mediaType === "image" || mediaType === "document") {
+                    try {
+                        const buffer = await downloadMediaMessage(msg, "buffer", {});
+                        const ext = mediaType === "image" ? "jpg" : "bin";
+                        const fileName = `${tenantId}/${Date.now()}_${msg.key.id}.${ext}`;
+                        const { data: uploadData, error: uploadError } = await getSupabase()
+                            .storage
+                            .from("whatsapp_media")
+                            .upload(fileName, buffer as Buffer, {
+                                contentType: mediaType === "image" ? "image/jpeg" : "application/octet-stream",
+                                upsert: false,
+                            });
+                        if (uploadError) {
+                            console.warn(`[${tenantId}] ⚠️ Media upload failed (${mediaType}): ${uploadError.message}`);
+                        } else {
+                            const { data: urlData } = getSupabase()
+                                .storage
+                                .from("whatsapp_media")
+                                .getPublicUrl(uploadData.path);
+                            mediaUrl = urlData?.publicUrl ?? null;
+                            console.log(`[${tenantId}] 📎 Media uploaded (${mediaType}): ${mediaUrl}`);
+                        }
+                    } catch (mediaErr: any) {
+                        console.warn(`[${tenantId}] ⚠️ Media download/upload error: ${mediaErr.message}`);
+                        // Non-fatal — mediaUrl stays null, textContent fallback already set
+                    }
+                } else {
+                    console.log(`[${tenantId}] 📎 Media received (${mediaType}) — not uploaded (type skipped)`);
+                }
             }
 
             if (!textContent && !mediaUrl) continue;

@@ -106,8 +106,13 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
     }
 
     // Tenant-Specific Custom Instructions
+    // Wrapped in delimiters so the model treats the content as business-supplied data,
+    // not as system-level instructions that could override the rules below.
     if (t.agent_prompt) {
-        prompt += `\n\n## הנחיות אישיות של העסק:\n${t.agent_prompt}`;
+        const cleaned = t.agent_prompt
+            .replace(/<\/?business_instructions>/gi, "") // strip any attempt to close the tag
+            .substring(0, 2000);                          // hard cap — prevents extremely long injections
+        prompt += `\n\n<business_instructions>\n${cleaned}\n</business_instructions>`;
     }
 
     if (knowledge.length > 0) {
