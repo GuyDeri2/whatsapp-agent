@@ -1200,11 +1200,12 @@ export async function createSession(tenantId: string): Promise<void> {
                 return;
             }
 
-            // Handle badSession — clear corrupted crypto state and reconnect fresh
+            // Handle badSession — clear corrupted crypto state and reconnect fresh.
+            // Use clearAuthState (not clearSessionData) to preserve conversations/messages.
             if (statusCode === DisconnectReason.badSession) {
-                console.log(`[${tenantId}] ❌ Bad session detected — clearing corrupted session data and reconnecting...`);
+                console.log(`[${tenantId}] ❌ Bad session detected — clearing crypto keys and reconnecting (conversations preserved)...`);
                 sessions.delete(tenantId);
-                await clearSessionData(tenantId);
+                await clearAuthState(tenantId);
                 tenantContactsCache.delete(tenantId);
                 setTimeout(() => createSession(tenantId), 5_000);
                 return;
@@ -1238,10 +1239,11 @@ export async function createSession(tenantId: string): Promise<void> {
             }
 
             // Handle multideviceMismatch (411) — device registration mismatch; clear and reconnect fresh.
+            // Use clearAuthState (not clearSessionData) to preserve conversations/messages.
             if (statusCode === DisconnectReason.multideviceMismatch) {
-                console.log(`[${tenantId}] 📱 Multidevice mismatch (411) — clearing session and reconnecting fresh...`);
+                console.log(`[${tenantId}] 📱 Multidevice mismatch (411) — clearing crypto keys and reconnecting (conversations preserved)...`);
                 sessions.delete(tenantId);
-                await clearSessionData(tenantId);
+                await clearAuthState(tenantId);
                 tenantContactsCache.delete(tenantId);
                 setTimeout(() => createSession(tenantId), 5_000);
                 return;
