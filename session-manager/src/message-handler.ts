@@ -507,8 +507,10 @@ export async function handleIncomingMessage(
         return;
     }
 
-    // 5b. Check contact filtering rules
-    if (config.agent_mode === "active" && config.agent_filter_mode !== "all") {
+    // 5b. Check contact filtering rules (applies to ALL modes — active, learning, paused)
+    // In whitelist mode: only contacts in the whitelist get AI responses / owner notifications.
+    // In blacklist mode: blocked contacts are silently ignored.
+    if (config.agent_filter_mode !== "all") {
         const shouldRespond = await checkContactFilter(
             tenantId,
             phoneNumber,
@@ -518,7 +520,7 @@ export async function handleIncomingMessage(
             console.log(
                 `[${tenantId}] 🚫 Contact filtered out (${config.agent_filter_mode}): ${phoneNumber}`
             );
-            return; // message is stored but agent won't respond
+            return; // message is stored but agent won't respond and no notification sent
         }
     }
 
