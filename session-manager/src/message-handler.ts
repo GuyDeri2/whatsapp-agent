@@ -591,28 +591,11 @@ export async function handleIncomingMessage(
 
             break;
 
-        case "learning": {
-            // Just store — the owner handles replies, and we learn from them
+        case "learning":
+            // Just store — the owner handles replies, and we learn from them.
+            // No notifications sent to owner in learning mode.
             console.log(`[${tenantId}] 📚 Learning mode — stored message, waiting for owner reply`);
-
-            // Notify owner on WhatsApp (once per 60 min per conversation, to avoid spam)
-            const ownerJidForNotif = config.owner_phone ? toOwnerJid(config.owner_phone) : null;
-            if (ownerJidForNotif && ownerJidForNotif !== remoteJid) {
-                const lastNotified = learningNotifCooldown.get(conversationId) ?? 0;
-                if (Date.now() - lastNotified > LEARNING_NOTIF_COOLDOWN_MS) {
-                    learningNotifCooldown.set(conversationId, Date.now());
-                    const senderDisplay = conversation.contact_name || pushName || phoneNumber;
-                    const preview = messageText.length > 120 ? messageText.substring(0, 120) + "…" : messageText;
-                    const notifText = `📨 הודעה חדשה מ *${senderDisplay}*:\n\n${preview}`;
-                    try {
-                        await sendMessage(ownerJidForNotif, { text: notifText });
-                    } catch (notifErr: any) {
-                        console.error(`[${tenantId}] ❌ Failed to notify owner in learning mode:`, notifErr.message);
-                    }
-                }
-            }
             break;
-        }
 
         case "paused":
             console.log(`[${tenantId}] ⏸️ Paused mode — message stored silently`);
