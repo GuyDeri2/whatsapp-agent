@@ -31,11 +31,19 @@ export interface AgentResult {
   durationMs?: number;
 }
 
+// ─── PM Clarification ─────────────────────────────────────────
+// Returned when PM needs more info before planning.
+export interface PmClarification {
+  needs_clarification: true;
+  questions: string[];
+}
+
 // ─── PM Plan ──────────────────────────────────────────────────
 // sequential_groups: ordered list of groups.
 // Each group runs in parallel; groups run in order.
 // If omitted → all tasks run in parallel.
 export interface PmPlan {
+  needs_clarification?: false;
   summary: string;
   tasks: AgentTask[];
   sequential_groups?: string[][];

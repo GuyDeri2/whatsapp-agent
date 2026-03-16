@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
 //  PM Agent — Orchestrator
 //  Flow:
-//   1. receive command
-//   2. create structured plan (which agents, what tasks, order)
-//   3. execute tasks (parallel where possible, sequential when needed)
-//   4. synthesize all outputs into a final implementation plan
+//   0. clarify (ask user questions if task is ambiguous)
+//   1. create structured plan (which agents, what tasks, order)
+//   2. execute tasks (parallel where possible, sequential when needed)
+//   3. synthesize all outputs into a final implementation plan
 //
 //  Role definition: agents/pm/README.md
 //  Orchestration skills: agents/pm/skills/orchestration.md
@@ -17,6 +17,7 @@ import {
   AgentTask,
   AgentResult,
   PmPlan,
+  PmClarification,
   PmSynthesis,
 } from './types';
 import { loadMemory } from './memory-manager';
@@ -34,9 +35,6 @@ import { DatabaseAgent } from './team/database';
 export class PMAgent extends BaseAgent {
   readonly role: AgentRole = 'pm';
   readonly roleLabel = 'Project Manager';
-  // Role definition lives in: agents/pm/README.md
-  // Orchestration skills:     agents/pm/skills/orchestration.md
-  // Learned memory:           agents/pm/memory/memory.md
 
   // ─── Team map ─────────────────────────────────────────────
   private readonly team: Record<Exclude<AgentRole, 'pm'>, BaseAgent> = {
@@ -49,13 +47,75 @@ export class PMAgent extends BaseAgent {
     database: new DatabaseAgent(),
   };
 
+  // ─── Step 0: Clarify ────────────────────────────────────────
+  // Returns questions if the task is ambiguous, or null if clear enough.
+  async clarify(command: string): Promise<PmClarification | null> {
+    const basePrompt = this.loadBasePrompt();
+    const sharedMemory = loadMemory('shared');
+    const pmMemory = loadMemory('pm');
+
+    const systemPrompt = `${basePrompt}
+
+## Project Context
+${sharedMemory || '(See team agent README files for project details)'}
+
+## Your PM Memory
+${pmMemory || '(No past learnings yet)'}
+
+## Your Task
+Decide whether you need to ask the user clarifying questions before planning.
+
+Output a single JSON object:
+- If the request IS clear and unambiguous:
+  { "needs_clarification": false }
+- If the request is ambiguous or has important design decisions:
+  { "needs_clarification": true, "questions": ["Question 1?", "Question 2?", ...] }
+
+Rules:
+- Ask 2-5 focused questions MAX. Group related questions.
+- Focus on: scope, constraints, UX decisions, edge cases, priority.
+- Skip clarification for: pure bug fixes, typos, simple refactors, explicit "just do it" instructions.
+- Questions should be in the SAME LANGUAGE as the user's command.
+- Do NOT ask obvious questions that you can answer from project context or memory.
+
+Output ONLY valid JSON.`;
+
+    const completion = await getAI().chat.completions.create({
+      model: LLM_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Command: ${command}` },
+      ],
+      max_tokens: 500,
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() ?? '{}';
+    try {
+      const result = JSON.parse(raw);
+      if (result.needs_clarification && Array.isArray(result.questions) && result.questions.length > 0) {
+        return result as PmClarification;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   // ─── Main orchestration entry point ───────────────────────
-  async orchestrate(command: string): Promise<{
+  // command: the user's original request
+  // clarificationAnswers: optional answers to PM's questions (from previous clarify() call)
+  async orchestrate(command: string, clarificationAnswers?: string): Promise<{
     plan: PmPlan;
     results: AgentResult[];
     synthesis: PmSynthesis;
   }> {
-    const plan = await this.createPlan(command);
+    const fullCommand = clarificationAnswers
+      ? `${command}\n\nUser's clarification answers:\n${clarificationAnswers}`
+      : command;
+
+    const plan = await this.createPlan(fullCommand);
     const results = await this.executePlan(plan);
     const synthesis = await this.synthesize(command, plan, results);
     return { plan, results, synthesis };
@@ -82,8 +142,8 @@ You MUST output a single JSON object with this exact structure:
   "tasks": [
     {
       "taskId": "t1",
-      "role": "frontend|backend|ux|security|devops|qa",
-      "instruction": "Specific, actionable instruction for this agent",
+      "role": "frontend|backend|ux|security|devops|qa|database",
+      "instruction": "Specific, actionable instruction for this agent. Include WHAT to do, WHERE (file paths), and WHY.",
       "context": "Optional: relevant context, existing code references, constraints",
       "priority": "high|medium|low"
     }
@@ -99,6 +159,11 @@ sequential_groups rules:
 - Groups run in ORDER (group 0 finishes before group 1 starts)
 - If all tasks can run in parallel, omit sequential_groups or set it to [["t1","t2","t3",...]]
 - Only use sequential when later tasks genuinely need earlier results
+
+Task instruction rules:
+- Each instruction must specify exact file paths the agent should work on
+- Each instruction must explain the GOAL, not just the action
+- Only involve agents that have REAL work to do — don't add agents for trivial review
 
 Output ONLY valid JSON. No markdown fences, no comments.`;
 

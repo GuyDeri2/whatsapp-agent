@@ -13,6 +13,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import readline from 'readline';
 
 // Load .env.local from the project root (one level above agents/)
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
@@ -34,44 +35,101 @@ const c = {
   magenta: '\x1b[35m',
   white: '\x1b[37m',
   bgGreen: '\x1b[42m',
+  blue: '\x1b[34m',
 };
 
 const LOGS_DIR = path.join(__dirname, 'logs');
 
-// ─── Role display labels ───────────────────────────────────────
-const ROLE_LABELS: Record<string, string> = {
-  pm: 'PM',
-  frontend: 'Frontend',
-  backend: 'Backend',
-  ux: 'UX Designer',
-  security: 'Security',
-  devops: 'DevOps',
-  qa: 'QA',
-  database: 'Database',
+// ─── Role display labels & icons ──────────────────────────────
+const ROLE_META: Record<string, { label: string; icon: string }> = {
+  pm:       { label: 'PM',          icon: '📋' },
+  frontend: { label: 'Frontend',    icon: '🎨' },
+  backend:  { label: 'Backend',     icon: '⚙️' },
+  ux:       { label: 'UX Designer', icon: '✏️' },
+  security: { label: 'Security',    icon: '🔒' },
+  devops:   { label: 'DevOps',      icon: '🚀' },
+  qa:       { label: 'QA',          icon: '🧪' },
+  database: { label: 'Database',    icon: '🗄️' },
 };
+
+function roleLabel(role: string): string {
+  return ROLE_META[role]?.label ?? role.toUpperCase();
+}
+
+function roleIcon(role: string): string {
+  return ROLE_META[role]?.icon ?? '▪';
+}
 
 // ─── Print helpers ─────────────────────────────────────────────
 function header(text: string) {
-  console.log(`\n${c.bold}${c.cyan}${'─'.repeat(60)}${c.reset}`);
+  console.log(`\n${c.bold}${c.cyan}${'═'.repeat(60)}${c.reset}`);
   console.log(`${c.bold}${c.cyan}  ${text}${c.reset}`);
-  console.log(`${c.cyan}${'─'.repeat(60)}${c.reset}`);
+  console.log(`${c.cyan}${'═'.repeat(60)}${c.reset}`);
 }
 
-function section(role: string, success: boolean) {
-  const label = ROLE_LABELS[role] ?? role.toUpperCase();
+function subHeader(text: string) {
+  console.log(`\n${c.bold}${c.blue}  ── ${text} ──${c.reset}`);
+}
+
+function agentSection(role: string, taskInstruction: string, success: boolean, durationMs?: number) {
+  const icon = roleIcon(role);
+  const label = roleLabel(role);
   const indicator = success ? `${c.green}✓${c.reset}` : `${c.red}✗${c.reset}`;
-  console.log(`\n${c.bold}${indicator} ${label}${c.reset}`);
-  console.log(`${c.dim}${'·'.repeat(40)}${c.reset}`);
+  const duration = durationMs ? ` ${c.dim}(${(durationMs / 1000).toFixed(1)}s)${c.reset}` : '';
+
+  console.log(`\n${c.bold}${indicator} ${icon} ${label}${c.reset}${duration}`);
+  console.log(`  ${c.dim}Task: ${taskInstruction.slice(0, 100)}${taskInstruction.length > 100 ? '...' : ''}${c.reset}`);
+  console.log(`${c.dim}${'─'.repeat(50)}${c.reset}`);
 }
 
-function feedback(role: string, score: number, quality: string) {
+function feedbackLine(role: string, score: number, quality: string) {
   const emoji =
     score >= 9 ? '★' : score >= 7 ? '◆' : score >= 5 ? '▲' : '▼';
   const colour =
     score >= 9 ? c.green : score >= 7 ? c.cyan : score >= 5 ? c.yellow : c.red;
   console.log(
-    `  ${colour}${emoji} ${ROLE_LABELS[role] ?? role}: ${score}/10 — ${quality}${c.reset}`
+    `  ${colour}${emoji} ${roleLabel(role)}: ${score}/10 — ${quality}${c.reset}`
   );
+}
+
+// ─── Interactive input ────────────────────────────────────────
+function askUser(prompt: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(prompt, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function askMultiline(prompt: string): Promise<string> {
+  console.log(prompt);
+  console.log(`${c.dim}  (Type your answers. Press Enter twice to submit)${c.reset}\n`);
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const lines: string[] = [];
+  let lastWasEmpty = false;
+
+  return new Promise((resolve) => {
+    rl.on('line', (line) => {
+      if (line.trim() === '' && lastWasEmpty) {
+        rl.close();
+        resolve(lines.join('\n').trim());
+        return;
+      }
+      lastWasEmpty = line.trim() === '';
+      lines.push(line);
+    });
+  });
 }
 
 // ─── Main: run a task ─────────────────────────────────────────
@@ -82,50 +140,101 @@ async function runTask(command: string) {
   ];
   initMemoryFiles(allRoles, {});
 
-  header(`AI Dev Team — Task`);
+  header('AI Dev Team');
   console.log(`\n  ${c.bold}Command:${c.reset} ${command}\n`);
 
-  // 1. PM planning
-  console.log(`${c.yellow}⟳ PM is planning...${c.reset}`);
   const pm = new PMAgent();
-  const { plan, results, synthesis } = await pm.orchestrate(command);
 
-  console.log(`\n${c.bold}Plan:${c.reset} ${plan.summary}`);
-  if (plan.tasks.length > 0) {
-    console.log(`${c.dim}Tasks: ${plan.tasks.map(t => `${t.role}(${t.taskId})`).join(', ')}${c.reset}`);
+  // ─── Step 0: Clarification ──────────────────────────────
+  console.log(`${c.yellow}⟳ PM is analyzing the request...${c.reset}`);
+  const clarification = await pm.clarify(command);
+  let clarificationAnswers: string | undefined;
+
+  if (clarification) {
+    subHeader('PM has questions before planning');
+    console.log('');
+    clarification.questions.forEach((q, i) => {
+      console.log(`  ${c.bold}${c.cyan}${i + 1}.${c.reset} ${q}`);
+    });
+    console.log('');
+
+    clarificationAnswers = await askMultiline(`${c.bold}Your answers:${c.reset}`);
+
+    if (!clarificationAnswers) {
+      console.log(`${c.dim}No answers provided — PM will proceed with best judgment.${c.reset}`);
+    }
+  } else {
+    console.log(`${c.green}✓ Request is clear — proceeding to plan.${c.reset}`);
   }
 
-  // 2. Agent results
+  // ─── Step 1: Plan ───────────────────────────────────────
+  console.log(`\n${c.yellow}⟳ PM is creating the plan...${c.reset}`);
+  const { plan, results, synthesis } = await pm.orchestrate(command, clarificationAnswers);
+
+  subHeader('Plan');
+  console.log(`\n  ${c.bold}Summary:${c.reset} ${plan.summary}`);
+  if (plan.tasks.length > 0) {
+    console.log(`  ${c.bold}Team:${c.reset}`);
+    for (const task of plan.tasks) {
+      const icon = roleIcon(task.role);
+      console.log(`    ${icon} ${c.bold}${roleLabel(task.role)}${c.reset} — ${task.instruction.slice(0, 80)}${task.instruction.length > 80 ? '...' : ''}`);
+    }
+  }
+  if (plan.sequential_groups && plan.sequential_groups.length > 1) {
+    console.log(`\n  ${c.dim}Execution: ${plan.sequential_groups.length} sequential groups${c.reset}`);
+  } else {
+    console.log(`\n  ${c.dim}Execution: all agents in parallel${c.reset}`);
+  }
+
+  // ─── Step 2: Agent Results ──────────────────────────────
   header('Agent Outputs');
+
+  // Build task instruction map for display
+  const taskMap = new Map(plan.tasks.map(t => [t.taskId, t]));
+
   for (const result of results) {
-    section(result.role, result.success);
+    const task = taskMap.get(result.taskId);
+    agentSection(
+      result.role,
+      task?.instruction ?? '(unknown task)',
+      result.success,
+      result.durationMs
+    );
+
     if (result.success) {
-      console.log(result.output);
+      // Indent agent output for readability
+      const lines = result.output.split('\n');
+      for (const line of lines) {
+        console.log(`  ${line}`);
+      }
     } else {
-      console.log(`${c.red}Error: ${result.error}${c.reset}`);
+      console.log(`  ${c.red}Error: ${result.error}${c.reset}`);
+      if (result.output) {
+        console.log(`  ${c.dim}${result.output.slice(0, 200)}${c.reset}`);
+      }
     }
   }
 
-  // 3. PM synthesis
+  // ─── Step 3: Synthesis ──────────────────────────────────
   header('Implementation Plan');
   console.log(synthesis.implementation_plan);
-  console.log(`\n${c.bold}Effort:${c.reset} ${synthesis.effort}`);
+  console.log(`\n  ${c.bold}Effort:${c.reset} ${synthesis.effort}`);
   if (synthesis.blockers.length > 0) {
-    console.log(`${c.yellow}Blockers:${c.reset}`);
-    synthesis.blockers.forEach(b => console.log(`  • ${b}`));
+    console.log(`\n  ${c.yellow}Blockers:${c.reset}`);
+    synthesis.blockers.forEach(b => console.log(`    • ${b}`));
   }
   if (synthesis.pm_notes) {
-    console.log(`\n${c.dim}PM Notes: ${synthesis.pm_notes}${c.reset}`);
+    console.log(`\n  ${c.dim}PM Notes: ${synthesis.pm_notes}${c.reset}`);
   }
 
-  // 4. Auto-review & learning
+  // ─── Step 4: Auto-review & learning ─────────────────────
   console.log(`\n${c.yellow}⟳ Running feedback loop...${c.reset}`);
   const reviewerOutput = await reviewAndLearn(command, plan, results, synthesis);
 
   if (reviewerOutput.feedbacks.length > 0) {
-    header('Feedback & Learning');
+    subHeader('Feedback & Learning');
     for (const fb of reviewerOutput.feedbacks) {
-      feedback(fb.role, fb.score, fb.quality);
+      feedbackLine(fb.role, fb.score, fb.quality);
       if (fb.what_to_improve) {
         console.log(`    ${c.dim}→ ${fb.what_to_improve}${c.reset}`);
       }
@@ -138,7 +247,7 @@ async function runTask(command: string) {
     }
   }
 
-  // 5. Save run log
+  // ─── Step 5: Save run log ───────────────────────────────
   const runId = crypto.randomBytes(4).toString('hex');
   const log: TaskRunLog = {
     runId,

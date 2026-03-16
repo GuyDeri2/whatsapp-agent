@@ -84,11 +84,24 @@ export abstract class BaseAgent {
     }
 
     prompt += `\n\n## Output Format
-- Be concise and actionable.
-- Use code blocks when providing code.
-- Use numbered lists for multi-step plans.
-- Reference exact file paths when relevant (e.g. src/components/MyComponent.tsx).
-- If a task is outside your expertise, say so and defer to the appropriate agent.`;
+Structure your response with these sections:
+
+### What I Did
+Brief summary of what you analyzed, built, or reviewed (1-3 sentences).
+
+### Details
+- Use numbered lists for multi-step plans or changes.
+- Use code blocks when providing code snippets.
+- Reference exact file paths (e.g. src/components/MyComponent.tsx:42).
+- Explain WHY you made each decision, not just what.
+
+### Risks & Notes (optional)
+Any risks, edge cases, or things the developer should know.
+
+Rules:
+- Be concise and actionable — no filler text.
+- If a task is outside your expertise, say so and defer to the appropriate agent.
+- The developer reading this should know exactly what to do next.`;
 
     return prompt;
   }
