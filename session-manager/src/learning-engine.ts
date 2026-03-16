@@ -110,34 +110,55 @@ export async function runBatchLearning(tenantId: string, hoursBack: number = 24)
 
     // 4. Ask DeepSeek to extract new facts and correct mistakes
     const systemPrompt = `You are an expert business analyst and AI knowledge manager for a business named "${tenant.business_name}".
-Your task is to review recent WhatsApp conversations between the business OWNER, the AI ASSISTANT, and customers (USER). 
+Your task is to review recent WhatsApp conversations and extract ONLY knowledge that will help an AI customer support agent answer future customer questions about this business.
 
-YOUR GOALS:
-1. NEW FACTS: Extract NEW, repeatable business facts perfectly suited for a customer support AI based on OWNER replies.
-2. MISTAKE CORRECTION: If the ASSISTANT made a mistake or gave incorrect/incomplete info that frustrated the USER or required OWNER intervention, synthesize a rule to prevent this mistake in the future.
-3. KNOWLEDGE MANAGEMENT: Review the "EXISTING KNOWLEDGE BASE". You must manage it to prevent duplicates.
-   - If a new fact contradicts existing knowledge, UPDATE the existing record.
-   - If an existing fact is wrong or obsolete based on recent chats, UPDATE or DELETE it.
-   - DO NOT add a duplicate if the knowledge already covers it.
+━━━ PHASE 1 — UNDERSTAND THE CONVERSATION ━━━
+Before extracting anything, read each conversation fully and ask yourself:
+- What is the customer actually asking about?
+- Is this a question about the BUSINESS (its services, prices, hours, policies, products)?
+  OR is it a personal/situational exchange (scheduling a one-time meeting, small talk, a personal favor)?
+- Did the OWNER's reply teach something that ANY future customer could benefit from?
 
-CRITICAL RULES:
-1. ONLY extract concrete, universal business facts (e.g., prices, business hours, addresses, core policies, recurring product details).
-2. 🚨 ABSOLUTELY DO NOT extract small talk, personal info, greetings, emojis, individual meeting times, or single-case arrangements. IGNORE IT ENTIRELY.
-3. Output your findings as a strict JSON array of objects. Each object represents an action to perform on the knowledge base:
-   - "action": MUST be "add", "update", or "delete".
-   - "id": Required ONLY for "update" or "delete". Must match the EXACT ID from the EXISTING KNOWLEDGE BASE.
-   - "question": (Required for add/update) A generic version of the topic.
-   - "answer": (Required for add/update) The factual rule/answer derived.
-   - "category": (Required for add/update) e.g., "pricing", "policy", "general"
+━━━ PHASE 2 — THE UNIVERSAL TEST (apply to every candidate fact) ━━━
+Ask: "If a different customer asked the same question tomorrow, would this OWNER answer be correct and applicable?"
+- YES → this is a business fact. Extract it.
+- NO (it was personal, situational, or a one-time exception) → SKIP IT ENTIRELY.
 
-Example output:
+Examples of what PASSES the universal test:
+✅ "Our delivery fee is ₪25 for orders under ₪150"
+✅ "We are open Sunday–Thursday 9:00–19:00, closed Friday–Saturday"
+✅ "We don't offer refunds on custom orders"
+✅ "The small pizza costs ₪49"
+
+Examples of what FAILS the universal test (skip these):
+❌ "OK I'll meet you at 14:00 on Thursday" — one-time appointment
+❌ "Sure, I can give you a discount this time" — personal exception
+❌ "תודה רבה 😊" — small talk / greeting
+❌ "Your name is beautiful" — personal remark
+❌ Customer's phone number or personal details — private info
+
+━━━ PHASE 3 — KNOWLEDGE MANAGEMENT ━━━
+Review the EXISTING KNOWLEDGE BASE before deciding to add:
+- If a new fact CONTRADICTS existing knowledge → UPDATE the existing record.
+- If an existing fact is WRONG or OBSOLETE based on recent chats → UPDATE or DELETE it.
+- If the knowledge ALREADY COVERS this fact → DO NOT add a duplicate.
+
+━━━ OUTPUT FORMAT ━━━
+Output a strict JSON array. Each object is one action:
+- "action": MUST be "add", "update", or "delete"
+- "id": Required ONLY for "update" or "delete" — use the EXACT ID from EXISTING KNOWLEDGE BASE
+- "question": (add/update) A generic customer question that this fact answers
+- "answer": (add/update) The factual answer, as the business would state it
+- "category": (add/update) e.g., "pricing", "hours", "policy", "products", "general"
+
+Example:
 [
-  { "action": "add", "question": "What are your hours?", "answer": "9 AM to 5 PM.", "category": "general" },
-  { "action": "update", "id": "123e4567-e89b-12d3...", "question": "Delivery fee?", "answer": "Now $10 instead of $5.", "category": "pricing" },
+  { "action": "add", "question": "What are your opening hours?", "answer": "Sunday–Thursday 9:00–19:00, closed Friday–Saturday.", "category": "hours" },
+  { "action": "update", "id": "123e4567-e89b-12d3...", "question": "What is the delivery fee?", "answer": "₪25 for orders under ₪150, free above.", "category": "pricing" },
   { "action": "delete", "id": "987fcdeb-51a2-43d7..." }
 ]
 
-Output ONLY valid JSON, starting with [ and ending with ]. No markdown blocks. Return [] if nothing should change.
+Output ONLY valid JSON starting with [ and ending with ]. No markdown. Return [] if nothing should change.
 
 --- EXISTING KNOWLEDGE BASE ---
 ${existingKnowledgeStr || "(Empty)"}
@@ -156,7 +177,8 @@ ${existingKnowledgeStr || "(Empty)"}
                 messages: messages as any,
                 max_tokens: 1500,
                 temperature: 0.1, // Keep it deterministic
-                response_format: { type: "json_object" }
+                // Note: no response_format here — json_object mode forces a {} wrapper
+                // which conflicts with our [] array instruction. We parse raw text instead.
             }),
             new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error("AI learning timeout after 60s")), AI_TIMEOUT_MS)

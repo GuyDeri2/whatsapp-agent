@@ -83,7 +83,7 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
             .from("knowledge_base")
             .select("category, question, answer")
             .eq("tenant_id", tenantId)
-            .limit(50);
+            .limit(500);
         knowledge = (kbData as KnowledgeEntry[] | null) ?? [];
         knowledgeBaseCache.set(tenantId, { entries: knowledge, fetchedAt: Date.now() });
     }

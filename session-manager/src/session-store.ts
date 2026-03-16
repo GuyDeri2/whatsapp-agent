@@ -308,6 +308,20 @@ export function stopBackgroundSync(tenantId: string): void {
     }
 }
 
+// ─── Cleanup: wipe only WhatsApp crypto/auth keys (preserve conversations) ───
+// Call this before starting a fresh QR session to avoid "can't link device" errors.
+// Unlike clearSessionData, this does NOT delete conversations or messages.
+export async function clearAuthState(tenantId: string): Promise<void> {
+    stopBackgroundSync(tenantId);
+    if (sessionCache.has(tenantId)) sessionCache.get(tenantId)!.clear();
+    if (dirtyKeys.has(tenantId)) dirtyKeys.get(tenantId)!.clear();
+    await getSupabase()
+        .from("whatsapp_sessions")
+        .delete()
+        .eq("tenant_id", tenantId);
+    console.log(`[${tenantId}] 🔑 Auth state cleared (crypto keys wiped, conversations preserved).`);
+}
+
 // ─── Cleanup: remove all session data for a tenant ────────────────────
 export async function clearSessionData(tenantId: string): Promise<void> {
     // 1. Stop background worker
