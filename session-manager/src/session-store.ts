@@ -336,7 +336,7 @@ export async function saveCredsBackup(tenantId: string): Promise<void> {
             criticalKeys.push({ key, data: encryptData(serialized) });
         }
 
-        await getSupabase()
+        const { error } = await getSupabase()
             .from("whatsapp_creds_backup")
             .upsert({
                 tenant_id: tenantId,
@@ -345,6 +345,7 @@ export async function saveCredsBackup(tenantId: string): Promise<void> {
                 updated_at: new Date().toISOString(),
             }, { onConflict: "tenant_id" });
 
+        if (error) throw new Error(`Supabase upsert failed: ${error.message}`);
         console.log(`[${tenantId}] 🔐 Creds backup saved (${criticalKeys.length} signal keys)`);
     } catch (err: any) {
         console.error(`[${tenantId}] ❌ Creds backup failed:`, err.message);
@@ -473,5 +474,13 @@ export async function clearSessionData(tenantId: string): Promise<void> {
         .delete()
         .eq("tenant_id", tenantId);
 
-    console.log(`[${tenantId}] 🧹 Session data completely wiped.`);
+    // 5. Delete encrypted creds backup — this is a terminal state (loggedOut/
+    // connectionReplaced), so the backup is no longer valid. Without this,
+    // restoreAllSessions would try to restore stale creds on every deploy.
+    await getSupabase()
+        .from("whatsapp_creds_backup")
+        .delete()
+        .eq("tenant_id", tenantId);
+
+    console.log(`[${tenantId}] 🧹 Session data completely wiped (including creds backup).`);
 }
