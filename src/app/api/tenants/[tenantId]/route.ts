@@ -32,6 +32,7 @@ export async function PATCH(
         "agent_respond_to_saved_contacts",
         "owner_phone",
         "lead_webhook_url",
+        "handoff_collect_email",
     ];
 
     const updates: Record<string, any> = {};

@@ -495,6 +495,15 @@ export async function stopSession(
         clearInterval(picInterval);
         profilePicIntervals.delete(tenantId);
     }
+    // Clear LID sweep interval
+    const sessionForCleanup = sessions.get(tenantId);
+    if (sessionForCleanup) {
+        const lidInterval = (sessionForCleanup as any)._lidSweepInterval;
+        if (lidInterval) {
+            clearInterval(lidInterval);
+            (sessionForCleanup as any)._lidSweepInterval = null;
+        }
+    }
     const heartbeat = presenceHeartbeatIntervals.get(tenantId);
     if (heartbeat) {
         clearTimeout(heartbeat);
@@ -1160,6 +1169,49 @@ export async function createSession(tenantId: string): Promise<void> {
                 }
             }, SIX_HOURS);
             profilePicIntervals.set(tenantId, picInterval);
+
+            // Periodic LID sweep: every 60 seconds, check for conversations stored
+            // under LID phone numbers and try to fix them. This is a safety net for
+            // the race condition where a message arrives before the LID mapping.
+            const prevLidInterval = (sessionInfo as any)._lidSweepInterval;
+            if (prevLidInterval) clearInterval(prevLidInterval);
+            const lidSweepInterval = setInterval(async () => {
+                const session = sessions.get(tenantId);
+                if (session?.status !== "connected") return;
+                try {
+                    // LID phone numbers are always ≥15 digits; real phones are ≤13
+                    const { data: allConvs } = await getSupabase()
+                        .from("conversations")
+                        .select("id, phone_number, contact_name")
+                        .eq("tenant_id", tenantId)
+                        .eq("is_group", false);
+                    const lidConvs = (allConvs || []).filter(
+                        c => (c.phone_number as string).length >= 15
+                    );
+                    if (!lidConvs || lidConvs.length === 0) return;
+
+                    const map = tenantLidToPhone.get(tenantId);
+                    for (const conv of lidConvs) {
+                        const lidNum = conv.phone_number as string;
+                        // Check if we now have a mapping for this LID
+                        let realPhone = map?.get(lidNum) ?? null;
+                        // Try name-based fallback
+                        if (!realPhone && conv.contact_name) {
+                            realPhone = findPhoneByPushName(tenantId, conv.contact_name);
+                            if (realPhone) {
+                                await persistLidMapping(tenantId, lidNum, realPhone);
+                            }
+                        }
+                        if (realPhone) {
+                            console.log(`[${tenantId}] 🧹 LID sweep fix: ${lidNum} → ${realPhone}`);
+                            await fixLidConversation(tenantId, lidNum, realPhone);
+                        }
+                    }
+                } catch (err: any) {
+                    console.error(`[${tenantId}] ❌ LID sweep error:`, err.message);
+                }
+            }, 60_000); // Every 60 seconds
+            (sessionInfo as any)._lidSweepInterval = lidSweepInterval;
         }
 
         // Disconnected
@@ -1652,8 +1704,52 @@ export async function createSession(tenantId: string): Promise<void> {
                     isMentioned
                 );
 
-                // On-demand: fetch profile picture for this conversation if missing
+                // Deferred LID resolution: if the message was stored under a LID
+                // phone number (≥15 digits), the in-memory & DB lookups failed at
+                // message time. Schedule a background resolve via onWhatsApp() API
+                // to fix the conversation retroactively.
                 const phoneNumber = remoteJid.split("@")[0];
+                if (remoteJid.endsWith("@lid") && phoneNumber.length >= 15) {
+                    setTimeout(async () => {
+                        try {
+                            // Try onWhatsApp() which returns the LID↔phone mapping
+                            // We don't have the real phone, but we can look at conversations
+                            // that were recently created with LID-like phone numbers
+                            const { data: lidConv } = await getSupabase()
+                                .from("conversations")
+                                .select("id, phone_number, contact_name")
+                                .eq("tenant_id", tenantId)
+                                .eq("phone_number", phoneNumber)
+                                .maybeSingle();
+                            if (!lidConv) return;
+
+                            // Check if the LID mapping was populated in the meantime
+                            // (e.g., by contacts.upsert that arrived after the message)
+                            const map = tenantLidToPhone.get(tenantId);
+                            const resolvedPhone = map?.get(phoneNumber);
+                            if (resolvedPhone) {
+                                console.log(`[${tenantId}] 🔧 Deferred LID fix: ${phoneNumber} → ${resolvedPhone}`);
+                                await fixLidConversation(tenantId, phoneNumber, resolvedPhone);
+                                return;
+                            }
+
+                            // Last resort: try to find the contact by name in our contacts cache
+                            const contactName = lidConv.contact_name;
+                            if (contactName) {
+                                const realPhone = findPhoneByPushName(tenantId, contactName);
+                                if (realPhone) {
+                                    console.log(`[${tenantId}] 🔧 Deferred LID fix via name: ${phoneNumber} → ${realPhone} (${contactName})`);
+                                    await persistLidMapping(tenantId, phoneNumber, realPhone);
+                                    await fixLidConversation(tenantId, phoneNumber, realPhone);
+                                }
+                            }
+                        } catch (err: any) {
+                            console.error(`[${tenantId}] ❌ Deferred LID fix error:`, err.message);
+                        }
+                    }, 3_000); // 3 seconds — enough time for contacts.upsert to arrive
+                }
+
+                // On-demand: fetch profile picture for this conversation if missing
                 const isGroup = remoteJid.endsWith("@g.us");
                 const picKey = `${tenantId}:${phoneNumber}`;
                 // Only check DB for profile pic once per session per contact
@@ -1753,8 +1849,12 @@ export async function createSession(tenantId: string): Promise<void> {
                 if (!map.has(lidNum)) {
                     map.set(lidNum, realPhone);
                     console.log(`[${tenantId}] 🔗 LID resolved via batch name: ${lidNum} → ${realPhone} (${name})`);
-                    fixLidConversation(tenantId, lidNum, realPhone).catch((err) => {
-                        console.error(`[${tenantId}] ❌ fixLidConversation failed: ${err.message}`);
+                    // Persist to DB (awaited) so message-handler's DB fallback can find it
+                    persistLidMapping(tenantId, lidNum, realPhone).then(() => {
+                        // Fix conversation AFTER persisting, so mapping is available
+                        return fixLidConversation(tenantId, lidNum, realPhone);
+                    }).catch((err) => {
+                        console.error(`[${tenantId}] ❌ persistLidMapping/fixLidConversation failed: ${err.message}`);
                     });
                 }
             }

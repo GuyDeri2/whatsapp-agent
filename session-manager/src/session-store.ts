@@ -315,11 +315,15 @@ export async function clearAuthState(tenantId: string): Promise<void> {
     stopBackgroundSync(tenantId);
     if (sessionCache.has(tenantId)) sessionCache.get(tenantId)!.clear();
     if (dirtyKeys.has(tenantId)) dirtyKeys.get(tenantId)!.clear();
+    // Delete all session rows EXCEPT LID mappings (lid_*) and contacts cache,
+    // which are expensive to rebuild and not auth-related.
     await getSupabase()
         .from("whatsapp_sessions")
         .delete()
-        .eq("tenant_id", tenantId);
-    console.log(`[${tenantId}] 🔑 Auth state cleared (crypto keys wiped, conversations preserved).`);
+        .eq("tenant_id", tenantId)
+        .not("session_key", "like", "lid_%")
+        .neq("session_key", "contacts");
+    console.log(`[${tenantId}] 🔑 Auth state cleared (crypto keys wiped, LID mappings + contacts preserved).`);
 }
 
 // ─── Cleanup: remove all session data for a tenant ────────────────────

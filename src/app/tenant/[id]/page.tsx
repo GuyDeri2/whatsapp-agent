@@ -153,6 +153,7 @@ export default function TenantPage() {
         products: "",
         target_customers: "",
         agent_respond_to_saved_contacts: true,
+        handoff_collect_email: false,
         owner_phone: "",
     });
 
@@ -189,6 +190,7 @@ export default function TenantPage() {
             products: data.products || "",
             target_customers: data.target_customers || "",
             agent_respond_to_saved_contacts: (data as any).agent_respond_to_saved_contacts ?? true,
+            handoff_collect_email: (data as any).handoff_collect_email ?? false,
             owner_phone: (() => {
                 const p = (data as any).owner_phone || "";
                 if (p.startsWith("972") && p.length === 12) return "0" + p.substring(3);

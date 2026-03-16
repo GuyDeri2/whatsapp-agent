@@ -955,19 +955,17 @@ async function handleActiveMode(
 
             // Send WhatsApp notification to owner
             if (ownerPhone) {
-                const emailLine = email ? `📧 ${email}\n` : "";
-                const summarySection = summary ? `\n📋 סיכום:\n${summary}\n` : "";
+                const details = [
+                    contactName ? `*${contactName}*` : null,
+                    customerPhone,
+                    email,
+                ].filter(Boolean).join(" · ");
 
                 const ownerNotification = [
-                    `🔔 לקוח ממתין למענה!`,
+                    `שיחה הועברה אליך`,
                     ``,
-                    `👤 ${contactName || "לא ידוע"}`,
-                    `📞 ${customerPhone}`,
-                    emailLine.trim() ? emailLine.trim() : null,
-                    summarySection.trim() ? summarySection.trim() : null,
-                    ``,
-                    `──────────────────`,
-                    `כדי לענות — פתח את הצ'אט עם הלקוח בוואטסאפ העסקי שלך.`,
+                    details,
+                    summary ? `\n${summary}` : null,
                 ].filter((l) => l !== null).join("\n");
 
                 const ownerJid = toOwnerJid(ownerPhone);

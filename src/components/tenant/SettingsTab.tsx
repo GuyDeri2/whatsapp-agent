@@ -18,6 +18,7 @@ interface SettingsTabProps {
         products: string;
         target_customers: string;
         agent_respond_to_saved_contacts: boolean;
+        handoff_collect_email: boolean;
         owner_phone: string;
     };
     setEditForm: React.Dispatch<React.SetStateAction<any>>;
@@ -141,6 +142,36 @@ const SettingsTab = React.memo(function SettingsTab({
                                     </h4>
                                     <p className="text-sm text-neutral-400 leading-relaxed">
                                         אם כבוי, הסוכן יתעלם מלקוחות שמורים בטלפון שלך ויגיב <span className="text-neutral-300 font-medium">רק</span> ללידים חדשים שאנחנו לא מכירים.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Handoff Collect Email Toggle */}
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 mt-6 hover:bg-white/[0.07] transition-colors cursor-pointer" onClick={() => setEditForm({ ...editForm, handoff_collect_email: !editForm.handoff_collect_email })}>
+                            <div className="flex items-start gap-4">
+                                <div className="mt-1">
+                                    <div className={`w-6 h-6 rounded flex items-center justify-center border transition-all ${editForm.handoff_collect_email
+                                            ? "bg-emerald-600 border-emerald-500 text-white"
+                                            : "bg-black/50 border-white/20 text-transparent"
+                                        }`}>
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        className="hidden"
+                                        checked={editForm.handoff_collect_email}
+                                        onChange={(e) => setEditForm({ ...editForm, handoff_collect_email: e.target.checked })}
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1 flex items-center gap-2">
+                                        בקש מייל בהעברה לנציג
+                                    </h4>
+                                    <p className="text-sm text-neutral-400 leading-relaxed">
+                                        כשהבוט מעביר שיחה לנציג אנושי, הוא יבקש מהלקוח את כתובת המייל שלו לפני ההעברה.
                                     </p>
                                 </div>
                             </div>
