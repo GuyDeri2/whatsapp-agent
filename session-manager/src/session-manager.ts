@@ -21,7 +21,7 @@ import QRCode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
-import { useSupabaseAuthState, clearSessionData, clearAuthState, flushCacheToDB, stopBackgroundSync } from "./session-store";
+import { useSupabaseAuthState, clearSessionData, clearAuthState, flushCacheToDB, stopBackgroundSync, saveCredsBackup, restoreCredsFromBackup, getTenantsWithBackup } from "./session-store";
 import { handleIncomingMessage, clearPendingAiReply, setLidResolver, setLidDbResolver, markOwnerSent } from "./message-handler";
 // Inject synchronous LID resolver (memory-only fast path)
 setLidResolver((tenantId, jid) => resolveLidJid(tenantId, jid));
@@ -728,13 +728,37 @@ export async function restoreAllSessions(): Promise<void> {
         .select("tenant_id")
         .eq("session_key", "creds");
 
-    if (!sessionsWithCreds || sessionsWithCreds.length === 0) {
+    const tenantsWithCreds = new Set(
+        (sessionsWithCreds || []).map((s) => s.tenant_id)
+    );
+
+    // Also check for tenants with encrypted backup but no active creds
+    // (this happens after deploys where creds were cleared by a prior disconnect)
+    const backupTenants = await getTenantsWithBackup();
+    const tenantsToRestoreFromBackup = backupTenants.filter(
+        (id) => !tenantsWithCreds.has(id)
+    );
+
+    if (tenantsToRestoreFromBackup.length > 0) {
+        console.log(`🔓 Found ${tenantsToRestoreFromBackup.length} tenant(s) with encrypted backup but no active creds — restoring...`);
+        for (const tenantId of tenantsToRestoreFromBackup) {
+            try {
+                const restored = await restoreCredsFromBackup(tenantId);
+                if (restored) {
+                    tenantsWithCreds.add(tenantId);
+                }
+            } catch (err: any) {
+                console.error(`[${tenantId}] Failed to restore from backup:`, err.message);
+            }
+        }
+    }
+
+    if (tenantsWithCreds.size === 0) {
         console.log("No sessions to restore");
         return;
     }
 
-    const uniqueTenants = [...new Set(sessionsWithCreds.map((s) => s.tenant_id))];
-
+    const uniqueTenants = [...tenantsWithCreds];
     console.log(`Restoring ${uniqueTenants.length} session(s)...`);
     for (const tenantId of uniqueTenants) {
         try {
@@ -1106,6 +1130,17 @@ export async function createSession(tenantId: string): Promise<void> {
             console.log(`[${tenantId}] ✅ WhatsApp connected (${phoneNumber})`);
             notifyQRUpdate(tenantId, null);
 
+            // Save encrypted creds backup for post-deploy auto-reconnect.
+            // Delayed slightly to ensure creds are fully flushed to DB first.
+            setTimeout(async () => {
+                try {
+                    await flushCacheToDB(tenantId); // ensure creds are in cache
+                    await saveCredsBackup(tenantId);
+                } catch (err: any) {
+                    console.error(`[${tenantId}] ❌ Creds backup on connect failed:`, err.message);
+                }
+            }, 10_000);
+
             // Record the time this connection became active (used by reconnect guards)
             connectedAt.set(tenantId, Date.now());
 
@@ -1158,14 +1193,22 @@ export async function createSession(tenantId: string): Promise<void> {
             }
 
             // Periodic refresh: re-fetch profile pictures every 6 hours (URLs expire)
+            // Also refresh the encrypted creds backup so signal keys stay current.
             // Clear any previous interval first to prevent leak on reconnect
             const prevInterval = profilePicIntervals.get(tenantId);
             if (prevInterval) clearInterval(prevInterval);
             const SIX_HOURS = 6 * 60 * 60 * 1000;
-            const picInterval = setInterval(() => {
+            const picInterval = setInterval(async () => {
                 const session = sessions.get(tenantId);
                 if (session?.status === "connected") {
                     resolveProfilePictures(tenantId, socket, true);
+                    // Refresh creds backup with latest signal keys
+                    try {
+                        await flushCacheToDB(tenantId);
+                        await saveCredsBackup(tenantId);
+                    } catch (err: any) {
+                        console.error(`[${tenantId}] ❌ Periodic creds backup failed:`, err.message);
+                    }
                 }
             }, SIX_HOURS);
             profilePicIntervals.set(tenantId, picInterval);

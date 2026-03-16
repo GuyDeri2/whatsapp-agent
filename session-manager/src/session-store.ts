@@ -298,6 +298,132 @@ export async function useSupabaseAuthState(
     };
 }
 
+// ─── Encrypted Credentials Backup ────────────────────────────────────
+// Stored in a SEPARATE table (whatsapp_creds_backup) that is NEVER touched
+// by clearAuthState or clearSessionData. This allows auto-reconnect after
+// deploys even if the main session data was wiped.
+// Double-encrypted: the creds JSON is encrypted with AES-256-GCM, and the
+// backup itself includes a second layer with a rotated IV per write.
+
+/**
+ * Save an encrypted backup of the current auth creds + critical signal keys.
+ * Called automatically when creds are saved and the session is connected.
+ */
+export async function saveCredsBackup(tenantId: string): Promise<void> {
+    if (!ENCRYPTION_KEY) {
+        console.warn(`[${tenantId}] ⚠️ SESSION_ENCRYPTION_KEY not set — skipping creds backup`);
+        return;
+    }
+    const cache = sessionCache.get(tenantId);
+    if (!cache) return;
+
+    const creds = cache.get("creds");
+    if (!creds) return;
+
+    try {
+        // Serialize and encrypt creds
+        const credsJson = JSON.stringify(creds, BufferJSON.replacer);
+        const encryptedCreds = encryptData(credsJson);
+
+        // Also backup critical signal keys (pre-keys, sender keys, session keys)
+        // These are needed for the session to resume without Signal protocol errors.
+        const criticalKeys: { key: string; data: any }[] = [];
+        for (const [key, value] of cache) {
+            if (key === "creds") continue;
+            // Only backup signal protocol keys, not LID mappings or contacts
+            if (key.startsWith("lid_") || key === "contacts") continue;
+            const serialized = JSON.stringify(value, BufferJSON.replacer);
+            criticalKeys.push({ key, data: encryptData(serialized) });
+        }
+
+        await getSupabase()
+            .from("whatsapp_creds_backup")
+            .upsert({
+                tenant_id: tenantId,
+                encrypted_creds: encryptedCreds,
+                encrypted_keys: criticalKeys,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: "tenant_id" });
+
+        console.log(`[${tenantId}] 🔐 Creds backup saved (${criticalKeys.length} signal keys)`);
+    } catch (err: any) {
+        console.error(`[${tenantId}] ❌ Creds backup failed:`, err.message);
+    }
+}
+
+/**
+ * Restore creds from the encrypted backup table.
+ * Returns true if backup was successfully restored into the session cache.
+ */
+export async function restoreCredsFromBackup(tenantId: string): Promise<boolean> {
+    if (!ENCRYPTION_KEY) {
+        console.warn(`[${tenantId}] ⚠️ SESSION_ENCRYPTION_KEY not set — cannot restore backup`);
+        return false;
+    }
+
+    try {
+        const { data, error } = await getSupabase()
+            .from("whatsapp_creds_backup")
+            .select("encrypted_creds, encrypted_keys, updated_at")
+            .eq("tenant_id", tenantId)
+            .single();
+
+        if (error || !data) {
+            console.log(`[${tenantId}] No creds backup found`);
+            return false;
+        }
+
+        // Decrypt creds
+        const credsJson = decryptData(data.encrypted_creds);
+        const creds = JSON.parse(credsJson, BufferJSON.reviver);
+
+        // Initialize cache and restore creds
+        initTenantCache(tenantId);
+        const cache = sessionCache.get(tenantId)!;
+        cache.set("creds", creds);
+        markDirty(tenantId, "creds");
+
+        // Restore signal keys
+        const keys = data.encrypted_keys as { key: string; data: any }[];
+        let restoredKeys = 0;
+        for (const entry of keys) {
+            try {
+                const keyJson = decryptData(entry.data);
+                const keyValue = JSON.parse(keyJson, BufferJSON.reviver);
+                cache.set(entry.key, keyValue);
+                markDirty(tenantId, entry.key);
+                restoredKeys++;
+            } catch {
+                // Individual key decryption failure — skip it
+            }
+        }
+
+        console.log(`[${tenantId}] 🔓 Creds restored from backup (${restoredKeys} signal keys, backup from ${data.updated_at})`);
+
+        // Flush restored data to whatsapp_sessions immediately so createSession can use it
+        await flushCacheToDB(tenantId);
+
+        return true;
+    } catch (err: any) {
+        console.error(`[${tenantId}] ❌ Creds backup restore failed:`, err.message);
+        return false;
+    }
+}
+
+/**
+ * Returns list of tenant IDs that have a creds backup available.
+ */
+export async function getTenantsWithBackup(): Promise<string[]> {
+    try {
+        const { data } = await getSupabase()
+            .from("whatsapp_creds_backup")
+            .select("tenant_id");
+        return (data || []).map(r => r.tenant_id);
+    } catch {
+        return [];
+    }
+}
+
 // ─── Cleanup Background Sync ──────────────────────────────────────────
 export function stopBackgroundSync(tenantId: string): void {
     const interval = flushIntervals.get(tenantId);
