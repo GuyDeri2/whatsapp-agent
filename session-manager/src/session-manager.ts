@@ -564,7 +564,14 @@ export async function reconnectSession(
         .eq("id", tenantId);
     // Wait 5 seconds to let WhatsApp server settle
     await new Promise((r) => setTimeout(r, 5000));
-    await startSession(tenantId);
+    // IMPORTANT: use createSession (not startSession) when clearAuth=false to preserve
+    // saved credentials. startSession always calls clearAuthState which wipes all crypto
+    // keys — that forces a QR rescan even if the user only wanted a connection restart.
+    if (clearAuth) {
+        await startSession(tenantId); // clearAuthState already called above; startSession adds fresh QR
+    } else {
+        await createSession(tenantId); // reconnect with existing saved auth — no QR needed
+    }
 }
 
 /**
