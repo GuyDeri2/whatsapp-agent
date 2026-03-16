@@ -518,7 +518,7 @@ export async function stopSession(
     // Update tenant status
     await getSupabase()
         .from("tenants")
-        .update({ whatsapp_connected: false })
+        .update({ whatsapp_connected: false, whatsapp_phone: null })
         .eq("id", tenantId);
 
     console.log(`[${tenantId}] Session stopped (clearData: ${clearData})`);
@@ -560,7 +560,7 @@ export async function reconnectSession(
     }
     await getSupabase()
         .from("tenants")
-        .update({ whatsapp_connected: false })
+        .update({ whatsapp_connected: false, whatsapp_phone: null })
         .eq("id", tenantId);
     // Wait 5 seconds to let WhatsApp server settle
     await new Promise((r) => setTimeout(r, 5000));
@@ -1186,6 +1186,7 @@ export async function createSession(tenantId: string): Promise<void> {
                 .from("tenants")
                 .update({
                     whatsapp_connected: false,
+                    whatsapp_phone: null,
                     last_disconnect_reason: `${statusCode} (${disconnectReasonName})`,
                 })
                 .eq("id", tenantId);
