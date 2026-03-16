@@ -41,7 +41,10 @@ interface TenantProfile {
     products: string | null;
     target_customers: string | null;
     agent_prompt: string | null;
+    handoff_collect_email?: boolean;
 }
+
+const MAX_KNOWLEDGE_BASE_ENTRIES = 500;
 
 interface KnowledgeEntry {
     category: string | null;
@@ -71,7 +74,7 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
         .single();
 
     if (!tenant) throw new Error(`Tenant ${tenantId} not found`);
-    const t = tenant as TenantProfile & { handoff_collect_email?: boolean };
+    const t = tenant as TenantProfile;
 
     // 2. Knowledge base (cached, 5-minute TTL)
     let knowledge: KnowledgeEntry[] | null = null;
@@ -83,7 +86,7 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
             .from("knowledge_base")
             .select("category, question, answer")
             .eq("tenant_id", tenantId)
-            .limit(500);
+            .limit(MAX_KNOWLEDGE_BASE_ENTRIES);
         knowledge = (kbData as KnowledgeEntry[] | null) ?? [];
         knowledgeBaseCache.set(tenantId, { entries: knowledge, fetchedAt: Date.now() });
     }

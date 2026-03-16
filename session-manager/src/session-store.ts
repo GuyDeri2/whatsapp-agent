@@ -302,8 +302,8 @@ export async function useSupabaseAuthState(
 // Stored in a SEPARATE table (whatsapp_creds_backup) that is NEVER touched
 // by clearAuthState or clearSessionData. This allows auto-reconnect after
 // deploys even if the main session data was wiped.
-// Double-encrypted: the creds JSON is encrypted with AES-256-GCM, and the
-// backup itself includes a second layer with a rotated IV per write.
+// Each field (creds + each signal key) is individually encrypted with
+// AES-256-GCM using a unique random IV per field per write.
 
 /**
  * Save an encrypted backup of the current auth creds + critical signal keys.

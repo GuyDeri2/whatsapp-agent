@@ -89,8 +89,11 @@ export function markOwnerSent(id: string | null | undefined): void {
     markAgentSent(id);
 }
 
-// Randomised debounce: 1.5s–4.5s to avoid mechanical fixed-interval fingerprinting
-const getDebounceDelay = () => 1_500 + Math.floor(Math.random() * 3_000);
+// Human-like debounce: gaussian distribution centered at 3s (range 1.5s–4.5s).
+// Gaussian jitter clusters delays around the midpoint instead of uniform random,
+// which is closer to real human reaction times. Night hours (23:00-07:00) 3x longer.
+import { getHumanDebounceDelay } from "./antiban";
+const getDebounceDelay = () => Math.floor(getHumanDebounceDelay());
 
 /** Called by server.ts when tenant settings are updated — forces fresh config fetch */
 export function invalidateTenantConfigCache(tenantId: string): void {

@@ -23,6 +23,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
 import { useSupabaseAuthState, clearSessionData, clearAuthState, flushCacheToDB, stopBackgroundSync, saveCredsBackup, restoreCredsFromBackup, getTenantsWithBackup } from "./session-store";
 import { handleIncomingMessage, clearPendingAiReply, setLidResolver, setLidDbResolver, markOwnerSent } from "./message-handler";
+import { onDisconnect as antibanOnDisconnect, onReconnect as antibanOnReconnect, onMessageFailed, getHealthStatus, getRiskAlertMessage, startPresencePauseScheduler, gaussianRandom } from "./antiban";
 // Inject synchronous LID resolver (memory-only fast path)
 setLidResolver((tenantId, jid) => resolveLidJid(tenantId, jid));
 // Inject async DB fallback resolver (used when memory map is empty after restart)
@@ -56,6 +57,7 @@ interface SessionInfo {
     tenantId: string;
     retryCount: number;
     preKeyErrors: number; // track PreKey errors to decide when to reset
+    lidSweepInterval?: NodeJS.Timeout; // periodic LID conversation fixer
 }
 
 type QRUpdateCallback = (tenantId: string, qrDataUrl: string | null) => void;
@@ -81,6 +83,9 @@ const profilePicIntervals = new Map<string, NodeJS.Timeout>();
 
 /** Track presence heartbeat intervals per tenant (prevents WhatsApp idle disconnects) */
 const presenceHeartbeatIntervals = new Map<string, NodeJS.Timeout>();
+
+/** Track presence pause schedulers per tenant (anti-ban offline simulation) */
+const presencePauseCleanups = new Map<string, () => void>();
 
 /**
  * Base interval for the autonomous presence heartbeat (with ±50% jitter applied).
@@ -405,7 +410,7 @@ const logger = pino({ level: "warn" });
 
 // ─── Human-like send wrapper ──────────────────────────────────────────
 // Simulates typing before each AI reply so the connection looks human.
-function makeHumanSend(socket: WASocket) {
+function makeHumanSend(socket: WASocket, tenantId?: string) {
     return async (jid: string, content: { text: string }) => {
         // Only simulate typing for individual chats (not groups / system JIDs)
         if (jid.endsWith("@s.whatsapp.net")) {
@@ -426,16 +431,21 @@ function makeHumanSend(socket: WASocket) {
             }
 
             const words = content.text.trim().split(/\s+/).length;
-            // ~80 wpm typing speed, capped at 3s, plus 0-500ms random jitter
+            // ~80 wpm typing speed, capped at 3s, plus gaussian jitter (100-600ms)
             const typingMs = Math.min(Math.ceil((words / 80) * 60_000), 3_000)
-                + Math.floor(Math.random() * 500);
+                + Math.floor(gaussianRandom(100, 600));
             await socket.sendPresenceUpdate("composing", jid);
             await new Promise((r) => setTimeout(r, typingMs));
             // Set "available" before sending so WhatsApp clears the composing state
             // immediately when the message arrives — eliminates the ~2s pending clock
             await socket.sendPresenceUpdate("available", jid);
         }
-        return socket.sendMessage(jid, content);
+        try {
+            return await socket.sendMessage(jid, content);
+        } catch (err) {
+            if (tenantId) onMessageFailed(tenantId);
+            throw err;
+        }
     };
 }
 
@@ -498,16 +508,21 @@ export async function stopSession(
     // Clear LID sweep interval
     const sessionForCleanup = sessions.get(tenantId);
     if (sessionForCleanup) {
-        const lidInterval = (sessionForCleanup as any)._lidSweepInterval;
-        if (lidInterval) {
-            clearInterval(lidInterval);
-            (sessionForCleanup as any)._lidSweepInterval = null;
+        if (sessionForCleanup?.lidSweepInterval) {
+            clearInterval(sessionForCleanup.lidSweepInterval);
+            sessionForCleanup.lidSweepInterval = undefined;
         }
     }
     const heartbeat = presenceHeartbeatIntervals.get(tenantId);
     if (heartbeat) {
         clearTimeout(heartbeat);
         presenceHeartbeatIntervals.delete(tenantId);
+    }
+    // Clean up presence pause scheduler (anti-ban)
+    const pauseCleanup = presencePauseCleanups.get(tenantId);
+    if (pauseCleanup) {
+        pauseCleanup();
+        presencePauseCleanups.delete(tenantId);
     }
 
     // Reset the initial-sync guard so a fresh QR-scan triggers sync again
@@ -1173,6 +1188,16 @@ export async function createSession(tenantId: string): Promise<void> {
             };
             scheduleHeartbeat();
 
+            // Anti-ban: track reconnect and start presence pause scheduler
+            antibanOnReconnect(tenantId);
+            const prevPauseCleanup = presencePauseCleanups.get(tenantId);
+            if (prevPauseCleanup) prevPauseCleanup();
+            const pauseCleanup = startPresencePauseScheduler(
+                tenantId,
+                async (type) => { await socket.sendPresenceUpdate(type); },
+            );
+            presencePauseCleanups.set(tenantId, pauseCleanup);
+
             // Only run expensive bulk syncs on the FIRST connect, not on every reconnect.
             // Repeated profile-pic / group-name storms after reconnects cause WhatsApp to
             // drop the connection with code 408 (bulk activity detected), creating an
@@ -1213,24 +1238,23 @@ export async function createSession(tenantId: string): Promise<void> {
             }, SIX_HOURS);
             profilePicIntervals.set(tenantId, picInterval);
 
-            // Periodic LID sweep: every 60 seconds, check for conversations stored
-            // under LID phone numbers and try to fix them. This is a safety net for
-            // the race condition where a message arrives before the LID mapping.
-            const prevLidInterval = (sessionInfo as any)._lidSweepInterval;
-            if (prevLidInterval) clearInterval(prevLidInterval);
+            // Periodic LID sweep: check for conversations stored under LID phone
+            // numbers and try to fix them. Safety net for the race condition where
+            // a message arrives before the LID mapping.
+            if (sessionInfo.lidSweepInterval) clearInterval(sessionInfo.lidSweepInterval);
+            const LID_SWEEP_INTERVAL_MS = 60_000;
             const lidSweepInterval = setInterval(async () => {
                 const session = sessions.get(tenantId);
                 if (session?.status !== "connected") return;
                 try {
-                    // LID phone numbers are always ≥15 digits; real phones are ≤13
-                    const { data: allConvs } = await getSupabase()
+                    // LID phone numbers are always ≥15 digits; real phones are ≤13.
+                    // Filter in SQL with length() to avoid fetching all conversations.
+                    const { data: lidConvs } = await getSupabase()
                         .from("conversations")
                         .select("id, phone_number, contact_name")
                         .eq("tenant_id", tenantId)
-                        .eq("is_group", false);
-                    const lidConvs = (allConvs || []).filter(
-                        c => (c.phone_number as string).length >= 15
-                    );
+                        .eq("is_group", false)
+                        .like("phone_number", "_______________%"); // ≥15 chars (15 underscores + %)
                     if (!lidConvs || lidConvs.length === 0) return;
 
                     const map = tenantLidToPhone.get(tenantId);
@@ -1253,8 +1277,8 @@ export async function createSession(tenantId: string): Promise<void> {
                 } catch (err: any) {
                     console.error(`[${tenantId}] ❌ LID sweep error:`, err.message);
                 }
-            }, 60_000); // Every 60 seconds
-            (sessionInfo as any)._lidSweepInterval = lidSweepInterval;
+            }, LID_SWEEP_INTERVAL_MS);
+            sessionInfo.lidSweepInterval = lidSweepInterval;
         }
 
         // Disconnected
@@ -1285,6 +1309,29 @@ export async function createSession(tenantId: string): Promise<void> {
                     last_disconnect_reason: `${statusCode} (${disconnectReasonName})`,
                 })
                 .eq("id", tenantId);
+
+            // Anti-ban health monitoring: track disconnect for risk scoring
+            const { risk, score, shouldAlert } = antibanOnDisconnect(tenantId, statusCode);
+            console.log(`[${tenantId}] 🛡️ Anti-ban health: risk=${risk}, score=${score}`);
+            if (shouldAlert) {
+                const alertMsg = getRiskAlertMessage(risk);
+                if (alertMsg) {
+                    console.warn(`[${tenantId}] 🚨 Risk escalated to ${risk} — alerting owner`);
+                    // Store alert in DB for dashboard visibility
+                    getSupabase()
+                        .from("tenants")
+                        .update({ last_disconnect_reason: `${statusCode} (${disconnectReasonName}) | Risk: ${risk.toUpperCase()}` })
+                        .eq("id", tenantId)
+                        .then(() => {});
+                }
+            }
+
+            // Clean up presence pause scheduler
+            const pauseCleanup = presencePauseCleanups.get(tenantId);
+            if (pauseCleanup) {
+                pauseCleanup();
+                presencePauseCleanups.delete(tenantId);
+            }
 
             // Handle 515 (restartRequired) — WhatsApp server asks us to restart the connection.
             // This is NOT a permanent failure; reconnect quickly without clearing auth.
@@ -1732,6 +1779,15 @@ export async function createSession(tenantId: string): Promise<void> {
                 if (textContent.includes(rawPhone)) isMentioned = true;
             }
 
+            // Send read receipt (blue ticks) for incoming messages.
+            // This is a strong human-behavior signal — real WhatsApp clients
+            // always send read receipts. Skipping them is a bot tell.
+            if (!isFromMe && msg.key.id) {
+                try {
+                    await socket.readMessages([msg.key]);
+                } catch { /* non-fatal — some JIDs don't support receipts */ }
+            }
+
             try {
                 await handleIncomingMessage(
                     tenantId,
@@ -1743,7 +1799,7 @@ export async function createSession(tenantId: string): Promise<void> {
                     mediaUrl,
                     mediaType,
                     waMessageId,
-                    makeHumanSend(socket),
+                    makeHumanSend(socket, tenantId),
                     isMentioned
                 );
 
@@ -1753,11 +1809,13 @@ export async function createSession(tenantId: string): Promise<void> {
                 // to fix the conversation retroactively.
                 const phoneNumber = remoteJid.split("@")[0];
                 if (remoteJid.endsWith("@lid") && phoneNumber.length >= 15) {
+                    const LID_DEFERRED_FIX_DELAY_MS = 3_000;
                     setTimeout(async () => {
                         try {
-                            // Try onWhatsApp() which returns the LID↔phone mapping
-                            // We don't have the real phone, but we can look at conversations
-                            // that were recently created with LID-like phone numbers
+                            // Guard: skip if session disconnected while we waited
+                            const session = sessions.get(tenantId);
+                            if (!session || session.status !== "connected") return;
+
                             const { data: lidConv } = await getSupabase()
                                 .from("conversations")
                                 .select("id, phone_number, contact_name")
@@ -1789,7 +1847,7 @@ export async function createSession(tenantId: string): Promise<void> {
                         } catch (err: any) {
                             console.error(`[${tenantId}] ❌ Deferred LID fix error:`, err.message);
                         }
-                    }, 3_000); // 3 seconds — enough time for contacts.upsert to arrive
+                    }, LID_DEFERRED_FIX_DELAY_MS);
                 }
 
                 // On-demand: fetch profile picture for this conversation if missing

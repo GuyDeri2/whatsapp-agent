@@ -24,6 +24,7 @@ import {
     probeSessionHealth,
 } from "./session-manager";
 import { invalidateTenantConfigCache } from "./message-handler";
+import { getHealthStatus } from "./antiban";
 import { runBatchLearning } from "./learning-engine";
 import { sendDayBeforeReminders, sendTwoHourReminders } from "./reminders";
 
@@ -100,6 +101,12 @@ app.get("/sessions/:tenantId/status", (req, res) => {
     const { tenantId } = req.params;
     const info = getSessionInfo(tenantId);
     res.json(info);
+});
+
+/** Anti-ban health status for a tenant */
+app.get("/sessions/:tenantId/health", (req, res) => {
+    const { tenantId } = req.params;
+    res.json(getHealthStatus(tenantId));
 });
 
 /** Send a message */
