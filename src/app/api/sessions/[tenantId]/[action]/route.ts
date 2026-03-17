@@ -75,6 +75,18 @@ export async function GET(
 
     const { tenantId, action } = await params;
 
+    // Verify user owns this tenant
+    const supabase = await createClient();
+    const { data: tenant } = await supabase
+        .from("tenants")
+        .select("id")
+        .eq("id", tenantId)
+        .eq("owner_id", user.id)
+        .single();
+
+    if (!tenant)
+        return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
     const SESSION_MANAGER_URL = process.env.SESSION_MANAGER_URL || "http://localhost:3001";
     const SESSION_MANAGER_SECRET = process.env.SESSION_MANAGER_SECRET || "";
 

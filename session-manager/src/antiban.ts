@@ -281,3 +281,30 @@ const RISK_MESSAGES: Record<RiskLevel, string> = {
 export function getRiskAlertMessage(risk: RiskLevel): string | null {
     return risk === "low" ? null : RISK_MESSAGES[risk];
 }
+
+// ─── Global Message Rate Limiter ────────────────────────────────────
+
+const GLOBAL_MAX_PER_MINUTE = 25;  // max outgoing messages per minute across all conversations
+const globalSendTimestamps: number[] = [];
+
+/**
+ * Check if we can send a message globally. Returns delay in ms to wait (0 = send now).
+ * This prevents burst sending across multiple conversations simultaneously.
+ */
+export function getGlobalSendDelay(): number {
+    const now = Date.now();
+    // Prune timestamps older than 1 minute
+    while (globalSendTimestamps.length > 0 && now - globalSendTimestamps[0] > 60_000) {
+        globalSendTimestamps.shift();
+    }
+
+    if (globalSendTimestamps.length < GLOBAL_MAX_PER_MINUTE) {
+        globalSendTimestamps.push(now);
+        return 0;
+    }
+
+    // Need to wait until the oldest timestamp expires
+    const waitUntil = globalSendTimestamps[0] + 60_000;
+    globalSendTimestamps.push(waitUntil);
+    return waitUntil - now;
+}

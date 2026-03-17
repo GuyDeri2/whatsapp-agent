@@ -11,7 +11,7 @@
  * Set CALENDLY_WEBHOOK_SECRET in .env.local.
  */
 
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -27,7 +27,10 @@ function verifySignature(rawBody: string, signature: string | null): boolean {
     const secret = process.env.CALENDLY_WEBHOOK_SECRET;
     if (!secret || !signature) return false;
     const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-    return expected === signature;
+    const expectedBuf = Buffer.from(expected, "hex");
+    const signatureBuf = Buffer.from(signature, "hex");
+    if (expectedBuf.length !== signatureBuf.length) return false;
+    return timingSafeEqual(expectedBuf, signatureBuf);
 }
 
 /** Resolve tenant_id from a Calendly user URI */

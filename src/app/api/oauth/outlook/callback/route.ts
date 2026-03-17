@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
+
+const STATE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 
 // GET /api/oauth/outlook/callback — handle Microsoft OAuth callback
 export async function GET(req: Request) {
@@ -22,6 +25,21 @@ export async function GET(req: Request) {
     const decoded = JSON.parse(Buffer.from(state, 'base64').toString());
     tenantId = decoded.tenantId;
     if (!tenantId) throw new Error('missing tenantId');
+
+    // Verify HMAC signature to prevent state tampering
+    const stateSecret = process.env.OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const expectedSig = crypto.createHmac('sha256', stateSecret)
+      .update(`${decoded.tenantId}:${decoded.userId}:${decoded.ts}`)
+      .digest('hex');
+
+    if (decoded.sig !== expectedSig) {
+      throw new Error('invalid signature');
+    }
+
+    // Prevent replay attacks — state must not be older than 10 minutes
+    if (Date.now() - decoded.ts > STATE_MAX_AGE_MS) {
+      throw new Error('state expired');
+    }
   } catch {
     return NextResponse.redirect(`${appUrl}/?error=invalid_oauth_state`);
   }

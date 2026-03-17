@@ -23,7 +23,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
 import { useSupabaseAuthState, clearSessionData, clearAuthState, flushCacheToDB, stopBackgroundSync, saveCredsBackup, restoreCredsFromBackup, getTenantsWithBackup } from "./session-store";
 import { handleIncomingMessage, clearPendingAiReply, setLidResolver, setLidDbResolver, markOwnerSent } from "./message-handler";
-import { onDisconnect as antibanOnDisconnect, onReconnect as antibanOnReconnect, onMessageFailed, getHealthStatus, getRiskAlertMessage, startPresencePauseScheduler, gaussianRandom } from "./antiban";
+import { onDisconnect as antibanOnDisconnect, onReconnect as antibanOnReconnect, onMessageFailed, getHealthStatus, getRiskAlertMessage, startPresencePauseScheduler, gaussianRandom, getGlobalSendDelay } from "./antiban";
 // Inject synchronous LID resolver (memory-only fast path)
 setLidResolver((tenantId, jid) => resolveLidJid(tenantId, jid));
 // Inject async DB fallback resolver (used when memory map is empty after restart)
@@ -405,6 +405,25 @@ function notifyQRUpdate(tenantId: string, qrDataUrl: string | null) {
     }
 }
 
+// ─── Unique Browser Fingerprint Per Tenant ────────────────────────────
+const BROWSER_OPTIONS = [
+    Browsers.ubuntu("Chrome"),
+    Browsers.macOS("Safari"),
+    Browsers.windows("Edge"),
+    Browsers.macOS("Chrome"),
+    Browsers.windows("Chrome"),
+    Browsers.ubuntu("Firefox"),
+];
+
+// Deterministic browser selection based on tenantId (consistent across reconnects)
+function getBrowserForTenant(tenantId: string): [string, string, string] {
+    let hash = 0;
+    for (let i = 0; i < tenantId.length; i++) {
+        hash = ((hash << 5) - hash + tenantId.charCodeAt(i)) | 0;
+    }
+    return BROWSER_OPTIONS[Math.abs(hash) % BROWSER_OPTIONS.length];
+}
+
 // ─── Logger ───────────────────────────────────────────────────────────
 const logger = pino({ level: "warn" });
 
@@ -412,6 +431,12 @@ const logger = pino({ level: "warn" });
 // Simulates typing before each AI reply so the connection looks human.
 function makeHumanSend(socket: WASocket, tenantId?: string) {
     return async (jid: string, content: { text: string }) => {
+        // Global rate limit — prevent burst sending across all conversations
+        const globalDelay = getGlobalSendDelay();
+        if (globalDelay > 0) {
+            await new Promise(r => setTimeout(r, globalDelay));
+        }
+
         // Only simulate typing for individual chats (not groups / system JIDs)
         if (jid.endsWith("@s.whatsapp.net")) {
             // Pre-establish the Signal encryption session so the recipient never
@@ -1063,7 +1088,7 @@ export async function createSession(tenantId: string): Promise<void> {
     const socket = makeWASocket({
         version,
         logger,
-        browser: Browsers.ubuntu("Chrome"),  // Appear as Chrome on Linux — not "Baileys"
+        browser: getBrowserForTenant(tenantId),  // Unique per tenant — deterministic across reconnects
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -1783,9 +1808,13 @@ export async function createSession(tenantId: string): Promise<void> {
             // This is a strong human-behavior signal — real WhatsApp clients
             // always send read receipts. Skipping them is a bot tell.
             if (!isFromMe && msg.key.id) {
-                try {
-                    await socket.readMessages([msg.key]);
-                } catch { /* non-fatal — some JIDs don't support receipts */ }
+                // Delay read receipt to look more human (1-3 seconds)
+                const readDelay = gaussianRandom(1_000, 3_000);
+                setTimeout(async () => {
+                    try {
+                        await socket.readMessages([msg.key]);
+                    } catch { /* non-fatal */ }
+                }, readDelay);
             }
 
             try {

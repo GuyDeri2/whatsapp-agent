@@ -13,10 +13,10 @@ export async function POST(
 
         // 1. Authenticate user
         const {
-            data: { session },
-        } = await supabase.auth.getSession();
+            data: { user },
+        } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
@@ -27,7 +27,7 @@ export async function POST(
             .eq("id", tenantId)
             .single();
 
-        if (tenantError || !tenant || tenant.owner_id !== session.user.id) {
+        if (tenantError || !tenant || tenant.owner_id !== user.id) {
             return NextResponse.json(
                 { error: "Forbidden - Not tenant owner" },
                 { status: 403 }

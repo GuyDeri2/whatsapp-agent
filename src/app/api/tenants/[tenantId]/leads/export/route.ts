@@ -29,11 +29,28 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Validate URL
+  let url: URL;
   try {
-    const url = new URL(tenant.lead_webhook_url);
+    url = new URL(tenant.lead_webhook_url);
     if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid protocol');
   } catch {
     return NextResponse.json({ error: 'Invalid webhook URL' }, { status: 400 });
+  }
+
+  // SSRF protection: block requests to private/internal networks
+  const hostname = url.hostname;
+  const isPrivate =
+    hostname === 'localhost' ||
+    hostname === '0.0.0.0' ||
+    hostname === '::1' ||
+    /^127\./.test(hostname) ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    /^169\.254\./.test(hostname);
+
+  if (isPrivate) {
+    return NextResponse.json({ error: 'Webhook URL points to a private/internal address' }, { status: 400 });
   }
 
   // Send all leads in one payload

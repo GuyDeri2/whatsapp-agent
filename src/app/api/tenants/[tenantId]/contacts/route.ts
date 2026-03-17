@@ -11,10 +11,10 @@ export async function GET(
         const supabase = await createClient();
 
         const {
-            data: { session },
-        } = await supabase.auth.getSession();
+            data: { user },
+        } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
@@ -25,7 +25,7 @@ export async function GET(
             .eq("id", tenantId)
             .single();
 
-        if (!tenant || tenant.owner_id !== session.user.id) {
+        if (!tenant || tenant.owner_id !== user.id) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
@@ -55,10 +55,10 @@ export async function POST(
         const supabase = await createClient();
 
         const {
-            data: { session },
-        } = await supabase.auth.getSession();
+            data: { user },
+        } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
@@ -68,7 +68,7 @@ export async function POST(
             .eq("id", tenantId)
             .single();
 
-        if (!tenant || tenant.owner_id !== session.user.id) {
+        if (!tenant || tenant.owner_id !== user.id) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
@@ -111,10 +111,10 @@ export async function DELETE(
         const supabase = await createClient();
 
         const {
-            data: { session },
-        } = await supabase.auth.getSession();
+            data: { user },
+        } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
@@ -124,7 +124,7 @@ export async function DELETE(
             .eq("id", tenantId)
             .single();
 
-        if (!tenant || tenant.owner_id !== session.user.id) {
+        if (!tenant || tenant.owner_id !== user.id) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 

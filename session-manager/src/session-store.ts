@@ -34,6 +34,16 @@ function getSupabase(): SupabaseClient {
 const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY || null;
 const ALGORITHM = "aes-256-gcm";
 
+// Startup check: warn loudly if encryption key is missing
+if (!ENCRYPTION_KEY) {
+    console.warn("╔══════════════════════════════════════════════════════════════╗");
+    console.warn("║  WARNING: SESSION_ENCRYPTION_KEY is NOT set!                ║");
+    console.warn("║  WhatsApp session data will NOT be encrypted at rest.       ║");
+    console.warn("║  Creds backup will be DISABLED.                             ║");
+    console.warn("║  Set SESSION_ENCRYPTION_KEY in your environment variables.  ║");
+    console.warn("╚══════════════════════════════════════════════════════════════╝");
+}
+
 function getEncryptionKeyBuffer(): Buffer | null {
     if (!ENCRYPTION_KEY) return null;
     // Key must be exactly 32 bytes for AES-256. SHA-256 hash ensures correct length.
@@ -311,8 +321,7 @@ export async function useSupabaseAuthState(
  */
 export async function saveCredsBackup(tenantId: string): Promise<void> {
     if (!ENCRYPTION_KEY) {
-        console.warn(`[${tenantId}] ⚠️ SESSION_ENCRYPTION_KEY not set — skipping creds backup`);
-        return;
+        throw new Error(`[${tenantId}] SESSION_ENCRYPTION_KEY is not set — cannot save creds backup. Set this environment variable to enable encrypted backups.`);
     }
     const cache = sessionCache.get(tenantId);
     if (!cache) return;
