@@ -556,7 +556,13 @@ export async function startSession(tenantId: string): Promise<void> {
             console.log(`[${tenantId}] Session already connected`);
             return;
         }
-        // If disconnected, clean up before reconnecting
+        // Remove event listeners BEFORE ending the socket to prevent the
+        // disconnect handler from firing and creating a competing session.
+        const ev = existing.socket.ev;
+        try { ev.removeAllListeners("connection.update"); } catch { /* ignore */ }
+        try { ev.removeAllListeners("creds.update"); } catch { /* ignore */ }
+        try { ev.removeAllListeners("messaging-history.set"); } catch { /* ignore */ }
+        try { ev.removeAllListeners("messages.upsert"); } catch { /* ignore */ }
         try {
             existing.socket.end(undefined);
         } catch { /* ignore */ }
@@ -1396,6 +1402,16 @@ export async function createSession(tenantId: string): Promise<void> {
                 `[${tenantId}] ❌ Connection closed (code: ${statusCode}, msg: ${errorMessage})`
             );
 
+            // If this socket was killed by our own code (startSession/stopSession called
+            // socket.end()), statusCode is undefined. Don't reconnect — the caller is
+            // already creating a replacement session or intentionally stopping.
+            if (statusCode === undefined) {
+                console.log(`[${tenantId}] 🔇 Socket closed by our code (no error code) — not reconnecting`);
+                sessions.delete(tenantId);
+                _reconnecting.delete(tenantId);
+                return;
+            }
+
             // Resolve human-readable disconnect reason name
             const disconnectReasonName = (Object.entries(DisconnectReason) as [string, number][])
                 .find(([, v]) => v === statusCode)?.[0] ?? "unknown";
@@ -1518,10 +1534,17 @@ export async function createSession(tenantId: string): Promise<void> {
                 return;
             }
 
-            // Handle connectionLost (408) — pure network dropout, NOT an auth failure.
-            // Reconnect quickly and reset retry counter so transient outages never exhaust
-            // the retry budget. Auth state is always preserved (no QR needed).
+            // Handle connectionLost (408) — could be a network dropout OR QR timeout.
+            // If QR refs ended (no creds saved), do NOT auto-reconnect — that creates
+            // infinite QR loops. Only reconnect if there's actual auth to preserve.
             if (statusCode === DisconnectReason.connectionLost) {
+                const reason = lastDisconnect?.error?.message || "";
+                if (reason.includes("QR refs attempts ended")) {
+                    console.log(`[${tenantId}] ⏰ QR scan timed out — stopping. User must click Connect again.`);
+                    sessions.delete(tenantId);
+                    _reconnecting.delete(tenantId);
+                    return;
+                }
                 sessionInfo.retryCount = 0; // network drop doesn't count as a failure
                 const delay = 4_000;
                 console.log(`[${tenantId}] 📡 Connection lost (408) — reconnecting in ${delay / 1000}s (auth preserved)...`);
