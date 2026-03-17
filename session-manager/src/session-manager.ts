@@ -1461,12 +1461,15 @@ export async function createSession(tenantId: string): Promise<void> {
             }
 
             // Handle connectionReplaced (440) — another instance (e.g. new deploy) took over.
-            // The creds are still valid for the new instance, so do NOT clear session data
-            // or delete the backup. Just clean up local state and stop.
+            // Clear crypto keys so a fresh QR scan works, but preserve conversations & backup.
+            // Use clearAuthState (NOT clearSessionData) to avoid destroying the backup.
             if (statusCode === DisconnectReason.connectionReplaced) {
-                console.log(`[${tenantId}] 🔁 Connection replaced (likely deploy) — keeping creds & backup intact, stopping locally`);
+                console.log(`[${tenantId}] 🔁 Connection replaced — clearing auth (preserving conversations & backup)`);
                 sessions.delete(tenantId);
                 _reconnecting.delete(tenantId);
+                if (!_shuttingDown) {
+                    await clearAuthState(tenantId);
+                }
                 return;
             }
 
