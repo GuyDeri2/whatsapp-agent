@@ -21,7 +21,7 @@ import QRCode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import pino from "pino";
-import { useSupabaseAuthState, clearSessionData, clearAuthState, flushCacheToDB, stopBackgroundSync, saveCredsBackup, restoreCredsFromBackup, getTenantsWithBackup } from "./session-store";
+import { useSupabaseAuthState, clearSessionData, clearAuthState, clearLocalCache, flushCacheToDB, stopBackgroundSync, saveCredsBackup, restoreCredsFromBackup, getTenantsWithBackup } from "./session-store";
 import { handleIncomingMessage, clearPendingAiReply, setLidResolver, setLidDbResolver, markOwnerSent } from "./message-handler";
 import { onDisconnect as antibanOnDisconnect, onReconnect as antibanOnReconnect, onMessageFailed, getHealthStatus, getRiskAlertMessage, startPresencePauseScheduler, gaussianRandom, getGlobalSendDelay } from "./antiban";
 // Inject synchronous LID resolver (memory-only fast path)
@@ -549,12 +549,12 @@ export async function startSession(tenantId: string): Promise<void> {
         sessions.delete(tenantId);
     }
 
-    // Clear stale crypto keys so Baileys starts completely fresh and generates
-    // a valid QR code. Without this, leftover creds (registered: true) from a
-    // previous session cause WhatsApp to reject the QR scan with "can't link device".
-    // Conversations are preserved — only the Signal crypto keys are wiped.
-    console.log(`[${tenantId}] 🔑 Clearing stale auth state before fresh QR session...`);
-    await clearAuthState(tenantId);
+    // Clear stale crypto keys AND backup so Baileys starts completely fresh
+    // and generates a valid QR code. Without this, leftover creds (registered: true)
+    // from a previous session or backup cause WhatsApp to reject the QR scan
+    // with "can't link device". Conversations are preserved.
+    console.log(`[${tenantId}] 🔑 Clearing stale auth state + backup before fresh QR session...`);
+    await clearAuthState(tenantId, true);
 
     console.log(`[${tenantId}] Starting new WhatsApp session...`);
     await createSession(tenantId);
@@ -823,6 +823,14 @@ export async function checkWhatsAppNumber(tenantId: string, phone: string): Prom
  * Restore all previously connected sessions on server start.
  */
 export async function restoreAllSessions(): Promise<void> {
+    // During zero-downtime deploys (Render), the old instance is still running.
+    // Wait before connecting to give the old instance time to receive SIGTERM
+    // and set _shuttingDown. Without this, our connection triggers a 440 on
+    // the old instance before it knows it's shutting down.
+    const DEPLOY_OVERLAP_DELAY_MS = 10_000;
+    console.log(`⏳ Waiting ${DEPLOY_OVERLAP_DELAY_MS / 1000}s before restoring sessions (deploy overlap protection)...`);
+    await new Promise(r => setTimeout(r, DEPLOY_OVERLAP_DELAY_MS));
+
     // Find all tenants that have saved WhatsApp auth state (creds)
     const { data: sessionsWithCreds } = await getSupabase()
         .from("whatsapp_sessions")
@@ -1461,15 +1469,14 @@ export async function createSession(tenantId: string): Promise<void> {
             }
 
             // Handle connectionReplaced (440) — another instance (e.g. new deploy) took over.
-            // Clear crypto keys so a fresh QR scan works, but preserve conversations & backup.
-            // Use clearAuthState (NOT clearSessionData) to avoid destroying the backup.
+            // The new instance now owns the DB rows. Do NOT touch the DB at all —
+            // clearAuthState would wipe the keys the new instance is actively using.
+            // Only clear local in-memory caches.
             if (statusCode === DisconnectReason.connectionReplaced) {
-                console.log(`[${tenantId}] 🔁 Connection replaced — clearing auth (preserving conversations & backup)`);
+                console.log(`[${tenantId}] 🔁 Connection replaced — local cleanup only (new instance owns DB)`);
                 sessions.delete(tenantId);
                 _reconnecting.delete(tenantId);
-                if (!_shuttingDown) {
-                    await clearAuthState(tenantId);
-                }
+                clearLocalCache(tenantId);
                 return;
             }
 

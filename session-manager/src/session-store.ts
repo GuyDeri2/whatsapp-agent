@@ -444,10 +444,20 @@ export function stopBackgroundSync(tenantId: string): void {
     }
 }
 
+// ─── Local-only cleanup: clear in-memory caches without touching the DB ────
+// Used when another instance has taken over (connectionReplaced 440).
+// The new instance owns the DB — we must not delete its rows.
+export function clearLocalCache(tenantId: string): void {
+    stopBackgroundSync(tenantId);
+    if (sessionCache.has(tenantId)) sessionCache.get(tenantId)!.clear();
+    if (dirtyKeys.has(tenantId)) dirtyKeys.get(tenantId)!.clear();
+    console.log(`[${tenantId}] 🧹 Local cache cleared (DB untouched).`);
+}
+
 // ─── Cleanup: wipe only WhatsApp crypto/auth keys (preserve conversations) ───
 // Call this before starting a fresh QR session to avoid "can't link device" errors.
 // Unlike clearSessionData, this does NOT delete conversations or messages.
-export async function clearAuthState(tenantId: string): Promise<void> {
+export async function clearAuthState(tenantId: string, deleteBackup = false): Promise<void> {
     stopBackgroundSync(tenantId);
     if (sessionCache.has(tenantId)) sessionCache.get(tenantId)!.clear();
     if (dirtyKeys.has(tenantId)) dirtyKeys.get(tenantId)!.clear();
@@ -459,7 +469,15 @@ export async function clearAuthState(tenantId: string): Promise<void> {
         .eq("tenant_id", tenantId)
         .not("session_key", "like", "lid_%")
         .neq("session_key", "contacts");
-    console.log(`[${tenantId}] 🔑 Auth state cleared (crypto keys wiped, LID mappings + contacts preserved).`);
+    if (deleteBackup) {
+        await getSupabase()
+            .from("whatsapp_creds_backup")
+            .delete()
+            .eq("tenant_id", tenantId);
+        console.log(`[${tenantId}] 🔑 Auth state + backup cleared (crypto keys wiped, LID mappings + contacts preserved).`);
+    } else {
+        console.log(`[${tenantId}] 🔑 Auth state cleared (crypto keys wiped, LID mappings + contacts + backup preserved).`);
+    }
 }
 
 // ─── Cleanup: remove all session data for a tenant ────────────────────
