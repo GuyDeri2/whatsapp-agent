@@ -569,6 +569,11 @@ export async function stopSession(
 ): Promise<void> {
     const session = sessions.get(tenantId);
     if (session) {
+        // Clean up LID sweep interval BEFORE deleting session from map
+        if (session.lidSweepInterval) {
+            clearInterval(session.lidSweepInterval);
+            session.lidSweepInterval = undefined;
+        }
         if (clearData) {
             // User explicitly wants to disconnect — logout invalidates the session
             try { await session.socket.logout(); } catch { /* ignore */ }
@@ -584,14 +589,6 @@ export async function stopSession(
     if (picInterval) {
         clearInterval(picInterval);
         profilePicIntervals.delete(tenantId);
-    }
-    // Clear LID sweep interval
-    const sessionForCleanup = sessions.get(tenantId);
-    if (sessionForCleanup) {
-        if (sessionForCleanup?.lidSweepInterval) {
-            clearInterval(sessionForCleanup.lidSweepInterval);
-            sessionForCleanup.lidSweepInterval = undefined;
-        }
     }
     const heartbeat = presenceHeartbeatIntervals.get(tenantId);
     if (heartbeat) {

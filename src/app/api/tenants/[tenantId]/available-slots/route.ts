@@ -11,6 +11,15 @@ export async function GET(req: Request, { params }: Params) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // Verify tenant ownership
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('id')
+    .eq('id', tenantId)
+    .eq('owner_id', user.id)
+    .single();
+  if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
   const url = new URL(req.url);
   const dateStr = url.searchParams.get('date'); // YYYY-MM-DD
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
