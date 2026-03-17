@@ -535,7 +535,21 @@ function makeHumanSend(socket: WASocket, tenantId?: string) {
  * Start a new WhatsApp session for a tenant.
  * Returns immediately — QR code will be available via getSessionInfo().
  */
+// Prevent rapid startSession calls that consume WhatsApp device slots
+const _startSessionLock = new Map<string, number>();
+const START_SESSION_COOLDOWN_MS = 30_000; // 30s between startSession calls
+
 export async function startSession(tenantId: string): Promise<void> {
+    // Guard against rapid repeated calls (each creates a new device in WhatsApp)
+    const now = Date.now();
+    const lastStart = _startSessionLock.get(tenantId) || 0;
+    if (now - lastStart < START_SESSION_COOLDOWN_MS) {
+        const waitSec = Math.ceil((START_SESSION_COOLDOWN_MS - (now - lastStart)) / 1000);
+        console.log(`[${tenantId}] ⏳ startSession cooldown — already started ${Math.round((now - lastStart) / 1000)}s ago, wait ${waitSec}s`);
+        throw new Error(`Session start cooldown active. Try again in ${waitSec} seconds.`);
+    }
+    _startSessionLock.set(tenantId, now);
+
     if (sessions.has(tenantId)) {
         const existing = sessions.get(tenantId)!;
         if (existing.status === "connected") {
