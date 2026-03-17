@@ -22,11 +22,13 @@ import {
     normalizePhone,
     isReconnecting,
     probeSessionHealth,
+    setShuttingDown,
 } from "./session-manager";
 import { invalidateTenantConfigCache } from "./message-handler";
 import { getHealthStatus } from "./antiban";
 import { runBatchLearning } from "./learning-engine";
 import { sendDayBeforeReminders, sendTwoHourReminders } from "./reminders";
+import { saveCredsBackup, flushCacheToDB } from "./session-store";
 
 const app = express();
 // Default port for the session manager (dashboard runs on 3000)
@@ -248,10 +250,27 @@ process.on("unhandledRejection", (reason: any) => {
 // ─── Graceful Shutdown ────────────────────────────────────────────────
 async function gracefulShutdown(signal: string) {
     console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
-    const sessions = getActiveSessions();
-    console.log(`Closing ${sessions.length} active session(s)...`);
 
-    for (const tenantId of sessions) {
+    // Set flag BEFORE closing sockets — this prevents disconnect handlers
+    // from calling clearSessionData (which would destroy creds for the new instance).
+    setShuttingDown();
+
+    const activeSessions = getActiveSessions();
+    console.log(`Closing ${activeSessions.length} active session(s)...`);
+
+    // Save creds backup for each active session before stopping.
+    // This ensures the new instance can restore even if main creds get cleared.
+    for (const tenantId of activeSessions) {
+        try {
+            await flushCacheToDB(tenantId);
+            await saveCredsBackup(tenantId);
+            console.log(`[${tenantId}] 💾 Creds backup saved before shutdown`);
+        } catch (err: any) {
+            console.error(`[${tenantId}] Failed to save backup:`, err.message);
+        }
+    }
+
+    for (const tenantId of activeSessions) {
         try {
             await stopSession(tenantId, false); // false = keep auth data
         } catch (err: any) {

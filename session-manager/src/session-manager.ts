@@ -73,6 +73,15 @@ const MAX_PREKEY_ERRORS = 50; // after this many PreKeyErrors, clear session and
  */
 const _reconnecting = new Set<string>();
 
+// Flag set during graceful shutdown — prevents disconnect handlers from
+// calling clearSessionData (which would destroy creds the new instance needs).
+let _shuttingDown = false;
+
+export function setShuttingDown(): void {
+    _shuttingDown = true;
+    console.log("🛑 Shutting down flag set — disconnect handlers will skip destructive cleanup");
+}
+
 /** Returns true if the given tenant is currently in a reconnect cycle. */
 export function isReconnecting(tenantId: string): boolean {
     return _reconnecting.has(tenantId);
@@ -1410,6 +1419,13 @@ export async function createSession(tenantId: string): Promise<void> {
                 presencePauseCleanups.delete(tenantId);
             }
 
+            // During shutdown, skip all reconnect logic — just clean up
+            if (_shuttingDown) {
+                console.log(`[${tenantId}] 🛑 Shutdown in progress — skipping reconnect (code: ${statusCode})`);
+                sessions.delete(tenantId);
+                return;
+            }
+
             // Handle 515 (restartRequired) — WhatsApp server asks us to restart the connection.
             // This is NOT a permanent failure; reconnect quickly without clearing auth.
             if (statusCode === 515) {
@@ -1433,20 +1449,24 @@ export async function createSession(tenantId: string): Promise<void> {
 
             // Handle loggedOut (401) — session expired, user must rescan QR
             if (statusCode === DisconnectReason.loggedOut) {
-                console.log(`[${tenantId}] 🚪 Logged out — clearing session data, QR rescan required`);
                 sessions.delete(tenantId);
                 _reconnecting.delete(tenantId);
-                await clearSessionData(tenantId);
+                if (_shuttingDown) {
+                    console.log(`[${tenantId}] 🚪 Logged out during shutdown — skipping data wipe`);
+                } else {
+                    console.log(`[${tenantId}] 🚪 Logged out — clearing session data, QR rescan required`);
+                    await clearSessionData(tenantId);
+                }
                 return;
             }
 
-            // Handle connectionReplaced (440) — another WhatsApp client took over this session.
-            // Reconnecting immediately would just get replaced again. Require fresh QR scan.
+            // Handle connectionReplaced (440) — another instance (e.g. new deploy) took over.
+            // The creds are still valid for the new instance, so do NOT clear session data
+            // or delete the backup. Just clean up local state and stop.
             if (statusCode === DisconnectReason.connectionReplaced) {
-                console.log(`[${tenantId}] 🔁 Connection replaced by another device — clearing session, QR rescan required`);
+                console.log(`[${tenantId}] 🔁 Connection replaced (likely deploy) — keeping creds & backup intact, stopping locally`);
                 sessions.delete(tenantId);
                 _reconnecting.delete(tenantId);
-                await clearSessionData(tenantId);
                 return;
             }
 
