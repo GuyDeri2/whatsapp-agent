@@ -220,7 +220,7 @@ function findPhoneByPushName(tenantId: string, pushName: string): string | null 
 
 /**
  * Rename a conversation stored under a LID phone number to the real phone number.
- * Skips if a conversation with the real phone already exists (no merge needed for now).
+ * If a conversation with the real phone already exists, merges messages into it.
  */
 async function fixLidConversation(tenantId: string, lidNum: string, realPhone: string): Promise<void> {
     const supabase = getSupabase();
@@ -251,6 +251,52 @@ async function fixLidConversation(tenantId: string, lidNum: string, realPhone: s
         }
         await supabase.from("conversations").delete().eq("id", lidConv.id);
         console.log(`[${tenantId}] 🔀 LID conversation merged into real: ${lidNum} → ${realPhone}`);
+    }
+}
+
+/**
+ * CRITICAL: Before creating a conversation with a real phone number, check if
+ * there's an existing LID conversation for the same contact and merge it.
+ *
+ * This prevents the "two conversations" bug:
+ *   1. Contact sends via LID → LID conversation created (mapping unknown)
+ *   2. Owner replies → real-phone conversation about to be created
+ *   → WITHOUT this function: two separate conversations exist
+ *   → WITH this function: LID conversation is merged into the real-phone one
+ *
+ * Resolution order:
+ *   1. Reverse-lookup in memory LID→phone map (instant, O(n) on map size ~tiny)
+ *   2. socket.onWhatsApp() API call (discovers LID↔phone mapping from WhatsApp)
+ */
+async function mergeLidIfNeeded(tenantId: string, realPhone: string, socket?: WASocket): Promise<void> {
+    if (realPhone.length >= 15) return; // This IS a LID number, not a real phone
+
+    // 1. Check memory map: does any LID map to this real phone?
+    const map = tenantLidToPhone.get(tenantId);
+    if (map) {
+        for (const [lidNum, phone] of map) {
+            if (phone === realPhone) {
+                await fixLidConversation(tenantId, lidNum, realPhone);
+                return;
+            }
+        }
+    }
+
+    // 2. If no mapping in memory, ask WhatsApp directly for the LID
+    if (socket) {
+        try {
+            const results = await socket.onWhatsApp(realPhone) as Array<{ jid: string; lid?: string; exists: boolean }> | undefined;
+            const match = results?.find(r => r.lid);
+            if (match?.lid) {
+                const lidNum = match.lid.split("@")[0];
+                // Persist the newly discovered mapping
+                await persistLidMapping(tenantId, lidNum, realPhone);
+                await fixLidConversation(tenantId, lidNum, realPhone);
+                console.log(`[${tenantId}] 🔗 LID discovered via onWhatsApp: ${lidNum} → ${realPhone}`);
+            }
+        } catch {
+            // Non-fatal — onWhatsApp might fail for various reasons
+        }
     }
 }
 
@@ -695,6 +741,12 @@ export async function sendMessage(tenantId: string, jid: string, text: string): 
     // 2. Save to DB as owner message
     const supabase = getSupabase();
     const phoneNumber = resolvedPhone;
+
+    // CRITICAL: Before creating/upserting the conversation with the real phone,
+    // check if there's an existing LID conversation for this contact and merge it.
+    // Without this, owner replies create a SECOND conversation separate from the
+    // LID conversation where the customer's incoming messages are stored.
+    await mergeLidIfNeeded(tenantId, phoneNumber, session.socket);
 
     // Ensure conversation exists and update its timestamp
     const { data: conversation, error: convError } = await supabase
@@ -1818,6 +1870,18 @@ export async function createSession(tenantId: string): Promise<void> {
             }
 
             try {
+                // CRITICAL: For real-phone messages (fromMe=true owner replies from
+                // the WhatsApp phone, or incoming messages from contacts using their
+                // real JID), check for and merge any existing LID conversation BEFORE
+                // handleIncomingMessage creates/upserts the conversation.
+                // This prevents the "two conversations for same contact" bug.
+                if (!remoteJid.endsWith("@lid") && !remoteJid.endsWith("@g.us") && !remoteJid.endsWith("@broadcast")) {
+                    const phoneNum = remoteJid.split("@")[0];
+                    if (phoneNum.length <= 13) {
+                        await mergeLidIfNeeded(tenantId, phoneNum, socket);
+                    }
+                }
+
                 await handleIncomingMessage(
                     tenantId,
                     remoteJid,
@@ -1838,7 +1902,7 @@ export async function createSession(tenantId: string): Promise<void> {
                 // to fix the conversation retroactively.
                 const phoneNumber = remoteJid.split("@")[0];
                 if (remoteJid.endsWith("@lid") && phoneNumber.length >= 15) {
-                    const LID_DEFERRED_FIX_DELAY_MS = 3_000;
+                    const LID_DEFERRED_FIX_DELAY_MS = 1_000; // Reduced from 3s — contacts.upsert fires within ~200ms
                     setTimeout(async () => {
                         try {
                             // Guard: skip if session disconnected while we waited
@@ -1863,7 +1927,7 @@ export async function createSession(tenantId: string): Promise<void> {
                                 return;
                             }
 
-                            // Last resort: try to find the contact by name in our contacts cache
+                            // Fallback 1: try to find the contact by name in our contacts cache
                             const contactName = lidConv.contact_name;
                             if (contactName) {
                                 const realPhone = findPhoneByPushName(tenantId, contactName);
@@ -1871,7 +1935,40 @@ export async function createSession(tenantId: string): Promise<void> {
                                     console.log(`[${tenantId}] 🔧 Deferred LID fix via name: ${phoneNumber} → ${realPhone} (${contactName})`);
                                     await persistLidMapping(tenantId, phoneNumber, realPhone);
                                     await fixLidConversation(tenantId, phoneNumber, realPhone);
+                                    return;
                                 }
+                            }
+
+                            // Fallback 2: query WhatsApp for ALL real-phone conversations to
+                            // discover which LID maps to which phone. This is the most reliable
+                            // method but costs N API calls (one per phone number chunk).
+                            try {
+                                const { data: realConvs } = await getSupabase()
+                                    .from("conversations")
+                                    .select("phone_number")
+                                    .eq("tenant_id", tenantId)
+                                    .eq("is_group", false);
+                                const realPhones = (realConvs || [])
+                                    .map(c => c.phone_number as string)
+                                    .filter(p => p.length <= 13);
+                                if (realPhones.length > 0) {
+                                    const results = await session.socket.onWhatsApp(...realPhones.slice(0, 50)) as Array<{ jid: string; lid?: string; exists: boolean }> | undefined;
+                                    for (const r of results || []) {
+                                        if (!r.lid || !r.jid) continue;
+                                        const rLidNum = r.lid.split("@")[0];
+                                        if (rLidNum === phoneNumber) {
+                                            const rPhone = r.jid.split("@")[0];
+                                            console.log(`[${tenantId}] 🔧 Deferred LID fix via onWhatsApp: ${phoneNumber} → ${rPhone}`);
+                                            await persistLidMapping(tenantId, phoneNumber, rPhone);
+                                            await fixLidConversation(tenantId, phoneNumber, rPhone);
+                                            return;
+                                        }
+                                        // Persist any other discovered mappings while we're at it
+                                        await persistLidMapping(tenantId, rLidNum, r.jid.split("@")[0]);
+                                    }
+                                }
+                            } catch (waErr: any) {
+                                console.warn(`[${tenantId}] ⚠️ Deferred LID onWhatsApp fallback error:`, waErr.message);
                             }
                         } catch (err: any) {
                             console.error(`[${tenantId}] ❌ Deferred LID fix error:`, err.message);
