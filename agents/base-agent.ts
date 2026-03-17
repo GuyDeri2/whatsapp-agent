@@ -113,19 +113,67 @@ Rules:
     const start = Date.now();
     const systemPrompt = this.buildSystemPrompt();
 
-    // Setup tools
+    // Setup tools — specialized tools reduce wasted iterations
     const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       {
         type: "function",
         function: {
+          name: "read_file",
+          description: "Read a file's contents. Use offset/limit for large files. Path is relative to project root.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "File path relative to project root, e.g. 'session-manager/src/server.ts'" },
+              offset: { type: "number", description: "Start line (0-based). Omit to read from start." },
+              limit: { type: "number", description: "Max lines to return. Omit to read entire file (capped at 300 lines)." },
+            },
+            required: ["path"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "search_code",
+          description: "Search for a pattern in files using grep. Returns matching lines with file paths and line numbers.",
+          parameters: {
+            type: "object",
+            properties: {
+              pattern: { type: "string", description: "Regex pattern to search for" },
+              path: { type: "string", description: "Directory or file to search in (relative to project root). Default: '.'" },
+              include: { type: "string", description: "File glob pattern, e.g. '*.ts' or '*.tsx'" },
+            },
+            required: ["pattern"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "list_files",
+          description: "List files in a directory. Useful for understanding project structure.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Directory path relative to project root. Default: '.'" },
+              recursive: { type: "boolean", description: "List recursively. Default: false" },
+              include: { type: "string", description: "File glob pattern filter, e.g. '*.ts'" },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
           name: "execute_cli_command",
-          description: "Execute a command line (CLI) instruction in the project root folder. Use this to deploy, test, lint, or run scripts. The command will run in a real shell environment. You will receive the standard output and standard error.",
+          description: "Execute a shell command in the project root. Use for: npm/npx, git, supabase CLI, deploy commands, tests. Do NOT use for reading files (use read_file) or searching (use search_code).",
           parameters: {
             type: "object",
             properties: {
               command: {
                 type: "string",
-                description: "The exact shell command to execute, e.g. 'vercel deploy --prod' or 'npm run check'.",
+                description: "The exact shell command to execute.",
               },
             },
             required: ["command"],
@@ -142,6 +190,12 @@ Rules:
           `**Task:** ${task.instruction}`,
           task.context ? `**Context:** ${task.context}` : null,
           `**Priority:** ${task.priority}`,
+          '',
+          '**IMPORTANT — Tool usage rules:**',
+          '1. PLAN first: before using any tools, briefly state what you need to find and which files/commands you will use.',
+          '2. Use `read_file` to read code (NOT `cat` via CLI). Use `search_code` to find patterns (NOT `grep` via CLI).',
+          '3. You have a budget of 35 tool calls. Use them wisely — batch related reads together.',
+          '4. If you are running low on tool calls, STOP using tools and write your findings based on what you have so far.',
         ]
           .filter(Boolean)
           .join('\n'),
@@ -151,7 +205,7 @@ Rules:
     let finalOutput = '';
     let success = true;
     let toolCallCount = 0;
-    const MAX_TOOL_CALLS = 10; // Prevent infinite loops
+    const MAX_TOOL_CALLS = 35; // Enough for investigation tasks but prevents infinite loops
 
     try {
       while (true) {
@@ -181,43 +235,110 @@ Rules:
           break; // Done
         }
 
-        // Scenario 2: Model wants to execute a CLI tool
-        toolCallCount++;
+        // Scenario 2: Model wants to use tools
+        const projectRoot = path.resolve(__dirname, '..');
+
         for (const toolCall of msg.tool_calls) {
-          if (toolCall.function.name === 'execute_cli_command') {
-            const { command } = JSON.parse(toolCall.function.arguments);
-            let toolStatus = "Success";
-            let toolOutput = "";
-            let exitCode = 0;
+          toolCallCount++; // Count EACH tool call, not each message
 
-            try {
-              // Execute the shell command
-              // Using execSync so we immediately block and get the output back.
-              // Restricting CWD effectively to workspace root using relative parent mapping.
+          const fnName = toolCall.function.name;
+          let args: any;
+          try { args = JSON.parse(toolCall.function.arguments); } catch { args = {}; }
+
+          let toolResult = '';
+
+          try {
+            if (fnName === 'read_file') {
+              const filePath = path.resolve(projectRoot, args.path || '');
+              const content = fs.readFileSync(filePath, 'utf-8');
+              const lines = content.split('\n');
+              const offset = args.offset || 0;
+              const limit = args.limit || 300;
+              const slice = lines.slice(offset, offset + limit);
+              const totalLines = lines.length;
+              toolResult = slice.map((l: string, i: number) => `${offset + i + 1}: ${l}`).join('\n');
+              if (offset + limit < totalLines) {
+                toolResult += `\n\n[... ${totalLines - offset - limit} more lines. Use offset=${offset + limit} to continue.]`;
+              }
+
+            } else if (fnName === 'search_code') {
               const execSync = require('child_process').execSync;
-              const result = execSync(command, {
-                cwd: path.resolve(__dirname, '..'), // The parent of the agents/ folder (which is the main WhatsApp agent root)
-                encoding: 'utf-8',
-                timeout: 60000, // 60 second timeout for builds/deploys
-                stdio: 'pipe'  // Capture stdout/err
-              });
-              toolOutput = result;
-            } catch (error: any) {
-              // ExecSync throws if the process exits with non-zero.
-              toolStatus = "Error/Failed";
-              exitCode = error.status || 1;
-              toolOutput = (error.stdout || '') + '\n' + (error.stderr || '') + '\n' + (error.message || '');
-            }
+              const searchPath = args.path || '.';
+              const includeFlag = args.include ? `--include='${args.include}'` : '';
+              const cmd = `grep -rn ${includeFlag} '${args.pattern.replace(/'/g, "\\'")}' '${searchPath}' 2>/dev/null | head -60`;
+              toolResult = execSync(cmd, { cwd: projectRoot, encoding: 'utf-8', timeout: 15000, stdio: 'pipe' }) || '(no matches)';
 
-            // Return the tool response exactly formatted back to the assistant
-            messages.push({
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: `Status: ${toolStatus}\nExit Code: ${exitCode}\nOutput:\n${toolOutput}`
-            });
+            } else if (fnName === 'list_files') {
+              const execSync = require('child_process').execSync;
+              const listPath = args.path || '.';
+              let cmd: string;
+              if (args.recursive) {
+                const includeFilter = args.include ? `-name '${args.include}'` : '';
+                cmd = `find '${listPath}' -type f ${includeFilter} 2>/dev/null | head -80`;
+              } else {
+                cmd = `ls -la '${listPath}' 2>/dev/null | head -50`;
+              }
+              toolResult = execSync(cmd, { cwd: projectRoot, encoding: 'utf-8', timeout: 10000, stdio: 'pipe' }) || '(empty)';
+
+            } else if (fnName === 'execute_cli_command') {
+              const execSync = require('child_process').execSync;
+              const result = execSync(args.command, {
+                cwd: projectRoot,
+                encoding: 'utf-8',
+                timeout: 120000,
+                stdio: 'pipe',
+              });
+              toolResult = `Status: Success\nOutput:\n${result}`;
+
+            } else {
+              toolResult = `Unknown tool: ${fnName}`;
+            }
+          } catch (error: any) {
+            if (fnName === 'execute_cli_command') {
+              toolResult = `Status: Error (exit ${error.status || 1})\nOutput:\n${(error.stdout || '') + '\n' + (error.stderr || '')}`;
+            } else {
+              toolResult = `Error: ${error.message}`;
+            }
           }
+
+          // Cap output to prevent context overflow
+          if (toolResult.length > 12000) {
+            toolResult = toolResult.slice(0, 12000) + '\n\n[... output truncated at 12000 chars]';
+          }
+
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: toolResult,
+          });
+        }
+
+        // Warn agent when running low on budget
+        if (toolCallCount >= MAX_TOOL_CALLS - 5 && toolCallCount < MAX_TOOL_CALLS) {
+          messages.push({
+            role: 'user',
+            content: `⚠️ You have ${MAX_TOOL_CALLS - toolCallCount} tool calls remaining. Start writing your final analysis now based on what you've gathered so far.`,
+          });
         }
       } // End while loop
+
+      // If we hit the limit, ask for a final summary with what was gathered
+      if (toolCallCount >= MAX_TOOL_CALLS && !finalOutput) {
+        messages.push({
+          role: 'user',
+          content: 'Tool call budget exhausted. Write your findings and recommendations based on everything you have gathered so far. Do NOT call any more tools.',
+        });
+        try {
+          const fallback = await getAI().chat.completions.create({
+            model: LLM_MODEL,
+            messages,
+            max_tokens: 4000,
+            temperature: 0.5,
+          });
+          finalOutput = fallback.choices[0]?.message?.content || '[No output generated]';
+          success = true; // Partial output is better than no output
+        } catch { /* ignore fallback failure */ }
+      }
 
       return {
         taskId: task.taskId,
