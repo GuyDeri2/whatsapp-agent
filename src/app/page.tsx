@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { motion } from "framer-motion";
 import { PhoneMockup } from "@/components/PhoneMockup";
-import { BrainCircuit, Zap, ShieldCheck, ChevronRight, Bot, ArrowRight } from "lucide-react";
+import { BrainCircuit, Zap, ShieldCheck, Bell, Bot, ArrowRight } from "lucide-react";
 
 export default function LandingPage() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -145,24 +145,30 @@ export default function LandingPage() {
                         <p className="text-neutral-400 text-lg">טכנולוגיה מתקדמת שנותנת לך שקט נפשי.</p>
                     </motion.div>
 
-                    <div className="grid md:grid-cols-3 gap-6">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <FeatureCard
                             icon={<BrainCircuit className="w-8 h-8 text-indigo-400" />}
                             title="לומד מכל שיחה"
-                            description="הבוט מנתח את כל היסטוריית השיחות שלך ולומד את סגנון הדיבור, המחירון והשירותים שלך."
+                            description="הבוט מנתח את היסטוריית השיחות שלך ולומד את סגנון הדיבור, המחירון והשירותים."
                             delay={0.1}
                         />
                         <FeatureCard
                             icon={<Zap className="w-8 h-8 text-indigo-400" />}
-                            title="100% אוטומציה מגנטית"
-                            description="הלקוח הקליד הודעה? תוך 3 שניות הוא מקבל תשובה שמניעה לפעולה. בלי לחכות, בלי לאבד לידים."
+                            title="תגובה מיידית 24/7"
+                            description="הלקוח שלח הודעה? תוך שניות הוא מקבל תשובה מקצועית. בלי לחכות, בלי לאבד לידים."
                             delay={0.3}
                         />
                         <FeatureCard
-                            icon={<ShieldCheck className="w-8 h-8 text-indigo-400" />}
-                            title="שליטה היברידית"
-                            description="הבוט יודע מתי לעצור ולהעביר אליך שיחות מורכבות. אתה תמיד שולט, מתערב ועוצר כשצריך."
+                            icon={<Bell className="w-8 h-8 text-indigo-400" />}
+                            title="התראות בזמן אמת"
+                            description="לקוח מבקש נציג אנושי? אתה מקבל התראה מיידית בוואטסאפ עם כל פרטי השיחה כדי להמשיך מאיפה שהבוט עצר."
                             delay={0.5}
+                        />
+                        <FeatureCard
+                            icon={<ShieldCheck className="w-8 h-8 text-indigo-400" />}
+                            title="שליטה מלאה"
+                            description="הבוט יודע מתי לעצור ולהעביר אליך. אתה תמיד שולט — עוצר, מתערב ומחליט."
+                            delay={0.7}
                         />
                     </div>
                 </div>
