@@ -110,7 +110,8 @@ export async function GET(req: Request) {
     if (!businessesRes.ok) {
       const errText = await businessesRes.text();
       console.error('Failed to fetch businesses:', errText);
-      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=business_fetch`);
+      const detail = encodeURIComponent(errText.substring(0, 200));
+      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=business_fetch&detail=${detail}`);
     }
 
     const businessesData = await businessesRes.json();
