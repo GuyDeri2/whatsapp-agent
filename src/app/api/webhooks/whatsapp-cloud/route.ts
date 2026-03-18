@@ -38,7 +38,6 @@ export async function GET(req: Request) {
 
     // Check global webhook verify token first (fastest path)
     const globalToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
-    console.log("[Webhook] Verify attempt:", { mode, tokenLength: token?.length, globalTokenExists: !!globalToken, globalTokenLength: globalToken?.length, match: globalToken === token });
     if (globalToken && token === globalToken) {
         // Global token matches — proceed
     } else {
