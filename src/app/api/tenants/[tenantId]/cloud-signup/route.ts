@@ -55,7 +55,8 @@ export async function GET(
     return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=already_configured`);
   }
 
-  const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/tenants/${tenantId}/cloud-signup/callback`;
+  // Fixed redirect URI — tenantId is in the state parameter, not the URL
+  const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/cloud-signup/callback`;
   const META_API_VERSION = process.env.META_API_VERSION || 'v21.0';
   
   // Facebook Login OAuth scopes required for WhatsApp Business API
@@ -84,4 +85,50 @@ export async function GET(
     `&state=${state}`;
 
   return NextResponse.redirect(oauthUrl);
+}
+
+// DELETE /api/tenants/[tenantId]/cloud-signup — disconnect WhatsApp Cloud API
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ tenantId: string }> }
+) {
+  const { tenantId } = await params;
+
+  // Authenticate user
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Verify tenant ownership
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('id')
+    .eq('id', tenantId)
+    .eq('owner_id', user.id)
+    .single();
+
+  if (!tenant) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // Delete WhatsApp Cloud config
+  const { error } = await supabase
+    .from('whatsapp_cloud_config')
+    .delete()
+    .eq('tenant_id', tenantId);
+
+  if (error) {
+    console.error('Failed to delete WhatsApp Cloud config:', error);
+    return NextResponse.json({ error: 'שגיאה במחיקת ההגדרות' }, { status: 500 });
+  }
+
+  // Update tenant whatsapp_connected status
+  await supabase
+    .from('tenants')
+    .update({ whatsapp_connected: false, whatsapp_phone: null })
+    .eq('id', tenantId);
+
+  return NextResponse.json({ success: true });
 }
