@@ -102,71 +102,82 @@ export async function GET(req: Request) {
       return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_access_token`);
     }
 
-    // Step 2: Get user's businesses (WABAs)
-    const businessesRes = await fetch(
-      `https://graph.facebook.com/${META_API_VERSION}/me/businesses?access_token=${userAccessToken}&fields=id,name,whatsapp_business_accounts{id,name,message_template_namespace,timezone_id,account_review_status,owner_business_info}`
+    // Step 2: Get WhatsApp Business Accounts directly
+    // The user token with whatsapp_business_management scope gives us direct access
+    const wabasRes = await fetch(
+      `https://graph.facebook.com/${META_API_VERSION}/me/businesses?access_token=${userAccessToken}&fields=id,name`
     );
 
-    if (!businessesRes.ok) {
-      const errText = await businessesRes.text();
+    if (!wabasRes.ok) {
+      const errText = await wabasRes.text();
       console.error('Failed to fetch businesses:', errText);
       const detail = encodeURIComponent(errText.substring(0, 200));
       return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=business_fetch&detail=${detail}`);
     }
 
-    const businessesData = await businessesRes.json();
+    const businessesData = await wabasRes.json();
     const businesses = businessesData.data || [];
 
-    // Find first WhatsApp Business Account (WABA)
+    // Find WABAs owned by each business
     let wabaId: string | null = null;
     let phoneNumberId: string | null = null;
-    let systemUserAccessToken: string | null = null;
 
     for (const business of businesses) {
-      const wabas = business.whatsapp_business_accounts?.data || [];
-      if (wabas.length > 0) {
-        wabaId = wabas[0].id;
+      // Get WABAs owned by this business
+      const ownedWabasRes = await fetch(
+        `https://graph.facebook.com/${META_API_VERSION}/${business.id}/owned_whatsapp_business_accounts?access_token=${userAccessToken}&fields=id,name`
+      );
 
-        // Get system user access token for the WABA
-        const systemUserRes = await fetch(
-          `https://graph.facebook.com/${META_API_VERSION}/${wabaId}/assigned_users?access_token=${userAccessToken}`
+      if (!ownedWabasRes.ok) continue;
+
+      const ownedWabas = await ownedWabasRes.json();
+      const wabas = ownedWabas.data || [];
+
+      if (wabas.length === 0) {
+        // Also try client_whatsapp_business_accounts (shared WABAs)
+        const clientWabasRes = await fetch(
+          `https://graph.facebook.com/${META_API_VERSION}/${business.id}/client_whatsapp_business_accounts?access_token=${userAccessToken}&fields=id,name`
         );
-
-        if (systemUserRes.ok) {
-          const systemUserData = await systemUserRes.json();
-          const systemUsers = systemUserData.data || [];
-
-          if (systemUsers.length > 0) {
-            // Use the user access token (simplified — production should use system user token)
-            systemUserAccessToken = userAccessToken;
-
-            // Get phone numbers for the WABA
-            const phoneNumbersRes = await fetch(
-              `https://graph.facebook.com/${META_API_VERSION}/${wabaId}/phone_numbers?access_token=${systemUserAccessToken}`
-            );
-
-            if (phoneNumbersRes.ok) {
-              const phoneNumbersData = await phoneNumbersRes.json();
-              const phoneNumbers = phoneNumbersData.data || [];
-
-              if (phoneNumbers.length > 0) {
-                phoneNumberId = phoneNumbers[0].id;
-                break;
-              }
-            }
-          }
+        if (clientWabasRes.ok) {
+          const clientWabas = await clientWabasRes.json();
+          wabas.push(...(clientWabas.data || []));
         }
       }
+
+      for (const waba of wabas) {
+        wabaId = waba.id;
+
+        // Get phone numbers for this WABA
+        const phoneNumbersRes = await fetch(
+          `https://graph.facebook.com/${META_API_VERSION}/${wabaId}/phone_numbers?access_token=${userAccessToken}&fields=id,display_phone_number,verified_name`
+        );
+
+        if (!phoneNumbersRes.ok) continue;
+
+        const phoneNumbersData = await phoneNumbersRes.json();
+        const phoneNumbers = phoneNumbersData.data || [];
+
+        if (phoneNumbers.length > 0) {
+          phoneNumberId = phoneNumbers[0].id;
+          break;
+        }
+      }
+
+      if (phoneNumberId) break;
     }
 
-    if (!wabaId || !phoneNumberId || !systemUserAccessToken) {
+    if (!wabaId || !phoneNumberId) {
       console.error('No WhatsApp Business Account found or incomplete setup:', {
         wabaId,
         phoneNumberId,
         businessesCount: businesses.length
       });
-      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_waba_setup`);
+      const detail = encodeURIComponent(`Found ${businesses.length} businesses, wabaId=${wabaId}, phoneNumberId=${phoneNumberId}`);
+      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_waba_setup&detail=${detail}`);
     }
+
+    // Use the user access token for API calls
+    const systemUserAccessToken = userAccessToken;
 
     // Generate a webhook verification token
     const webhookVerifyToken = crypto.randomBytes(32).toString('hex');
