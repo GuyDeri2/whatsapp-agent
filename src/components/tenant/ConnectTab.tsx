@@ -1,10 +1,16 @@
-import React from "react";
-import { Smartphone, Link as LinkIcon, RefreshCw, PowerOff, ShieldCheck, QrCode } from "lucide-react";
+import React, { useState } from "react";
+import { Smartphone, Link as LinkIcon, RefreshCw, PowerOff, ShieldCheck, Loader2, ExternalLink } from "lucide-react";
+import styles from "./ConnectTab.module.css";
 
 interface Tenant {
     id: string;
     whatsapp_connected: boolean;
     whatsapp_phone: string | null;
+    whatsapp_cloud_config?: {
+        phone_number_id: string;
+        waba_id: string;
+        created_at: string;
+    } | null;
 }
 
 interface ConnectTabProps {
@@ -25,145 +31,279 @@ const ConnectTab = React.memo(function ConnectTab({
     handleDisconnect,
 }: ConnectTabProps) {
     const isConnected = tenant.whatsapp_connected;
+    const hasCloudConfig = !!tenant.whatsapp_cloud_config;
+    const [busy, setBusy] = useState<"connect" | "reconnect" | "refresh" | "disconnect" | "cloud-signup" | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    async function run(key: typeof busy, fn: () => Promise<void>) {
+        if (busy) return;
+        setError(null);
+        setBusy(key);
+        try { await fn(); } catch (err) {
+            setError(err instanceof Error ? err.message : "שגיאה בלתי צפויה");
+        } finally { setBusy(null); }
+    }
+
+    async function handleCloudSignup() {
+        if (busy) return;
+        setError(null);
+        setBusy("cloud-signup");
+        try {
+            const res = await fetch(`/api/tenants/${tenant.id}/cloud-signup`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            });
+            
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || "Failed to initiate WhatsApp Cloud signup");
+            }
+            
+            const data = await res.json();
+            
+            // Open Meta login popup
+            if (data.authUrl) {
+                const popup = window.open(
+                    data.authUrl,
+                    "whatsapp-cloud-signup",
+                    "width=600,height=700,scrollbars=yes"
+                );
+                
+                // Poll for completion
+                const checkCompletion = setInterval(async () => {
+                    if (popup?.closed) {
+                        clearInterval(checkCompletion);
+                        // Check if configuration was saved
+                        const checkRes = await fetch(`/api/tenants/${tenant.id}/cloud-signup/status`);
+                        if (checkRes.ok) {
+                            // Refresh tenant data to show connected status
+                            window.location.reload();
+                        }
+                    }
+                }, 1000);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "שגיאה בלתי צפויה");
+        } finally {
+            setBusy(null);
+        }
+    }
+
+    // Determine which connection method to show
+    const showCloudSignup = !hasCloudConfig && !isConnected;
+    const showWhatsAppWeb = hasCloudConfig && !isConnected && connectionStatus !== "waiting_scan";
 
     return (
-        <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in duration-500">
+        <div className={styles.container}>
             {/* Main Connection Card */}
-            <div className={`relative overflow-hidden rounded-3xl border transition-all duration-500 ${isConnected
-                    ? "bg-white/[0.02] border-emerald-500/20 shadow-[0_0_40px_rgba(16,185,129,0.05)]"
-                    : "bg-white/[0.02] border-white/10"
-                } p-8 md:p-10 backdrop-blur-xl`}>
+            <div className={`${styles.connectionCard} ${isConnected ? styles.connected : styles.disconnected}`}>
 
                 {/* Decorative background gradient */}
                 {isConnected && (
-                    <div className="absolute top-0 right-0 -m-20 w-64 h-64 bg-emerald-500/20 rounded-full blur-[80px] pointer-events-none"></div>
+                    <div className={styles.gradientBg}></div>
                 )}
 
-                <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-8 text-center md:text-right">
+                <div className={styles.statusContainer}>
 
                     {/* Status Icon */}
-                    <div className="shrink-0 relative">
-                        <div className={`w-28 h-28 rounded-full flex items-center justify-center border-4 ${isConnected
-                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                                : "bg-neutral-800 border-neutral-700 text-neutral-500"
-                            }`}>
+                    <div className={styles.statusIcon}>
+                        <div className={`${styles.iconCircle} ${isConnected ? styles.connected : styles.disconnected}`}>
                             <Smartphone className="w-12 h-12" />
 
                             {/* Pulse animation for connected state */}
                             {isConnected && (
-                                <div className="absolute inset-0 rounded-full border-2 border-emerald-400 animate-ping opacity-20"></div>
+                                <div className={styles.pulse}></div>
                             )}
                         </div>
 
                         {/* Status Badge */}
-                        <div className={`absolute -bottom-2 md:-bottom-1 left-1/2 md:left-auto md:-right-2 transform -translate-x-1/2 md:translate-x-0 px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap border shadow-lg ${isConnected
-                                ? "bg-emerald-950 border-emerald-500/50 text-emerald-400"
-                                : "bg-neutral-900 border-neutral-700 text-neutral-400"
-                            }`}>
+                        <div className={`${styles.statusBadge} ${isConnected ? styles.connected : styles.disconnected}`}>
                             {isConnected ? "מחובר" : "מנותק"}
                         </div>
                     </div>
 
-                    <div className="flex-1 space-y-4">
+                    <div className={styles.content}>
                         <div>
-                            <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">
+                            <h2 className={styles.title}>
                                 חיבור לווטסאפ
                             </h2>
-                            <p className="text-neutral-400 text-lg">
+                            <p className={styles.description}>
                                 {isConnected ? (
                                     <span className="flex items-center justify-center md:justify-start gap-2">
-                                        מחובר למספר: <strong className="text-white font-mono bg-white/5 px-2 py-0.5 rounded" dir="ltr">{tenant.whatsapp_phone || "..."}</strong>
+                                        מחובר למספר: <strong className={styles.phoneNumber} dir="ltr">{tenant.whatsapp_phone || "..."}</strong>
+                                        {hasCloudConfig && " (WhatsApp Cloud API)"}
                                     </span>
+                                ) : hasCloudConfig ? (
+                                    "מוכן להתחברות דרך WhatsApp Cloud API"
                                 ) : (
                                     "הסוכן כרגע לא מחובר לאף מספר ווטסאפ"
                                 )}
                             </p>
                         </div>
 
+                        {/* Error Message */}
+                        {error && (
+                            <div className={styles.errorMessage}>
+                                {error}
+                            </div>
+                        )}
+
                         {/* Connection States Area */}
-                        <div className="pt-6 mt-6 border-t border-white/10">
+                        <div className={styles.connectionArea}>
 
                             {connectionStatus === "connecting" && (
-                                <div className="flex flex-col items-center md:items-start p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
-                                    <div className="flex items-center gap-4 text-emerald-400 mb-2">
-                                        <div className="w-6 h-6 border-2 border-emerald-400/30 border-t-indigo-400 rounded-full animate-spin"></div>
-                                        <h3 className="font-semibold text-lg">מכין חיבור...</h3>
+                                <div className={styles.connectingState}>
+                                    <div className={styles.connectingTitle}>
+                                        <div className={styles.spinner}></div>
+                                        <h3 className={styles.connectingText}>מכין חיבור...</h3>
                                     </div>
-                                    <p className="text-emerald-300 text-sm">אנא המתן בזמן שאנו מכינים את הקוד לסריקה.</p>
+                                    <p className={styles.connectingSubtext}>אנא המתן בזמן שאנו מכינים את הקוד לסריקה.</p>
                                 </div>
                             )}
 
-                            {connectionStatus === "waiting_scan" && qrCode && (
-                                <div className="flex flex-col md:flex-row items-center md:items-start gap-8 p-6 lg:p-8 bg-blue-500/5 border border-blue-500/20 rounded-3xl text-right">
-                                    <div className="w-full max-w-[240px] shrink-0">
-                                        <div className="bg-white p-4 rounded-3xl shadow-[0_0_30px_rgba(59,130,246,0.15)] ring-1 ring-white/10">
-                                            <img src={qrCode} alt="WhatsApp QR Code" className="w-full h-auto rounded-xl" />
+                            {/* WhatsApp Cloud Signup Card */}
+                            {showCloudSignup && connectionStatus !== "connecting" && (
+                                <div className={styles.cloudSignupCard}>
+                                    <div className={styles.metaLogo}>
+                                        <div className={styles.metaLogoContainer}>
+                                            <img 
+                                                src="/meta-whatsapp-cloud.png" 
+                                                alt="Meta WhatsApp Cloud API" 
+                                                className={styles.metaLogoImage}
+                                                onError={(e) => {
+                                                    // Fallback if image doesn't exist
+                                                    const target = e.target as HTMLImageElement;
+                                                    target.style.display = 'none';
+                                                    target.parentElement!.innerHTML = `
+                                                        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f0f0f0; border-radius: 0.75rem;">
+                                                            <div style="text-align: center; padding: 1rem;">
+                                                                <div style="font-size: 2rem; font-weight: bold; color: #0866FF;">Meta</div>
+                                                                <div style="color: #25D366; font-weight: bold; margin-top: 0.5rem;">WhatsApp Cloud API</div>
+                                                            </div>
+                                                        </div>
+                                                    `;
+                                                }}
+                                            />
                                         </div>
                                     </div>
-                                    <div className="flex-1 space-y-5">
+                                    <div className={styles.cloudSignupContent}>
                                         <div>
-                                            <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                                                <QrCode className="w-5 h-5 text-blue-400" />
+                                            <h3 className={styles.cloudSignupTitle}>
+                                                <ExternalLink className={styles.cloudSignupIcon} />
+                                                הרשמה ל-WhatsApp Cloud API
+                                            </h3>
+                                            <div className={styles.cloudSignupSteps}>
+                                                <p>כדי להשתמש ב-WhatsApp Cloud API, תצטרך:</p>
+                                                <ol className={styles.cloudSignupList}>
+                                                    <li>חשבון Meta for Developers פעיל</li>
+                                                    <li>אפליקציית WhatsApp Business שהוגדרה</li>
+                                                    <li>מספר טלפון עסקי מאומת</li>
+                                                    <li>הרשאות לשלוח ולקבל הודעות</li>
+                                                </ol>
+                                                <p>לאחר ההרשמה, תקבל קישור לאימות חשבון ה-Meta שלך.</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => run("cloud-signup", handleCloudSignup)}
+                                            disabled={busy === "cloud-signup"}
+                                            className={styles.mainConnectButton}
+                                        >
+                                            {busy === "cloud-signup"
+                                                ? <Loader2 className={styles.loadingSpinner} />
+                                                : <LinkIcon className="w-6 h-6" />
+                                            }
+                                            {busy === "cloud-signup" ? "מתחיל הרשמה..." : "התחבר ל-WhatsApp Cloud"}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Legacy WhatsApp Web QR Code (fallback) */}
+                            {connectionStatus === "waiting_scan" && qrCode && (
+                                <div className={styles.cloudSignupCard}>
+                                    <div className={styles.metaLogo}>
+                                        <div className={styles.metaLogoContainer}>
+                                            <img src={qrCode} alt="WhatsApp QR Code" className={styles.metaLogoImage} />
+                                        </div>
+                                    </div>
+                                    <div className={styles.cloudSignupContent}>
+                                        <div>
+                                            <h3 className={styles.cloudSignupTitle}>
+                                                <ExternalLink className={styles.cloudSignupIcon} />
                                                 סרוק את הברקוד
                                             </h3>
-                                            <div className="space-y-3 text-neutral-300 text-sm">
+                                            <div className={styles.cloudSignupSteps}>
                                                 <p>כדי לחבר את הסוכן למספר שלך, פעל לפי השלבים הבאים:</p>
-                                                <ol className="list-decimal list-inside space-y-2 mr-2 text-neutral-400">
+                                                <ol className={styles.cloudSignupList}>
                                                     <li>פתח את ווטסאפ במכשיר שלך</li>
-                                                    <li>היכנס ל<strong className="text-white">הגדרות</strong> &gt; <strong className="text-white">מכשירים מקושרים</strong></li>
-                                                    <li>לחץ על <strong className="text-white">קישור מכשיר</strong></li>
+                                                    <li>היכנס ל<strong>הגדרות</strong> &gt; <strong>מכשירים מקושרים</strong></li>
+                                                    <li>לחץ על <strong>קישור מכשיר</strong></li>
                                                     <li>סרוק את הברקוד המופיע במסך</li>
                                                 </ol>
                                             </div>
                                         </div>
                                         <button
-                                            onClick={() => handleReconnect(true)}
-                                            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-white/5 hover:bg-white/10 text-white rounded-xl border border-white/10 font-medium transition-all"
+                                            onClick={() => run("refresh", () => handleReconnect(true))}
+                                            disabled={busy === "refresh"}
+                                            className={styles.connectButton}
                                         >
-                                            <RefreshCw className="w-4 h-4" />
-                                            רענן ברקוד
+                                            {busy === "refresh"
+                                                ? <Loader2 className={styles.loadingSpinner} />
+                                                : <RefreshCw className="w-4 h-4" />
+                                            }
+                                            {busy === "refresh" ? "מרענן..." : "רענן ברקוד"}
                                         </button>
                                     </div>
                                 </div>
                             )}
 
                             {isConnected && connectionStatus !== "waiting_scan" && (
-                                <div className="space-y-6">
-                                    <div className="flex items-center justify-center md:justify-start gap-3 text-emerald-400 bg-emerald-500/10 px-6 py-4 rounded-2xl border border-emerald-500/20">
-                                        <ShieldCheck className="w-6 h-6" />
-                                        <span className="font-medium text-lg">החיבור פעיל ותקין</span>
+                                <div className={styles.connectedState}>
+                                    <div className={styles.connectedAlert}>
+                                        <ShieldCheck className={styles.connectedIcon} />
+                                        <span className={styles.connectedText}>החיבור פעיל ותקין</span>
                                     </div>
 
-                                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                                    <div className={styles.buttonGroup}>
                                         <button
-                                            onClick={() => handleReconnect(false)}
-                                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 focus:ring-2 focus:ring-white/20 text-white rounded-xl border border-white/10 font-medium transition-all"
+                                            onClick={() => run("reconnect", () => handleReconnect(false))}
+                                            disabled={!!busy}
+                                            className={styles.reconnectButton}
                                         >
-                                            <RefreshCw className="w-5 h-5 opacity-70" />
-                                            נסה להתחבר מחדש
+                                            {busy === "reconnect"
+                                                ? <Loader2 className={styles.loadingSpinner} />
+                                                : <RefreshCw className="w-5 h-5 opacity-70" />
+                                            }
+                                            {busy === "reconnect" ? "מתחבר מחדש..." : "נסה להתחבר מחדש"}
                                         </button>
                                         <button
-                                            onClick={handleDisconnect}
-                                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 focus:ring-2 focus:ring-red-500/20 rounded-xl border border-red-500/20 font-medium transition-all"
+                                            onClick={() => run("disconnect", handleDisconnect)}
+                                            disabled={!!busy}
+                                            className={styles.disconnectButton}
                                         >
-                                            <PowerOff className="w-5 h-5" />
-                                            נתק מכשיר
+                                            {busy === "disconnect"
+                                                ? <Loader2 className={styles.loadingSpinner} />
+                                                : <PowerOff className="w-5 h-5" />
+                                            }
+                                            {busy === "disconnect" ? "מנתק..." : "נתק מכשיר"}
                                         </button>
                                     </div>
                                 </div>
                             )}
 
-                            {!isConnected &&
-                                connectionStatus !== "connecting" &&
-                                connectionStatus !== "waiting_scan" && (
-                                    <button
-                                        onClick={handleConnect}
-                                        className="w-full md:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-semibold text-lg transition-all shadow-lg hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] transform hover:-translate-y-0.5"
-                                    >
-                                        <LinkIcon className="w-6 h-6" />
-                                        התחל תהליך חיבור
-                                    </button>
-                                )}
+                            {showWhatsAppWeb && connectionStatus !== "connecting" && (
+                                <button
+                                    onClick={() => run("connect", handleConnect)}
+                                    disabled={busy === "connect"}
+                                    className={styles.mainConnectButton}
+                                >
+                                    {busy === "connect"
+                                        ? <Loader2 className={styles.loadingSpinner} />
+                                        : <LinkIcon className="w-6 h-6" />
+                                    }
+                                    {busy === "connect" ? "מתחיל חיבור..." : "התחל תהליך חיבור (WhatsApp Web)"}
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

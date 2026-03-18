@@ -1,0 +1,463 @@
+/* ConnectTab.module.css */
+
+.container {
+    max-width: 42rem;
+    margin-left: auto;
+    margin-right: auto;
+    space-y: 2rem;
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.connectionCard {
+    position: relative;
+    overflow: hidden;
+    border-radius: 1.5rem;
+    border: 1px solid;
+    padding: 2rem;
+    backdrop-filter: blur(1rem);
+    transition: all 0.5s;
+}
+
+.connectionCard.connected {
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(37, 211, 102, 0.2);
+    box-shadow: 0 0 40px rgba(37, 211, 102, 0.05);
+}
+
+.connectionCard.disconnected {
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.gradientBg {
+    position: absolute;
+    top: 0;
+    right: 0;
+    margin: -5rem;
+    width: 16rem;
+    height: 16rem;
+    background: rgba(37, 211, 102, 0.2);
+    border-radius: 9999px;
+    filter: blur(5rem);
+    pointer-events: none;
+}
+
+.statusContainer {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+    text-align: center;
+}
+
+@media (min-width: 768px) {
+    .statusContainer {
+        flex-direction: row;
+        align-items: flex-start;
+        text-align: right;
+    }
+}
+
+.statusIcon {
+    flex-shrink: 0;
+    position: relative;
+}
+
+.iconCircle {
+    width: 7rem;
+    height: 7rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-width: 4px;
+}
+
+.iconCircle.connected {
+    background: rgba(37, 211, 102, 0.1);
+    border-color: rgba(37, 211, 102, 0.3);
+    color: #25D366;
+}
+
+.iconCircle.disconnected {
+    background: #262626;
+    border-color: #404040;
+    color: #737373;
+}
+
+.pulse {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    border: 2px solid #25D366;
+    animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+    opacity: 0.2;
+}
+
+@keyframes ping {
+    75%, 100% {
+        transform: scale(2);
+        opacity: 0;
+    }
+}
+
+.statusBadge {
+    position: absolute;
+    bottom: -0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    white-space: nowrap;
+    border: 1px solid;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.statusBadge.connected {
+    background: #022c22;
+    border-color: rgba(37, 211, 102, 0.5);
+    color: #25D366;
+}
+
+.statusBadge.disconnected {
+    background: #171717;
+    border-color: #404040;
+    color: #a3a3a3;
+}
+
+.content {
+    flex: 1;
+    space-y: 1rem;
+}
+
+.title {
+    font-size: 1.875rem;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.025em;
+}
+
+.description {
+    color: #a3a3a3;
+    font-size: 1.125rem;
+}
+
+.phoneNumber {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    direction: ltr;
+}
+
+.connectionArea {
+    padding-top: 1.5rem;
+    margin-top: 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.connectingState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.5rem;
+    background: rgba(37, 211, 102, 0.1);
+    border: 1px solid rgba(37, 211, 102, 0.2);
+    border-radius: 1rem;
+}
+
+.spinner {
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 2px solid rgba(37, 211, 102, 0.3);
+    border-top-color: #25D366;
+    border-radius: 9999px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.connectingTitle {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    color: #25D366;
+    margin-bottom: 0.5rem;
+}
+
+.connectingText {
+    font-weight: 600;
+    font-size: 1.125rem;
+}
+
+.connectingSubtext {
+    color: #86efac;
+    font-size: 0.875rem;
+}
+
+.cloudSignupCard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+    padding: 1.5rem;
+    background: rgba(59, 130, 246, 0.05);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 1.5rem;
+    text-align: right;
+}
+
+@media (min-width: 768px) {
+    .cloudSignupCard {
+        flex-direction: row;
+        align-items: flex-start;
+        padding: 2rem;
+    }
+}
+
+.metaLogo {
+    width: 100%;
+    max-width: 15rem;
+    flex-shrink: 0;
+}
+
+.metaLogoContainer {
+    background: white;
+    padding: 1rem;
+    border-radius: 1.5rem;
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.metaLogoImage {
+    width: 100%;
+    height: auto;
+    border-radius: 0.75rem;
+}
+
+.cloudSignupContent {
+    flex: 1;
+    space-y: 1.25rem;
+}
+
+.cloudSignupTitle {
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.cloudSignupIcon {
+    width: 1.25rem;
+    height: 1.25rem;
+    color: #60a5fa;
+}
+
+.cloudSignupSteps {
+    space-y: 0.75rem;
+    color: #d1d5db;
+    font-size: 0.875rem;
+}
+
+.cloudSignupList {
+    list-style-type: decimal;
+    list-style-position: inside;
+    space-y: 0.5rem;
+    margin-right: 0.5rem;
+    color: #9ca3af;
+}
+
+.cloudSignupList strong {
+    color: white;
+}
+
+.connectButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 500;
+    transition: all 0.15s;
+    cursor: pointer;
+}
+
+.connectButton:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.connectButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.connectedState {
+    space-y: 1.5rem;
+}
+
+.connectedAlert {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    color: #25D366;
+    background: rgba(37, 211, 102, 0.1);
+    padding: 1rem 1.5rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(37, 211, 102, 0.2);
+}
+
+.connectedIcon {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+.connectedText {
+    font-weight: 500;
+    font-size: 1.125rem;
+}
+
+.buttonGroup {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+@media (min-width: 640px) {
+    .buttonGroup {
+        flex-direction: row;
+    }
+}
+
+.reconnectButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 500;
+    transition: all 0.15s;
+    cursor: pointer;
+    width: 100%;
+}
+
+@media (min-width: 640px) {
+    .reconnectButton {
+        width: auto;
+    }
+}
+
+.reconnectButton:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.reconnectButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.disconnectButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: rgba(239, 68, 68, 0.1);
+    color: #f87171;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    font-weight: 500;
+    transition: all 0.15s;
+    cursor: pointer;
+    width: 100%;
+}
+
+@media (min-width: 640px) {
+    .disconnectButton {
+        width: auto;
+    }
+}
+
+.disconnectButton:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.2);
+}
+
+.disconnectButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mainConnectButton {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem 2rem;
+    background: #25D366;
+    color: white;
+    border-radius: 1rem;
+    font-weight: 600;
+    font-size: 1.125rem;
+    transition: all 0.15s;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    border: none;
+}
+
+@media (min-width: 768px) {
+    .mainConnectButton {
+        width: auto;
+    }
+}
+
+.mainConnectButton:hover:not(:disabled) {
+    background: #16a34a;
+    transform: translateY(-0.125rem);
+    box-shadow: 0 0 24px rgba(37, 211, 102, 0.35);
+}
+
+.mainConnectButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.loadingSpinner {
+    width: 1.5rem;
+    height: 1.5rem;
+    animation: spin 1s linear infinite;
+}
+
+.errorMessage {
+    color: #ef4444;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}

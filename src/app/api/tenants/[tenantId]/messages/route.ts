@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { getCloudConfigByTenantId, sendTextMessage } from "@/lib/whatsapp-cloud";
 
 export const dynamic = "force-dynamic";
 
@@ -45,8 +47,66 @@ export async function POST(
             );
         }
 
-        // Append @s.whatsapp.net or @g.us based on if it's a group
-        const jid = phone_number.includes("-") ? `${phone_number}@g.us` : `${phone_number}@s.whatsapp.net`;
+        // 4. Try Cloud API first, fallback to Baileys session-manager
+        const cloudConfig = await getCloudConfigByTenantId(tenantId);
+
+        if (cloudConfig) {
+            // ── Cloud API path ──
+            const result = await sendTextMessage(cloudConfig, phone_number, text);
+
+            if (!result.success) {
+                return NextResponse.json(
+                    { error: result.error || "Failed to send message via Cloud API" },
+                    { status: 502 }
+                );
+            }
+
+            // Store the owner's message in DB
+            const admin = getSupabaseAdmin();
+
+            // Find or create conversation
+            const { data: conversation } = await admin
+                .from("conversations")
+                .upsert(
+                    {
+                        tenant_id: tenantId,
+                        phone_number,
+                        is_group: false,
+                        updated_at: new Date().toISOString(),
+                    },
+                    { onConflict: "tenant_id,phone_number" }
+                )
+                .select("id")
+                .single();
+
+            if (conversation) {
+                await admin.from("messages").insert({
+                    conversation_id: conversation.id,
+                    role: "owner",
+                    content: text,
+                    is_from_agent: false,
+                    wa_message_id: result.messageId,
+                    status: "sent",
+                });
+
+                // Pause the conversation — owner is handling manually
+                await admin
+                    .from("conversations")
+                    .update({ is_paused: true })
+                    .eq("id", conversation.id);
+            }
+
+            return NextResponse.json({
+                success: true,
+                messageId: result.messageId,
+                via: "cloud_api",
+            });
+        }
+
+        // ── Baileys fallback (legacy) ──
+        const jid = phone_number.includes("-")
+            ? `${phone_number}@g.us`
+            : `${phone_number}@s.whatsapp.net`;
 
         const sessionManagerUrl =
             process.env.SESSION_MANAGER_URL || "http://127.0.0.1:3001";
@@ -72,8 +132,9 @@ export async function POST(
         }
 
         const data = await res.json();
-        return NextResponse.json(data);
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ ...data, via: "baileys" });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

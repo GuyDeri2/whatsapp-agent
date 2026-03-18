@@ -1,5 +1,5 @@
-import React from "react";
-import { Users, Shield, ShieldAlert, ShieldCheck, Plus, Trash2, Search } from "lucide-react";
+import React, { useState } from "react";
+import { Users, Shield, ShieldAlert, ShieldCheck, Plus, Trash2, Search, Loader2 } from "lucide-react";
 
 interface Tenant {
     id: string;
@@ -44,6 +44,19 @@ const ContactsTab = React.memo(function ContactsTab({
     handleDeleteRule,
     filterLabels,
 }: ContactsTabProps) {
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+
+    const onSubmit = async (e: React.FormEvent) => {
+        setIsSubmitting(true);
+        try { await handleAddRule(e); } finally { setIsSubmitting(false); }
+    };
+
+    const onDelete = async (id: string) => {
+        setDeletingId(id);
+        try { await handleDeleteRule(id); } finally { setDeletingId(null); }
+    };
+
     // Format phone for display
     const formatPhone = (phone: string) => {
         if (!phone) return "";
@@ -128,7 +141,7 @@ const ContactsTab = React.memo(function ContactsTab({
                             הוסף כלל חדש
                         </h3>
 
-                        <form onSubmit={handleAddRule} className="space-y-4">
+                        <form onSubmit={onSubmit} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-medium text-neutral-400 mb-1.5 ml-1">מספר טלפון</label>
                                 <input
@@ -174,10 +187,12 @@ const ContactsTab = React.memo(function ContactsTab({
 
                             <button
                                 type="submit"
-                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-xl transition-all hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] transform active:scale-[0.98] mt-2 flex justify-center items-center gap-2"
-                                disabled={!newRulePhone.trim()}
+                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-xl transition-all hover:shadow-[0_0_15px_rgba(16,185,129,0.35)] transform active:scale-[0.98] mt-2 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:bg-emerald-600"
+                                disabled={!newRulePhone.trim() || isSubmitting}
                             >
-                                הוסף כלל
+                                {isSubmitting ? (
+                                    <><Loader2 className="w-4 h-4 animate-spin" /> מוסיף...</>
+                                ) : "הוסף כלל"}
                             </button>
                         </form>
                     </div>
@@ -230,11 +245,15 @@ const ContactsTab = React.memo(function ContactsTab({
                                                     </div>
                                                 </div>
                                                 <button
-                                                    onClick={() => handleDeleteRule(rule.id)}
-                                                    className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0 ml-1"
+                                                    onClick={() => onDelete(rule.id)}
+                                                    disabled={deletingId === rule.id}
+                                                    className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0 ml-1 disabled:cursor-not-allowed"
                                                     title="מחק כלל"
                                                 >
-                                                    <Trash2 className="w-4 h-4" />
+                                                    {deletingId === rule.id
+                                                        ? <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />
+                                                        : <Trash2 className="w-4 h-4" />
+                                                    }
                                                 </button>
                                             </div>
                                         );

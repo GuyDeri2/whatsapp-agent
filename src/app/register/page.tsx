@@ -4,10 +4,12 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Rocket, Mail, Lock, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
+import { Rocket, Mail, Lock, ArrowRight, Loader2, CheckCircle2, User } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function RegisterPage() {
+    const [firstName, setFirstName] = useState("");
+    const [lastName, setLastName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
@@ -26,6 +28,7 @@ export default function RegisterPage() {
             password,
             options: {
                 emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+                data: { first_name: firstName, last_name: lastName },
             }
         });
 
@@ -125,6 +128,48 @@ export default function RegisterPage() {
                                 {error}
                             </div>
                         )}
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="firstName" className="block text-sm font-medium text-neutral-300 mb-1.5 px-1">
+                                    שם פרטי
+                                </label>
+                                <div className="relative rounded-xl shadow-sm">
+                                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                        <User className="h-4 w-4 text-neutral-500" />
+                                    </div>
+                                    <input
+                                        id="firstName"
+                                        name="firstName"
+                                        type="text"
+                                        autoComplete="given-name"
+                                        required
+                                        value={firstName}
+                                        onChange={(e) => setFirstName(e.target.value)}
+                                        className="block w-full pl-4 pr-10 bg-black/40 border border-white/10 rounded-xl py-3 text-white placeholder-neutral-500 focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all sm:text-sm"
+                                        placeholder="ישראל"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label htmlFor="lastName" className="block text-sm font-medium text-neutral-300 mb-1.5 px-1">
+                                    שם משפחה
+                                </label>
+                                <div className="relative rounded-xl shadow-sm">
+                                    <input
+                                        id="lastName"
+                                        name="lastName"
+                                        type="text"
+                                        autoComplete="family-name"
+                                        required
+                                        value={lastName}
+                                        onChange={(e) => setLastName(e.target.value)}
+                                        className="block w-full px-4 bg-black/40 border border-white/10 rounded-xl py-3 text-white placeholder-neutral-500 focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all sm:text-sm"
+                                        placeholder="ישראלי"
+                                    />
+                                </div>
+                            </div>
+                        </div>
 
                         <div>
                             <label htmlFor="email" className="block text-sm font-medium text-neutral-300 mb-1.5 px-1">

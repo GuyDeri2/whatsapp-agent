@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck } from "lucide-react";
+import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2 } from "lucide-react";
 
 interface AgentLearning {
     id: string;
@@ -20,6 +20,9 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<{ question: string; answer: string; category: string }>({ question: "", answer: "", category: "general" });
     const [isAdding, setIsAdding] = useState(false);
+
+    const [isSaving, setIsSaving] = useState(false);
+    const [isUpdating, setIsUpdating] = useState(false);
 
     const [unanswered, setUnanswered] = useState<any[]>([]);
     const [dismissedIds, setDismissedIds] = useState<string[]>([]);
@@ -53,18 +56,23 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
     }, [tenant?.id, supabase]);
 
     const handleSaveEdit = async (id: string) => {
-        const { error } = await supabase.from("knowledge_base").update({
-            question: editForm.question,
-            answer: editForm.answer,
-            category: editForm.category,
-            updated_at: new Date().toISOString()
-        }).eq("id", id);
+        setIsUpdating(true);
+        try {
+            const { error } = await supabase.from("knowledge_base").update({
+                question: editForm.question,
+                answer: editForm.answer,
+                category: editForm.category,
+                updated_at: new Date().toISOString()
+            }).eq("id", id);
 
-        if (!error) {
-            setEditingId(null);
-            fetchLearnings();
-        } else {
-            alert("שגיאה בעדכון הנתונים");
+            if (!error) {
+                setEditingId(null);
+                fetchLearnings();
+            } else {
+                alert("שגיאה בעדכון הנתונים");
+            }
+        } finally {
+            setIsUpdating(false);
         }
     };
 
@@ -80,6 +88,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
 
     const handleAdd = async () => {
         if (!editForm.question || !editForm.answer) return alert("יש למלא נושא ותשובה");
+        setIsSaving(true);
 
         // Optimistic — close form immediately
         const tempId = `temp-${Date.now()}`;
@@ -107,6 +116,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
             setIsAdding(true); // Re-open form
             alert("שגיאה בהוספה");
         }
+        setIsSaving(false);
     };
 
     const activeUnanswered = unanswered.filter(q => !dismissedIds.includes(q.id));
@@ -273,15 +283,17 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
 
                                     <div className="flex items-center gap-3 pt-2">
                                         <button
-                                            className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-all text-sm"
+                                            className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                             onClick={handleAdd}
+                                            disabled={isSaving}
                                         >
-                                            <Save className="w-4 h-4" />
-                                            שמור כלל
+                                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                            {isSaving ? "שומר..." : "שמור כלל"}
                                         </button>
                                         <button
-                                            className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/5 hover:bg-white/10 text-white rounded-xl font-medium transition-all text-sm border border-white/10"
+                                            className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/5 hover:bg-white/10 text-white rounded-xl font-medium transition-all text-sm border border-white/10 disabled:opacity-50"
                                             onClick={() => setIsAdding(false)}
+                                            disabled={isSaving}
                                         >
                                             <X className="w-4 h-4" />
                                             ביטול
@@ -337,8 +349,15 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                                                             <input type="text" placeholder="שאלה/נושא" value={editForm.question} onChange={e => setEditForm({ ...editForm, question: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm focus:outline-none focus:border-emerald-500 font-medium" />
                                                             <textarea placeholder="תשובה" value={editForm.answer} onChange={e => setEditForm({ ...editForm, answer: e.target.value })} className="w-full bg-black/60 border border-white/10 rounded-lg py-2 px-3 text-white text-sm min-h-[80px] focus:outline-none focus:border-emerald-500 custom-scrollbar resize-none" />
                                                             <div className="flex gap-2 pt-1">
-                                                                <button className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-colors" onClick={() => handleSaveEdit(learning.id)}>עדכן</button>
-                                                                <button className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-medium transition-colors border border-white/5" onClick={() => setEditingId(null)}>ביטול</button>
+                                                                <button
+                                                                    className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    onClick={() => handleSaveEdit(learning.id)}
+                                                                    disabled={isUpdating}
+                                                                >
+                                                                    {isUpdating && <Loader2 className="w-3 h-3 animate-spin" />}
+                                                                    {isUpdating ? "שומר..." : "עדכן"}
+                                                                </button>
+                                                                <button className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-medium transition-colors border border-white/5 disabled:opacity-50" onClick={() => setEditingId(null)} disabled={isUpdating}>ביטול</button>
                                                             </div>
                                                         </div>
                                                     ) : (

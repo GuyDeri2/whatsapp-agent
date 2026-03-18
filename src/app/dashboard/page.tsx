@@ -4,11 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, LogOut, ArrowLeft, Bot, Activity, PauseCircle, Building2 } from "lucide-react";
-
-/* ------------------------------------------------------------------ */
-/* Types                                                               */
-/* ------------------------------------------------------------------ */
+import { Plus, LogOut, ArrowLeft, Bot, Activity, PauseCircle, Building2, Wifi, WifiOff, BookOpen, Loader2, Sparkles } from "lucide-react";
 
 interface Tenant {
   id: string;
@@ -23,11 +19,16 @@ interface Tenant {
 interface Profile {
   role: "client" | "admin";
   subscription_status: "trial" | "active" | "past_due" | "canceled";
+  first_name: string | null;
+  last_name: string | null;
 }
 
-/* ------------------------------------------------------------------ */
-/* Page component                                                      */
-/* ------------------------------------------------------------------ */
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "בוקר טוב";
+  if (hour >= 12 && hour < 17) return "צהריים טובים";
+  return "ערב טוב";
+}
 
 export default function Dashboard() {
   const supabase = createClient();
@@ -37,25 +38,21 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    business_name: "",
-    description: "",
-    products: "",
-    target_customers: "",
-  });
+  const [formData, setFormData] = useState({ business_name: "", description: "", products: "", target_customers: "" });
   const [creating, setCreating] = useState(false);
 
   const fetchTenants = useCallback(async () => {
     const res = await fetch("/api/tenants");
     const data = await res.json();
-    if (data.tenants) setTenants(data.tenants);
+    if (data.tenants) {
+      setTenants(data.tenants);
+      data.tenants.forEach((t: Tenant) => router.prefetch(`/tenant/${t.id}`));
+    }
     if (data.profile) setProfile(data.profile);
     setLoading(false);
-  }, []);
+  }, [router]);
 
-  useEffect(() => {
-    fetchTenants();
-  }, [fetchTenants]);
+  useEffect(() => { fetchTenants(); }, [fetchTenants]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -73,171 +70,182 @@ export default function Dashboard() {
     });
     if (res.ok) {
       setShowForm(false);
-      setFormData({
-        business_name: "",
-        description: "",
-        products: "",
-        target_customers: "",
-      });
+      setFormData({ business_name: "", description: "", products: "", target_customers: "" });
       await fetchTenants();
     }
     setCreating(false);
   };
 
   const modeConfig = {
-    learning: { label: "למידה", icon: <Bot className="w-4 h-4" />, color: "bg-amber-500/20 text-amber-500 ring-amber-500/30" },
-    active: { label: "פעיל", icon: <Activity className="w-4 h-4" />, color: "bg-emerald-500/20 text-emerald-500 ring-emerald-500/30" },
-    paused: { label: "מושהה", icon: <PauseCircle className="w-4 h-4" />, color: "bg-neutral-500/20 text-neutral-400 ring-neutral-500/30" },
+    learning: { label: "למידה", icon: <BookOpen className="w-3.5 h-3.5" />, bg: "bg-amber-500/15 text-amber-400 ring-amber-500/25" },
+    active:   { label: "פעיל",   icon: <Activity className="w-3.5 h-3.5" />,   bg: "bg-blue-500/15 text-blue-400 ring-blue-500/25" },
+    paused:   { label: "מושהה",  icon: <PauseCircle className="w-3.5 h-3.5" />, bg: "bg-neutral-500/15 text-neutral-400 ring-neutral-500/25" },
   };
 
   return (
-    <div className="min-h-screen bg-black text-neutral-200 font-sans selection:bg-emerald-500/30">
-      {/* Background Gradients */}
-      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-emerald-600/10 blur-[100px]" />
-        <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-emerald-600/10 blur-[120px]" />
+    <div className="min-h-screen text-neutral-200 font-sans selection:bg-blue-500/30 relative overflow-x-hidden" style={{ background: "#060c18" }}>
+
+      {/* Background */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div className="absolute top-[-15%] right-[-10%] w-[600px] h-[600px] rounded-full opacity-25" style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)", filter: "blur(90px)" }} />
+        <div className="absolute bottom-[-15%] left-[-10%] w-[700px] h-[700px] rounded-full opacity-15" style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)", filter: "blur(100px)" }} />
+        <div className="absolute top-[40%] left-[30%] w-[400px] h-[400px] rounded-full opacity-[0.07]" style={{ background: "radial-gradient(circle, #60a5fa 0%, transparent 70%)", filter: "blur(80px)" }} />
+        {/* Subtle grid */}
+        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
       </div>
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
         {/* Header */}
-        <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-10 pb-6 border-b border-white/10">
-          <div>
-            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-400 flex items-center gap-2">
-              <Bot className="w-8 h-8 text-emerald-500" />
-              דשבורד סוכנים
-            </h1>
-            <p className="text-neutral-500 text-sm mt-1">נהל את סוכני ה-AI והעסקים שלך במקום אחד</p>
-          </div>
+        <motion.header
+          initial={{ opacity: 0, y: -16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-10"
+        >
           <div className="flex items-center gap-4">
+            <div className="relative w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.25)]">
+              <Bot className="w-6 h-6 text-blue-400" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-[#060c18] animate-pulse" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                {getGreeting()}{profile?.first_name ? `, ${profile.first_name}${profile.last_name ? ` ${profile.last_name}` : ""}` : ""}
+              </h1>
+              <p className="text-slate-500 text-sm">נהל את סוכני הווטסאפ שלך</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
             {profile && (
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${profile.subscription_status === "active" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" :
-                  profile.subscription_status === "trial" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" :
-                    "bg-red-500/10 text-red-400 ring-red-500/20"
-                }`}>
-                {profile.subscription_status === "trial" && "תקופת ניסיון"}
-                {profile.subscription_status === "active" && "מנוי פעיל"}
-                {profile.subscription_status === "past_due" && "בפיגור תשלום"}
-                {profile.subscription_status === "canceled" && "מנוי בוטל"}
+              <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ring-inset ${
+                profile.subscription_status === "active" ? "bg-blue-500/10 text-blue-400 ring-blue-500/20" :
+                profile.subscription_status === "trial"  ? "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20" :
+                "bg-red-500/10 text-red-400 ring-red-500/20"
+              }`}>
+                {profile.subscription_status === "trial"    && "✨ תקופת ניסיון"}
+                {profile.subscription_status === "active"   && "✅ מנוי פעיל"}
+                {profile.subscription_status === "past_due" && "⚠️ בפיגור תשלום"}
+                {profile.subscription_status === "canceled" && "❌ מנוי בוטל"}
               </span>
             )}
             {profile?.role === "admin" && (
               <button
                 onClick={() => router.push("/admin")}
-                className="px-4 py-2 text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
+                onMouseEnter={() => router.prefetch("/admin")}
+                className="px-4 py-2 text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all inline-flex items-center gap-2"
               >
                 ניהול מערכת
               </button>
             )}
             <button
               onClick={handleLogout}
-              className="p-2 text-neutral-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors flex items-center gap-2"
-              title="התנתק"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all border border-transparent hover:border-red-500/20"
             >
-              <LogOut className="w-5 h-5" />
-              <span className="hidden sm:inline text-sm">התנתק</span>
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">התנתק</span>
             </button>
           </div>
-        </header>
+        </motion.header>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
-          <StatCard title="סה״כ עסקים" value={tenants.length} />
-          <StatCard title="מחוברים לוואטסאפ" value={tenants.filter((t) => t.whatsapp_connected).length} highlight="text-emerald-400" />
-          <StatCard title="סוכנים פעילים" value={tenants.filter((t) => t.agent_mode === "active").length} highlight="text-emerald-400" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+          {[
+            { title: "סה״כ עסקים",       value: loading ? "—" : tenants.length,                                    icon: <Building2 className="w-5 h-5" />, color: "text-blue-400",   glow: "rgba(59,130,246,0.15)" },
+            { title: "מחוברים לווטסאפ", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected).length,  icon: <Wifi className="w-5 h-5" />,      color: "text-indigo-300", glow: "rgba(99,102,241,0.15)" },
+            { title: "סוכנים פעילים",    value: loading ? "—" : tenants.filter(t => t.agent_mode === "active").length, icon: <Sparkles className="w-5 h-5" />, color: "text-sky-400", glow: "rgba(56,189,248,0.15)" },
+          ].map((stat, idx) => (
+            <motion.div
+              key={stat.title}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ delay: idx * 0.08, duration: 0.4 }}
+              className="group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-blue-500/40 rounded-2xl p-5 backdrop-blur-sm overflow-hidden cursor-default transition-colors duration-200"
+              style={{ boxShadow: `0 0 20px ${stat.glow}` }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-slate-500 group-hover:text-slate-300 font-medium transition-colors duration-200">{stat.title}</span>
+                <span className={`${stat.color} opacity-60 group-hover:opacity-100 group-hover:scale-110 transition-all duration-200 inline-block`}>{stat.icon}</span>
+              </div>
+              <p className={`text-4xl font-bold tracking-tight ${stat.color} transition-all duration-200`} style={{ filter: "none" }}
+                onMouseEnter={e => (e.currentTarget.style.filter = `drop-shadow(0 0 12px ${stat.glow})`)}
+                onMouseLeave={e => (e.currentTarget.style.filter = "none")}
+              >{stat.value}</p>
+              <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-500/30 to-transparent group-hover:via-blue-500/70 transition-all duration-300" />
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 group-hover:from-blue-500/[0.04] to-transparent transition-all duration-300 rounded-2xl pointer-events-none" />
+            </motion.div>
+          ))}
         </div>
 
-        {/* Main Content */}
+        {/* Tenants */}
         <div>
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-neutral-400" />
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-slate-400" />
               העסקים שלך
             </h2>
-            <button
+            <motion.button
+              whileTap={{ scale: 0.96 }}
               onClick={() => setShowForm(!showForm)}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-emerald-500/20"
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${showForm
+                ? "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10"
+                : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40"
+              }`}
             >
               {showForm ? "ביטול" : <><Plus className="w-4 h-4" /> הוסף עסק</>}
-            </button>
+            </motion.button>
           </div>
 
           <AnimatePresence>
             {showForm && (
               <motion.div
-                initial={{ opacity: 0, height: 0, scale: 0.95 }}
-                animate={{ opacity: 1, height: "auto", scale: 1 }}
-                exit={{ opacity: 0, height: 0, scale: 0.95 }}
+                initial={{ opacity: 0, height: 0, y: -8 }}
+                animate={{ opacity: 1, height: "auto", y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -8 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
                 className="mb-8 overflow-hidden"
               >
-                <div className="bg-white/[0.03] border border-white/[0.05] rounded-2xl p-6 sm:p-8 relative">
-                  <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-50 rounded-2xl pointer-events-none" />
-                  <h3 className="text-lg font-semibold mb-6 relative z-10">הוסף עסק חדש למערכת</h3>
-
-                  <form onSubmit={handleCreate} className="space-y-6 relative z-10">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-neutral-400">שם העסק <span className="text-red-400">*</span></label>
-                        <input
-                          type="text"
-                          required
-                          value={formData.business_name}
+                <div className="bg-white/[0.02] border border-blue-500/20 rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_rgba(59,130,246,0.07)]">
+                  <h3 className="text-lg font-semibold mb-6 text-white">הוסף עסק חדש למערכת</h3>
+                  <form onSubmit={handleCreate} className="space-y-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">שם העסק <span className="text-red-400">*</span></label>
+                        <input type="text" required value={formData.business_name}
                           onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                          className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm"
-                          placeholder="לדוגמה: חנות אלקטרוניקה"
-                        />
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all placeholder-slate-600"
+                          placeholder="לדוגמה: חנות אלקטרוניקה" />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-neutral-400">לקוחות יעד</label>
-                        <input
-                          type="text"
-                          value={formData.target_customers}
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">לקוחות יעד</label>
+                        <input type="text" value={formData.target_customers}
                           onChange={(e) => setFormData({ ...formData, target_customers: e.target.value })}
-                          className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm"
-                          placeholder="למשל: חובבי טכנולוגיה, עסקים קטנים..."
-                        />
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all placeholder-slate-600"
+                          placeholder="למשל: חובבי טכנולוגיה..." />
                       </div>
                     </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-neutral-400">מוצרים / שירותים</label>
-                      <textarea
-                        value={formData.products}
-                        onChange={(e) => setFormData({ ...formData, products: e.target.value })}
-                        rows={2}
-                        className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm resize-none"
-                        placeholder="מה אתם מוכרים? למשל: סמארטפונים, מחשבים ניידים..."
-                      />
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">מוצרים / שירותים</label>
+                      <textarea value={formData.products} onChange={(e) => setFormData({ ...formData, products: e.target.value })} rows={2}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all resize-none placeholder-slate-600"
+                        placeholder="מה אתם מוכרים?" />
                     </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-neutral-400">תיאור העסק</label>
-                      <textarea
-                        value={formData.description}
-                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                        rows={3}
-                        className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm resize-none"
-                        placeholder="מה העסק שלך עושה באופן כללי?"
-                      />
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">תיאור העסק</label>
+                      <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={2}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all resize-none placeholder-slate-600"
+                        placeholder="מה העסק שלך עושה?" />
                     </div>
-
-                    <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
-                      <button
-                        type="button"
-                        onClick={() => setShowForm(false)}
-                        className="px-5 py-2.5 rounded-lg text-sm font-medium text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
-                      >
+                    <div className="flex justify-end gap-3 pt-2 border-t border-white/5">
+                      <button type="button" onClick={() => setShowForm(false)}
+                        className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all">
                         ביטול
                       </button>
-                      <button
-                        type="submit"
-                        disabled={creating}
-                        className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
-                      >
-                        {creating ? (
-                          <><div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> יוצר...</>
-                        ) : (
-                          "צור סוכן חדש"
-                        )}
+                      <button type="submit" disabled={creating}
+                        className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-500/25">
+                        {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> יוצר...</> : "צור סוכן חדש"}
                       </button>
                     </div>
                   </form>
@@ -247,60 +255,83 @@ export default function Dashboard() {
           </AnimatePresence>
 
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
-              <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-indigo-500 rounded-full animate-spin mb-4" />
-              <p>טוען נתונים...</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 animate-pulse">
+                  <div className="skeleton h-5 w-2/3 mb-3 rounded-lg" />
+                  <div className="skeleton h-3.5 w-full mb-2 rounded" />
+                  <div className="skeleton h-3.5 w-3/4 mb-6 rounded" />
+                  <div className="skeleton h-px w-full mb-4" />
+                  <div className="skeleton h-4 w-1/3 rounded" />
+                </div>
+              ))}
             </div>
           ) : tenants.length === 0 && !showForm ? (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-              className="bg-white/5 border border-white/10 rounded-2xl p-12 text-center"
-            >
-              <Building2 className="w-16 h-16 text-neutral-600 mx-auto mb-4" />
-              <h3 className="text-xl font-medium text-white mb-2">אין עסקים עדיין</h3>
-              <p className="text-neutral-400 mb-6">הוסף את העסק הראשון שלך כדי להתחיל לאמן את סוכן ה-AI בווטסאפ.</p>
-              <button onClick={() => setShowForm(true)} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-colors">
-                + הוסף עסק ראשון
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+              className="border-2 border-dashed border-white/10 rounded-2xl p-16 text-center">
+              <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/10">
+                <Building2 className="w-8 h-8 text-slate-600" />
+              </div>
+              <h3 className="text-xl font-semibold text-white mb-2">אין עסקים עדיין</h3>
+              <p className="text-slate-400 mb-6 max-w-xs mx-auto">הוסף את העסק הראשון שלך כדי להתחיל לאמן את סוכן ה-AI.</p>
+              <button onClick={() => setShowForm(true)}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-blue-500/25 inline-flex items-center gap-2">
+                <Plus className="w-4 h-4" /> הוסף עסק ראשון
               </button>
             </motion.div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {tenants.map((tenant, idx) => {
                 const mode = modeConfig[tenant.agent_mode];
                 return (
                   <motion.div
+                    key={tenant.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.1 }}
-                    key={tenant.id}
+                    transition={{ delay: idx * 0.07, duration: 0.35 }}
+                    whileHover={{ y: -3, transition: { duration: 0.2 } }}
+                    onMouseEnter={() => router.prefetch(`/tenant/${tenant.id}`)}
                     onClick={() => router.push(`/tenant/${tenant.id}`)}
-                    className="group relative bg-white/[0.02] hover:bg-white/[0.04] border border-white/10 hover:border-emerald-500/50 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/10 flex flex-col"
+                    className="group relative border rounded-2xl p-6 cursor-pointer transition-all duration-300 flex flex-col overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.07] hover:border-blue-500/40 hover:shadow-[0_8px_32px_rgba(59,130,246,0.12)]"
                   >
-                    <div className="flex justify-between items-start mb-4">
-                      <h3 className="text-lg font-semibold text-white truncate pr-2 group-hover:text-emerald-300 transition-colors">
+                    {/* Top accent line on hover */}
+                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-500/0 to-transparent group-hover:via-blue-500/60 transition-all duration-500" />
+
+                    <div className="flex justify-between items-start mb-3">
+                      <h3 className="text-base font-semibold text-white truncate pr-2 group-hover:text-blue-300 transition-colors leading-tight">
                         {tenant.business_name}
                       </h3>
-                      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${mode.color} shrink-0`}>
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset shrink-0 ${mode.bg}`}>
                         {mode.icon}
                         {mode.label}
-                      </div>
+                      </span>
                     </div>
 
-                    <p className="text-sm text-neutral-500 line-clamp-2 mb-6 flex-1">
+                    <p className="text-sm text-slate-500 line-clamp-2 mb-5 flex-1 leading-relaxed">
                       {tenant.description || "אין תיאור נתון."}
                     </p>
 
-                    <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-auto">
-                      <div className="flex items-center gap-2 text-sm">
-                        <div className="relative flex h-2.5 w-2.5">
-                          {tenant.whatsapp_connected && <span className="animate-ping py-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
-                          <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${tenant.whatsapp_connected ? "bg-emerald-500" : "bg-neutral-600"}`}></span>
-                        </div>
-                        <span className={tenant.whatsapp_connected ? "text-neutral-300" : "text-neutral-500"}>
-                          {tenant.whatsapp_connected ? `מחובר (${tenant.whatsapp_phone || "..."})` : "לא מחובר"}
-                        </span>
+                    <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs">
+                        {tenant.whatsapp_connected ? (
+                          <>
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                            </span>
+                            <span className="text-blue-400 font-medium" dir="ltr">{tenant.whatsapp_phone || "מחובר"}</span>
+                          </>
+                        ) : (
+                          <>
+                            <WifiOff className="w-3.5 h-3.5 text-slate-600" />
+                            <span className="text-slate-600">לא מחובר</span>
+                          </>
+                        )}
                       </div>
-                      <ArrowLeft className="w-4 h-4 text-neutral-600 group-hover:text-emerald-400 group-hover:-translate-x-1 transition-all" />
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 group-hover:text-blue-400 transition-colors">
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity">פתח</span>
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+                      </div>
                     </div>
                   </motion.div>
                 );
@@ -309,15 +340,6 @@ export default function Dashboard() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function StatCard({ title, value, highlight = "text-white" }: { title: string, value: string | number, highlight?: string }) {
-  return (
-    <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-6 flex flex-col justify-between">
-      <h3 className="text-sm font-medium text-neutral-400 mb-2">{title}</h3>
-      <p className={`text-4xl font-bold tracking-tight ${highlight}`}>{value}</p>
     </div>
   );
 }
