@@ -36,19 +36,20 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "Invalid verification request" }, { status: 400 });
     }
 
-    // Check if the verify_token matches any tenant's config
-    const supabase = getSupabaseAdmin();
-    const { data } = await supabase
-        .from("whatsapp_cloud_config")
-        .select("tenant_id")
-        .eq("webhook_verify_token", token)
-        .limit(1)
-        .single();
+    // Check global webhook verify token first (fastest path)
+    const globalToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+    if (globalToken && token === globalToken) {
+        // Global token matches — proceed
+    } else {
+        // Check if the verify_token matches any tenant's config
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase
+            .from("whatsapp_cloud_config")
+            .select("tenant_id")
+            .eq("webhook_verify_token", token)
+            .limit(1);
 
-    if (!data) {
-        // Also check global webhook verify token (for single-app multi-tenant setup)
-        const globalToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
-        if (!globalToken || token !== globalToken) {
+        if (!data || data.length === 0) {
             console.error("[Webhook] Verification failed: unknown verify_token");
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
