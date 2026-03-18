@@ -62,64 +62,69 @@ export async function GET(req: Request) {
 // ── Incoming Messages (POST) ────────────────────────────────────────
 
 export async function POST(req: Request) {
-    // 1. Verify webhook signature
-    const rawBody = await req.text();
-    const signature = req.headers.get("x-hub-signature-256") || "";
-
-    if (!verifyWebhookSignature(rawBody, signature)) {
-        console.error("[Webhook] Invalid signature — rejecting");
-        return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
-
-    // 2. Parse the payload
-    let payload: WebhookPayload;
     try {
-        payload = JSON.parse(rawBody);
-    } catch {
-        return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-    }
+        // 1. Verify webhook signature
+        const rawBody = await req.text();
+        const signature = req.headers.get("x-hub-signature-256") || "";
 
-    if (payload.object !== "whatsapp_business_account") {
-        return NextResponse.json({ error: "Unsupported object type" }, { status: 400 });
-    }
+        if (!verifyWebhookSignature(rawBody, signature)) {
+            console.error("[Webhook] Invalid signature — rejecting");
+            return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+        }
 
-    // 3. Must return 200 quickly — Meta retries on timeout
-    // Process messages in the background via waitUntil-style pattern
-    const processingPromises: Promise<void>[] = [];
+        // 2. Parse the payload
+        let payload: WebhookPayload;
+        try {
+            payload = JSON.parse(rawBody);
+        } catch {
+            return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+        }
 
-    for (const entry of payload.entry) {
-        for (const change of entry.changes) {
-            if (change.field !== "messages") continue;
+        if (payload.object !== "whatsapp_business_account") {
+            return NextResponse.json({ error: "Unsupported object type" }, { status: 400 });
+        }
 
-            const { value } = change;
-            const phoneNumberId = value.metadata.phone_number_id;
+        // 3. Must return 200 quickly — Meta retries on timeout
+        // Process messages in the background via waitUntil-style pattern
+        const processingPromises: Promise<void>[] = [];
 
-            // Handle incoming messages
-            if (value.messages && value.messages.length > 0) {
-                const contacts = value.contacts || [];
-                for (const message of value.messages) {
-                    const senderName = contacts.find(c => c.wa_id === message.from)?.profile?.name || null;
-                    processingPromises.push(
-                        processIncomingMessage(phoneNumberId, message, senderName)
-                    );
+        for (const entry of payload.entry) {
+            for (const change of entry.changes) {
+                if (change.field !== "messages") continue;
+
+                const { value } = change;
+                const phoneNumberId = value.metadata.phone_number_id;
+
+                // Handle incoming messages
+                if (value.messages && value.messages.length > 0) {
+                    const contacts = value.contacts || [];
+                    for (const message of value.messages) {
+                        const senderName = contacts.find(c => c.wa_id === message.from)?.profile?.name || null;
+                        processingPromises.push(
+                            processIncomingMessage(phoneNumberId, message, senderName)
+                        );
+                    }
                 }
-            }
 
-            // Handle status updates (delivered, read, failed)
-            if (value.statuses && value.statuses.length > 0) {
-                for (const status of value.statuses) {
-                    processingPromises.push(
-                        processStatusUpdate(phoneNumberId, status)
-                    );
+                // Handle status updates (delivered, read, failed)
+                if (value.statuses && value.statuses.length > 0) {
+                    for (const status of value.statuses) {
+                        processingPromises.push(
+                            processStatusUpdate(phoneNumberId, status)
+                        );
+                    }
                 }
             }
         }
+
+        // Wait for processing (within serverless timeout)
+        await Promise.allSettled(processingPromises);
+
+        return NextResponse.json({ success: true }, { status: 200 });
+    } catch (err) {
+        console.error("[Webhook] Unhandled error:", err);
+        return NextResponse.json({ error: String(err) }, { status: 500 });
     }
-
-    // Wait for processing (within serverless timeout)
-    await Promise.allSettled(processingPromises);
-
-    return NextResponse.json({ success: true }, { status: 200 });
 }
 
 // ── Message Processing ──────────────────────────────────────────────
