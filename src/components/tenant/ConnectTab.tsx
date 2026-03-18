@@ -1,5 +1,7 @@
+'use client';
+
 import React, { useState } from "react";
-import { Smartphone, Link as LinkIcon, RefreshCw, PowerOff, ShieldCheck, Loader2, ExternalLink } from "lucide-react";
+import { Smartphone, Link as LinkIcon, PowerOff, ShieldCheck, Loader2, ExternalLink } from "lucide-react";
 import styles from "./ConnectTab.module.css";
 
 interface Tenant {
@@ -9,78 +11,48 @@ interface Tenant {
     whatsapp_cloud_config?: {
         phone_number_id: string;
         waba_id: string;
-        created_at: string;
     } | null;
 }
 
 interface ConnectTabProps {
     tenant: Tenant;
-    connectionStatus: string;
-    qrCode: string | null;
-    handleConnect: () => Promise<void>;
-    handleReconnect: (clearAuth?: boolean) => Promise<void>;
-    handleDisconnect: () => Promise<void>;
+    onDisconnect?: () => Promise<void>;
 }
 
 const ConnectTab = React.memo(function ConnectTab({
     tenant,
-    connectionStatus,
-    qrCode,
-    handleConnect,
-    handleReconnect,
-    handleDisconnect,
+    onDisconnect,
 }: ConnectTabProps) {
-    const isConnected = tenant.whatsapp_connected;
-    const hasCloudConfig = !!tenant.whatsapp_cloud_config;
-    const [busy, setBusy] = useState<"connect" | "reconnect" | "refresh" | "disconnect" | "cloud-signup" | null>(null);
+    const isConnected = tenant.whatsapp_connected && !!tenant.whatsapp_cloud_config;
+    const [busy, setBusy] = useState<"disconnect" | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    async function run(key: typeof busy, fn: () => Promise<void>) {
-        if (busy) return;
-        setError(null);
-        setBusy(key);
-        try { await fn(); } catch (err) {
-            setError(err instanceof Error ? err.message : "שגיאה בלתי צפויה");
-        } finally { setBusy(null); }
+    function handleConnect() {
+        // Navigate in same window (popup blockers can block window.open)
+        window.location.href = `/api/tenants/${tenant.id}/cloud-signup`;
     }
 
-    async function handleCloudSignup() {
+    async function handleDisconnect() {
         if (busy) return;
         setError(null);
-        setBusy("cloud-signup");
+        setBusy("disconnect");
         try {
             const res = await fetch(`/api/tenants/${tenant.id}/cloud-signup`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
+                method: "DELETE",
             });
-            
+
+            const text = await res.text();
+            let data: { error?: string; success?: boolean } = {};
+            try { data = JSON.parse(text); } catch { /* empty or invalid response */ }
+
             if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.error || "Failed to initiate WhatsApp Cloud signup");
+                throw new Error(data.error || "שגיאה בניתוק החיבור");
             }
-            
-            const data = await res.json();
-            
-            // Open Meta login popup
-            if (data.authUrl) {
-                const popup = window.open(
-                    data.authUrl,
-                    "whatsapp-cloud-signup",
-                    "width=600,height=700,scrollbars=yes"
-                );
-                
-                // Poll for completion
-                const checkCompletion = setInterval(async () => {
-                    if (popup?.closed) {
-                        clearInterval(checkCompletion);
-                        // Check if configuration was saved
-                        const checkRes = await fetch(`/api/tenants/${tenant.id}/cloud-signup/status`);
-                        if (checkRes.ok) {
-                            // Refresh tenant data to show connected status
-                            window.location.reload();
-                        }
-                    }
-                }, 1000);
+
+            if (onDisconnect) {
+                await onDisconnect();
+            } else {
+                window.location.reload();
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "שגיאה בלתי צפויה");
@@ -89,16 +61,10 @@ const ConnectTab = React.memo(function ConnectTab({
         }
     }
 
-    // Determine which connection method to show
-    const showCloudSignup = !hasCloudConfig && !isConnected;
-    const showWhatsAppWeb = hasCloudConfig && !isConnected && connectionStatus !== "waiting_scan";
-
     return (
         <div className={styles.container}>
-            {/* Main Connection Card */}
             <div className={`${styles.connectionCard} ${isConnected ? styles.connected : styles.disconnected}`}>
 
-                {/* Decorative background gradient */}
                 {isConnected && (
                     <div className={styles.gradientBg}></div>
                 )}
@@ -110,13 +76,11 @@ const ConnectTab = React.memo(function ConnectTab({
                         <div className={`${styles.iconCircle} ${isConnected ? styles.connected : styles.disconnected}`}>
                             <Smartphone className="w-12 h-12" />
 
-                            {/* Pulse animation for connected state */}
                             {isConnected && (
                                 <div className={styles.pulse}></div>
                             )}
                         </div>
 
-                        {/* Status Badge */}
                         <div className={`${styles.statusBadge} ${isConnected ? styles.connected : styles.disconnected}`}>
                             {isConnected ? "מחובר" : "מנותק"}
                         </div>
@@ -131,10 +95,8 @@ const ConnectTab = React.memo(function ConnectTab({
                                 {isConnected ? (
                                     <span className="flex items-center justify-center md:justify-start gap-2">
                                         מחובר למספר: <strong className={styles.phoneNumber} dir="ltr">{tenant.whatsapp_phone || "..."}</strong>
-                                        {hasCloudConfig && " (WhatsApp Cloud API)"}
+                                        {" "}(WhatsApp Cloud API)
                                     </span>
-                                ) : hasCloudConfig ? (
-                                    "מוכן להתחברות דרך WhatsApp Cloud API"
                                 ) : (
                                     "הסוכן כרגע לא מחובר לאף מספר ווטסאפ"
                                 )}
@@ -151,32 +113,45 @@ const ConnectTab = React.memo(function ConnectTab({
                         {/* Connection States Area */}
                         <div className={styles.connectionArea}>
 
-                            {connectionStatus === "connecting" && (
-                                <div className={styles.connectingState}>
-                                    <div className={styles.connectingTitle}>
-                                        <div className={styles.spinner}></div>
-                                        <h3 className={styles.connectingText}>מכין חיבור...</h3>
+                            {/* Connected State */}
+                            {isConnected && (
+                                <div className={styles.connectedState}>
+                                    <div className={styles.connectedAlert}>
+                                        <ShieldCheck className={styles.connectedIcon} />
+                                        <span className={styles.connectedText}>החיבור פעיל ותקין</span>
                                     </div>
-                                    <p className={styles.connectingSubtext}>אנא המתן בזמן שאנו מכינים את הקוד לסריקה.</p>
+
+                                    <div className={styles.buttonGroup}>
+                                        <button
+                                            onClick={handleDisconnect}
+                                            disabled={!!busy}
+                                            className={styles.disconnectButton}
+                                        >
+                                            {busy === "disconnect"
+                                                ? <Loader2 className={styles.loadingSpinner} />
+                                                : <PowerOff className="w-5 h-5" />
+                                            }
+                                            {busy === "disconnect" ? "מנתק..." : "נתק חיבור"}
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
-                            {/* WhatsApp Cloud Signup Card */}
-                            {showCloudSignup && connectionStatus !== "connecting" && (
+                            {/* Disconnected State — Cloud Signup */}
+                            {!isConnected && (
                                 <div className={styles.cloudSignupCard}>
                                     <div className={styles.metaLogo}>
                                         <div className={styles.metaLogoContainer}>
-                                            <img 
-                                                src="/meta-whatsapp-cloud.png" 
-                                                alt="Meta WhatsApp Cloud API" 
+                                            <img
+                                                src="/meta-whatsapp-cloud.png"
+                                                alt="Meta WhatsApp Cloud API"
                                                 className={styles.metaLogoImage}
                                                 onError={(e) => {
-                                                    // Fallback if image doesn't exist
                                                     const target = e.target as HTMLImageElement;
                                                     target.style.display = 'none';
                                                     target.parentElement!.innerHTML = `
-                                                        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f0f0f0; border-radius: 0.75rem;">
-                                                            <div style="text-align: center; padding: 1rem;">
+                                                        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f0f0f0; border-radius: 0.75rem; padding: 2rem;">
+                                                            <div style="text-align: center;">
                                                                 <div style="font-size: 2rem; font-weight: bold; color: #0866FF;">Meta</div>
                                                                 <div style="color: #25D366; font-weight: bold; margin-top: 0.5rem;">WhatsApp Cloud API</div>
                                                             </div>
@@ -193,116 +168,25 @@ const ConnectTab = React.memo(function ConnectTab({
                                                 הרשמה ל-WhatsApp Cloud API
                                             </h3>
                                             <div className={styles.cloudSignupSteps}>
-                                                <p>כדי להשתמש ב-WhatsApp Cloud API, תצטרך:</p>
+                                                <p>כדי לחבר את הסוכן למספר הווטסאפ העסקי שלך:</p>
                                                 <ol className={styles.cloudSignupList}>
-                                                    <li>חשבון Meta for Developers פעיל</li>
-                                                    <li>אפליקציית WhatsApp Business שהוגדרה</li>
-                                                    <li>מספר טלפון עסקי מאומת</li>
-                                                    <li>הרשאות לשלוח ולקבל הודעות</li>
+                                                    <li>לחץ על <strong>התחבר ל-WhatsApp</strong></li>
+                                                    <li>התחבר עם חשבון <strong>Meta</strong> שלך</li>
+                                                    <li>בחר את המספר העסקי שלך</li>
+                                                    <li>אשר את ההרשאות הנדרשות</li>
                                                 </ol>
-                                                <p>לאחר ההרשמה, תקבל קישור לאימות חשבון ה-Meta שלך.</p>
+                                                <p>לאחר האישור, החיבור יתבצע אוטומטית.</p>
                                             </div>
                                         </div>
                                         <button
-                                            onClick={() => run("cloud-signup", handleCloudSignup)}
-                                            disabled={busy === "cloud-signup"}
+                                            onClick={handleConnect}
                                             className={styles.mainConnectButton}
                                         >
-                                            {busy === "cloud-signup"
-                                                ? <Loader2 className={styles.loadingSpinner} />
-                                                : <LinkIcon className="w-6 h-6" />
-                                            }
-                                            {busy === "cloud-signup" ? "מתחיל הרשמה..." : "התחבר ל-WhatsApp Cloud"}
+                                            <LinkIcon className="w-6 h-6" />
+                                            התחבר ל-WhatsApp
                                         </button>
                                     </div>
                                 </div>
-                            )}
-
-                            {/* Legacy WhatsApp Web QR Code (fallback) */}
-                            {connectionStatus === "waiting_scan" && qrCode && (
-                                <div className={styles.cloudSignupCard}>
-                                    <div className={styles.metaLogo}>
-                                        <div className={styles.metaLogoContainer}>
-                                            <img src={qrCode} alt="WhatsApp QR Code" className={styles.metaLogoImage} />
-                                        </div>
-                                    </div>
-                                    <div className={styles.cloudSignupContent}>
-                                        <div>
-                                            <h3 className={styles.cloudSignupTitle}>
-                                                <ExternalLink className={styles.cloudSignupIcon} />
-                                                סרוק את הברקוד
-                                            </h3>
-                                            <div className={styles.cloudSignupSteps}>
-                                                <p>כדי לחבר את הסוכן למספר שלך, פעל לפי השלבים הבאים:</p>
-                                                <ol className={styles.cloudSignupList}>
-                                                    <li>פתח את ווטסאפ במכשיר שלך</li>
-                                                    <li>היכנס ל<strong>הגדרות</strong> &gt; <strong>מכשירים מקושרים</strong></li>
-                                                    <li>לחץ על <strong>קישור מכשיר</strong></li>
-                                                    <li>סרוק את הברקוד המופיע במסך</li>
-                                                </ol>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => run("refresh", () => handleReconnect(true))}
-                                            disabled={busy === "refresh"}
-                                            className={styles.connectButton}
-                                        >
-                                            {busy === "refresh"
-                                                ? <Loader2 className={styles.loadingSpinner} />
-                                                : <RefreshCw className="w-4 h-4" />
-                                            }
-                                            {busy === "refresh" ? "מרענן..." : "רענן ברקוד"}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {isConnected && connectionStatus !== "waiting_scan" && (
-                                <div className={styles.connectedState}>
-                                    <div className={styles.connectedAlert}>
-                                        <ShieldCheck className={styles.connectedIcon} />
-                                        <span className={styles.connectedText}>החיבור פעיל ותקין</span>
-                                    </div>
-
-                                    <div className={styles.buttonGroup}>
-                                        <button
-                                            onClick={() => run("reconnect", () => handleReconnect(false))}
-                                            disabled={!!busy}
-                                            className={styles.reconnectButton}
-                                        >
-                                            {busy === "reconnect"
-                                                ? <Loader2 className={styles.loadingSpinner} />
-                                                : <RefreshCw className="w-5 h-5 opacity-70" />
-                                            }
-                                            {busy === "reconnect" ? "מתחבר מחדש..." : "נסה להתחבר מחדש"}
-                                        </button>
-                                        <button
-                                            onClick={() => run("disconnect", handleDisconnect)}
-                                            disabled={!!busy}
-                                            className={styles.disconnectButton}
-                                        >
-                                            {busy === "disconnect"
-                                                ? <Loader2 className={styles.loadingSpinner} />
-                                                : <PowerOff className="w-5 h-5" />
-                                            }
-                                            {busy === "disconnect" ? "מנתק..." : "נתק מכשיר"}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {showWhatsAppWeb && connectionStatus !== "connecting" && (
-                                <button
-                                    onClick={() => run("connect", handleConnect)}
-                                    disabled={busy === "connect"}
-                                    className={styles.mainConnectButton}
-                                >
-                                    {busy === "connect"
-                                        ? <Loader2 className={styles.loadingSpinner} />
-                                        : <LinkIcon className="w-6 h-6" />
-                                    }
-                                    {busy === "connect" ? "מתחיל חיבור..." : "התחל תהליך חיבור (WhatsApp Web)"}
-                                </button>
                             )}
                         </div>
                     </div>
