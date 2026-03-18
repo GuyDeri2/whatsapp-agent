@@ -89,7 +89,9 @@ export async function GET(req: Request) {
     if (!tokenRes.ok) {
       const errText = await tokenRes.text();
       console.error('Meta token exchange failed:', errText);
-      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=token_exchange`);
+      console.error('Token exchange details:', { REDIRECT_URI, META_APP_ID, META_API_VERSION });
+      const detail = encodeURIComponent(errText.substring(0, 200));
+      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=token_exchange&detail=${detail}`);
     }
 
     const userTokens = await tokenRes.json();
