@@ -29,7 +29,12 @@ export async function middleware(request: NextRequest) {
     } = await supabase.auth.getUser()
 
     const { pathname } = request.nextUrl
-    
+
+    // Webhook routes — bypass ALL middleware processing (no auth, no cookies)
+    if (pathname.startsWith('/api/webhooks/')) {
+        return NextResponse.next()
+    }
+
     // Ignore static files, api routes, Next internals
     if (
         pathname.startsWith('/_next') ||
