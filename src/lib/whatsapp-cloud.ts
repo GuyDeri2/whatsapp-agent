@@ -131,10 +131,12 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
         .update(payload)
         .digest("hex");
 
-    return crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSig)
-    );
+    // timingSafeEqual requires same-length buffers
+    const sigBuf = Buffer.from(signature);
+    const expectedBuf = Buffer.from(expectedSig);
+    if (sigBuf.length !== expectedBuf.length) return false;
+
+    return crypto.timingSafeEqual(sigBuf, expectedBuf);
 }
 
 // ── Send messages ───────────────────────────────────────────────────
