@@ -107,26 +107,23 @@ const ConnectTab = React.memo(function ConnectTab({
     function handleConnect() {
         if (busy) return;
 
-        // Ensure SDK is initialized even if fbAsyncInit was missed
-        if (window.FB && !sdkLoaded) {
-            window.FB.init({
-                appId: META_APP_ID,
-                cookie: true,
-                xfbml: true,
-                version: "v21.0",
-            });
-            setSdkLoaded(true);
-        }
-
         if (!window.FB || !window.FB.login) {
             setError("Facebook SDK לא נטען. רענן את הדף ונסה שוב.");
             return;
         }
 
         if (!META_APP_ID || !META_CONFIG_ID) {
-            setError("הגדרות Meta חסרות. פנה לתמיכה.");
+            setError(`הגדרות Meta חסרות (appId=${META_APP_ID}, configId=${META_CONFIG_ID}). פנה לתמיכה.`);
             return;
         }
+
+        // Always call FB.init() before FB.login() to ensure SDK is ready
+        window.FB.init({
+            appId: META_APP_ID,
+            cookie: true,
+            xfbml: true,
+            version: "v21.0",
+        });
 
         try {
             window.FB.login(
