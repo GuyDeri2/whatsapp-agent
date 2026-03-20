@@ -39,6 +39,7 @@
   "exclude": [
     "node_modules",
     "session-manager",
+    "baileys-service",
     "agents"
   ]
 }
