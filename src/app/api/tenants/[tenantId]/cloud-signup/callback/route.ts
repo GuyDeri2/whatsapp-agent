@@ -159,6 +159,22 @@ export async function GET(
       return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_waba_setup`);
     }
 
+    // Mutual exclusion: disconnect Baileys if active
+    const BAILEYS_SERVICE_URL = process.env.BAILEYS_SERVICE_URL;
+    const SESSION_MANAGER_SECRET = process.env.SESSION_MANAGER_SECRET;
+    if (BAILEYS_SERVICE_URL && SESSION_MANAGER_SECRET) {
+      try {
+        await fetch(`${BAILEYS_SERVICE_URL}/sessions/${tenantId}/stop`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SESSION_MANAGER_SECRET}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ clearData: true }),
+        });
+      } catch { /* non-fatal */ }
+    }
+
     // Generate a webhook verification token
     const webhookVerifyToken = crypto.randomBytes(32).toString('hex');
 
@@ -198,6 +214,7 @@ export async function GET(
     await admin.from('tenants').update({
       whatsapp_connected: true,
       whatsapp_phone: displayPhone,
+      connection_type: 'cloud',
     }).eq('id', tenantId);
 
     // Step 8: Subscribe WABA to our webhook (so Meta sends us messages)

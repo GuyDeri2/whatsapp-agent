@@ -59,6 +59,22 @@ export async function POST(
         return NextResponse.json({ error: 'Meta not configured' }, { status: 500 });
     }
 
+    // Mutual exclusion: disconnect Baileys if active
+    const BAILEYS_SERVICE_URL = process.env.BAILEYS_SERVICE_URL;
+    const SESSION_MANAGER_SECRET = process.env.SESSION_MANAGER_SECRET;
+    if (BAILEYS_SERVICE_URL && SESSION_MANAGER_SECRET) {
+        try {
+            await fetch(`${BAILEYS_SERVICE_URL}/sessions/${tenantId}/stop`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${SESSION_MANAGER_SECRET}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ clearData: true }),
+            });
+        } catch { /* non-fatal — Baileys may not be running */ }
+    }
+
     try {
         // Step 1: Exchange code for access token
         const tokenRes = await fetch(`https://graph.facebook.com/${META_API_VERSION}/oauth/access_token`, {
@@ -173,6 +189,7 @@ export async function POST(
         await admin.from('tenants').update({
             whatsapp_connected: true,
             whatsapp_phone: displayPhone,
+            connection_type: 'cloud',
         }).eq('id', tenantId);
 
         // Step 6: Subscribe WABA to webhook

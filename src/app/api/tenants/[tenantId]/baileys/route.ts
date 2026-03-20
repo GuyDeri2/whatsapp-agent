@@ -42,6 +42,28 @@ export async function POST(
         );
     }
 
+    // Mutual exclusion: disconnect Cloud API if active
+    const admin = getSupabaseAdmin();
+    const { data: cloudConfig } = await admin
+        .from('whatsapp_cloud_config')
+        .select('access_token')
+        .eq('tenant_id', tenantId)
+        .single();
+
+    if (cloudConfig) {
+        // Revoke Facebook token
+        if (cloudConfig.access_token) {
+            const META_API_VERSION = process.env.META_API_VERSION || 'v21.0';
+            try {
+                await fetch(
+                    `https://graph.facebook.com/${META_API_VERSION}/me/permissions`,
+                    { method: 'DELETE', headers: { Authorization: `Bearer ${cloudConfig.access_token}` } }
+                );
+            } catch { /* non-fatal */ }
+        }
+        await admin.from('whatsapp_cloud_config').delete().eq('tenant_id', tenantId);
+    }
+
     try {
         const res = await fetch(`${BAILEYS_SERVICE_URL}/sessions/${tenantId}/start`, {
             method: 'POST',

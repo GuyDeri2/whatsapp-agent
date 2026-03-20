@@ -43,19 +43,6 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Check if already has WhatsApp Cloud config
-  const { data: existingConfig } = await supabase
-    .from('whatsapp_cloud_config')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .single();
-
-  if (existingConfig) {
-    // If already configured, redirect to dashboard with info
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=already_configured`);
-  }
-
   // Fixed redirect URI — tenantId is in the state parameter, not the URL
   const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/cloud-signup/callback`;
   const META_API_VERSION = process.env.META_API_VERSION || 'v21.0';
