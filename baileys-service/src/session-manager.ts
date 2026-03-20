@@ -288,8 +288,18 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
             // Log every message for debugging
             console.log(`[${tenantId}] MSG: jid=${jid} fromMe=${fromMe} hasMsg=${hasMessage} group=${isGroup} broadcast=${isBroadcast} pushName=${msg.pushName ?? "none"}`);
 
-            if (!hasMessage || fromMe) continue;
+            if (!hasMessage) continue;
             if (isBroadcast) continue;
+
+            // Owner's outgoing messages — save to DB (for dashboard + learning engine)
+            if (fromMe) {
+                try {
+                    await _saveOwnerOutgoing(tenantId, msg);
+                } catch (err) {
+                    console.error(`[${tenantId}] Owner message save error:`, err);
+                }
+                continue;
+            }
 
             try {
                 await handleMessage(tenantId, socket, msg);
@@ -334,8 +344,9 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
         case DisconnectReason.restartRequired: // 515
             // WhatsApp server restart — reconnect in 3s
             console.log(`[${tenantId}] Restart required — reconnecting in 3s...`);
+            reconnecting.add(tenantId); // Prevent parallel reconnects during delay
             await _flushAndCleanup(tenantId);
-            setTimeout(() => _reconnectWithCooldown(tenantId), 3000);
+            setTimeout(() => { reconnecting.delete(tenantId); _reconnectWithCooldown(tenantId); }, 3000);
             break;
 
         case DisconnectReason.loggedOut: // 401
@@ -465,7 +476,9 @@ export async function runWatchdog(): Promise<void> {
 
             if (health.consecutiveFailures >= 3) {
                 console.error(`[${tenantId}] Zombie session detected — force reconnecting`);
-                sessions.delete(tenantId);
+                presencePauser.stop(tenantId);
+                try { session.socket.end(undefined); } catch { /* already closed */ }
+                await _flushAndCleanup(tenantId);
                 await _reconnectWithCooldown(tenantId);
             }
         }
@@ -508,4 +521,61 @@ export async function autoReconnectAll(): Promise<void> {
             await new Promise((resolve) => setTimeout(resolve, 2000));
         }
     }
+}
+
+// ── Save owner outgoing messages ────────────────────────────────────
+
+import type { WAMessage } from "@whiskeysockets/baileys";
+
+async function _saveOwnerOutgoing(tenantId: string, msg: WAMessage): Promise<void> {
+    const jid = msg.key.remoteJid;
+    if (!jid || jid.endsWith("@g.us")) return; // Skip groups
+
+    const text =
+        msg.message?.conversation ??
+        msg.message?.extendedTextMessage?.text ??
+        msg.message?.imageMessage?.caption ??
+        msg.message?.videoMessage?.caption ??
+        null;
+
+    if (!text) return; // Skip media-only outgoing messages
+
+    const phoneNumber = jid.replace("@s.whatsapp.net", "");
+    const supabase = getSupabase();
+
+    // Find or create conversation
+    const { data: conv } = await supabase
+        .from("conversations")
+        .upsert(
+            {
+                tenant_id: tenantId,
+                phone_number: phoneNumber,
+                is_group: false,
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: "tenant_id,phone_number" }
+        )
+        .select("id")
+        .single();
+
+    if (!conv) return;
+
+    // Save as owner message
+    await supabase.from("messages").insert({
+        tenant_id: tenantId,
+        conversation_id: conv.id,
+        role: "owner",
+        content: text,
+        wa_message_id: msg.key.id ?? null,
+        is_from_agent: false,
+    });
+
+    // Auto-pause — owner is handling this conversation
+    await supabase
+        .from("conversations")
+        .update({ is_paused: true, updated_at: new Date().toISOString() })
+        .eq("id", conv.id)
+        .eq("tenant_id", tenantId);
+
+    console.log(`[${tenantId}] Owner message saved for ${phoneNumber}`);
 }

@@ -9,7 +9,7 @@ import { getSupabase } from "./session-manager";
 import { humanSend, RateLimiter } from "./antiban";
 import { generateReply } from "./ai-agent";
 
-const rateLimiter = new RateLimiter();
+export const rateLimiter = new RateLimiter();
 
 // Deduplication: track processed message IDs (last 1000)
 const processedMessages = new Set<string>();
@@ -97,7 +97,8 @@ export async function handleMessage(
             await supabase
                 .from("conversations")
                 .update({ updated_at: new Date().toISOString() })
-                .eq("id", conversationId);
+                .eq("id", conversationId)
+                .eq("tenant_id", tenantId);
 
             // If paused, don't respond (owner is handling)
             if (existingConv.is_paused) {
@@ -183,6 +184,7 @@ export async function handleMessage(
             .from("messages")
             .select("role, content")
             .eq("conversation_id", conversationId)
+            .eq("tenant_id", tenantId)
             .order("created_at", { ascending: true })
             .limit(20);
 
@@ -214,7 +216,8 @@ export async function handleMessage(
             await supabase
                 .from("conversations")
                 .update({ is_paused: true, updated_at: new Date().toISOString() })
-                .eq("id", conversationId);
+                .eq("id", conversationId)
+                .eq("tenant_id", tenantId);
         }
     } catch (err) {
         console.error(`[${tenantId}] Error processing message from ${phoneNumber}:`, err);

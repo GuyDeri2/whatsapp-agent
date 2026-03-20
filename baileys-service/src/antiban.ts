@@ -35,11 +35,14 @@ function randInt(min: number, max: number): number {
 
 /** Get current Israel hour (0-23) */
 function getIsraelHour(): number {
-    return new Date().toLocaleString("en-US", {
-        timeZone: "Asia/Jerusalem",
-        hour: "numeric",
-        hour12: false,
-    }) as unknown as number;
+    return parseInt(
+        new Date().toLocaleString("en-US", {
+            timeZone: "Asia/Jerusalem",
+            hour: "numeric",
+            hour12: false,
+        }),
+        10
+    );
 }
 
 function isNightTime(config: AntiBanConfig): boolean {
@@ -214,6 +217,7 @@ export async function humanSend(
  */
 export class PresencePauseScheduler {
     private timers = new Map<string, ReturnType<typeof setTimeout>>();
+    private active = new Set<string>();
     private config: AntiBanConfig;
 
     constructor(config: AntiBanConfig = DEFAULT_ANTIBAN_CONFIG) {
@@ -223,11 +227,13 @@ export class PresencePauseScheduler {
     /** Start scheduling presence pauses for a session */
     start(tenantId: string, socket: WASocket): void {
         this.stop(tenantId);
+        this.active.add(tenantId);
         this.scheduleNext(tenantId, socket);
     }
 
     /** Stop presence pauses for a session */
     stop(tenantId: string): void {
+        this.active.delete(tenantId);
         const timer = this.timers.get(tenantId);
         if (timer) {
             clearTimeout(timer);
@@ -236,12 +242,15 @@ export class PresencePauseScheduler {
     }
 
     private scheduleNext(tenantId: string, socket: WASocket): void {
+        if (!this.active.has(tenantId)) return;
+
         const [minMin, maxMin] = this.config.presencePauseIntervalMin;
         const intervalMs = randInt(minMin, maxMin) * 60_000;
 
         const timer = setTimeout(async () => {
+            if (!this.active.has(tenantId)) return;
+
             try {
-                // Go offline
                 await socket.sendPresenceUpdate("unavailable");
 
                 const [minPause, maxPause] = this.config.presencePauseDurationMin;
@@ -249,18 +258,22 @@ export class PresencePauseScheduler {
 
                 console.log(`[${tenantId}] Presence pause: offline for ${Math.round(pauseMs / 60000)}m`);
 
-                setTimeout(async () => {
+                const innerTimer = setTimeout(async () => {
+                    if (!this.active.has(tenantId)) return;
                     try {
                         await socket.sendPresenceUpdate("available");
                     } catch {
                         // Session may have closed
                     }
-                    // Schedule next pause
                     this.scheduleNext(tenantId, socket);
                 }, pauseMs);
+
+                // Store inner timer so stop() can cancel it
+                this.timers.set(tenantId, innerTimer);
             } catch {
-                // Session may have closed — reschedule
-                this.scheduleNext(tenantId, socket);
+                if (this.active.has(tenantId)) {
+                    this.scheduleNext(tenantId, socket);
+                }
             }
         }, intervalMs);
 

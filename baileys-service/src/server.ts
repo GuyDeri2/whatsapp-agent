@@ -206,8 +206,12 @@ app.listen(PORT, HOST, async () => {
     }
 
     // ── Rate limiter cleanup (every hour) ──
-    cron.schedule("0 * * * *", () => {
-        const { RateLimiter } = require("./antiban");
-        // The singleton rateLimiter in message-handler cleans itself
+    cron.schedule("0 * * * *", async () => {
+        try {
+            const { rateLimiter } = await import("./message-handler");
+            rateLimiter.cleanup();
+        } catch {
+            // Non-fatal
+        }
     });
 });
