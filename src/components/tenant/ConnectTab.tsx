@@ -52,12 +52,7 @@ const ConnectTab = React.memo(function ConnectTab({
 
     // Load Facebook SDK
     useEffect(() => {
-        if (window.FB) {
-            setSdkLoaded(true);
-            return;
-        }
-
-        window.fbAsyncInit = function () {
+        const initFB = () => {
             window.FB.init({
                 appId: META_APP_ID,
                 cookie: true,
@@ -66,6 +61,13 @@ const ConnectTab = React.memo(function ConnectTab({
             });
             setSdkLoaded(true);
         };
+
+        if (window.FB) {
+            initFB();
+            return;
+        }
+
+        window.fbAsyncInit = initFB;
 
         const script = document.createElement("script");
         script.src = "https://connect.facebook.net/en_US/sdk.js";
