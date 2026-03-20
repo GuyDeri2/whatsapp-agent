@@ -1,0 +1,126 @@
+{
+  "runId": "506dcca8",
+  "timestamp": "2026-03-15T14:55:34.424Z",
+  "command": "בעיה קריטית: המשתמש התחבר עם WhatsApp לעסק 'אן שילו' אבל החיבור התנתק מהר מאוד. צריך: 1. לקרוא את הלוגים האחרונים של ה-session-manager (בתיקיית logs אם קיים, או בקבצי JSON בתיקיית agents/logs) ולחפש רמזים 2. לבדוק לעומק את הקוד של session-manager.ts - מה יכול לגרום להתנתקות מהירה, כולל: connection.update handlers, keepalive/heartbeat, reconnect logic, error handling 3. לתקן את כל הבעיות שנמצאות",
+  "plan": {
+    "summary": "Investigate and fix WhatsApp connection disconnection issues in session-manager by analyzing logs and code for connection handlers, keepalive, reconnect logic, and error handling.",
+    "tasks": [
+      {
+        "taskId": "t1",
+        "role": "devops",
+        "instruction": "Read recent session-manager logs from logs/ directory or agents/logs/ JSON files, identify disconnection patterns, errors, or warnings, and summarize findings.",
+        "context": "User reported WhatsApp connection for tenant 'אן שילו' disconnecting quickly. Logs may be in session-manager/logs/ or agents/logs/. Look for Baileys events, WebSocket errors, or timeout messages.",
+        "priority": "high"
+      },
+      {
+        "taskId": "t2",
+        "role": "backend",
+        "instruction": "Analyze session-manager.ts code for issues causing rapid disconnection: review connection.update handlers, keepalive/heartbeat logic, reconnect logic, and error handling; propose fixes.",
+        "context": "Focus on Baileys session management, WebSocket stability, and multi-tenant isolation. Check for missing error catches, aggressive timeouts, or race conditions in session-store.ts.",
+        "priority": "high"
+      },
+      {
+        "taskId": "t3",
+        "role": "qa",
+        "instruction": "Design test cases to verify disconnection fixes: simulate connection drops, test reconnect behavior, and validate error handling under network instability.",
+        "context": "Based on log analysis and code review, create integration tests for session-manager to ensure stability for tenant 'אן שילו' and others.",
+        "priority": "medium"
+      },
+      {
+        "taskId": "t4",
+        "role": "security",
+        "instruction": "Review session-manager security implications: ensure disconnection fixes don't expose auth tokens or bypass RLS, and validate error handling doesn't leak sensitive data.",
+        "context": "Multi-tenant isolation is critical; check that fixes maintain data separation and don't introduce vulnerabilities in Baileys session persistence.",
+        "priority": "low"
+      }
+    ],
+    "sequential_groups": [
+      [
+        "t1",
+        "t2"
+      ],
+      [
+        "t3",
+        "t4"
+      ]
+    ]
+  },
+  "results": [
+    {
+      "taskId": "t1",
+      "role": "devops",
+      "output": "\n[System Error]: Reached maximum number of tool iterations. Exiting early.",
+      "success": false,
+      "durationMs": 56803
+    },
+    {
+      "taskId": "t2",
+      "role": "backend",
+      "output": "\n[System Error]: Reached maximum number of tool iterations. Exiting early.",
+      "success": false,
+      "durationMs": 56220
+    },
+    {
+      "taskId": "t3",
+      "role": "qa",
+      "output": "\n[System Error]: Reached maximum number of tool iterations. Exiting early.",
+      "success": false,
+      "durationMs": 57740
+    },
+    {
+      "taskId": "t4",
+      "role": "security",
+      "output": "\n[System Error]: Reached maximum number of tool iterations. Exiting early.",
+      "success": false,
+      "durationMs": 53533
+    }
+  ],
+  "synthesis": {
+    "implementation_plan": "1. Locate and analyze session-manager logs: Check /logs directory for session-manager logs, or /agents/logs for JSON files. Look for recent disconnection events, error codes, and timestamps.\n2. Examine session-manager.ts codebase: Focus on connection.update handlers (lines handling connection state changes), keepalive/heartbeat mechanisms (look for setInterval or setTimeout functions managing ping/pong), reconnect logic (retry attempts, delays, max retries), and error handling (try-catch blocks, error event listeners).\n3. Identify root causes: Based on logs and code review, pinpoint issues like missing keepalive intervals, improper error handling in connection.update, or aggressive reconnection logic causing rapid disconnects.\n4. Fix connection.update handlers: Ensure handlers properly manage state transitions and don't prematurely trigger disconnection. Example fix: if (connection.update.status === 'disconnected') { handleReconnect(); } else { maintainSession(); }.\n5. Implement or adjust keepalive: Add or modify heartbeat logic to send periodic pings. Example: setInterval(() => { sendPing(); }, 30000); // every 30 seconds.\n6. Refine reconnect logic: Set appropriate retry delays and limits to prevent rapid disconnection loops. Example: retryDelay: 5000, maxRetries: 3.\n7. Enhance error handling: Wrap critical sections in try-catch and log errors for debugging. Example: try { await updateConnection(); } catch (error) { console.error('Connection update failed:', error); }.\n8. Test fixes: Simulate disconnection scenarios and verify session persistence via logs and monitoring.",
+    "effort": "M",
+    "blockers": [
+      "Access to production logs if not locally available",
+      "Clarity on WhatsApp Business API integration specifics",
+      "Dependencies on external libraries or services for session management"
+    ],
+    "pm_notes": "Coordinate with DevOps for log access and environment setup. Ensure backend team reviews code changes for integration compatibility. Prioritize testing in a staging environment before deployment to avoid production disruptions. Monitor session stability post-fix for at least 24 hours."
+  },
+  "feedbacks": [
+    {
+      "taskId": "t1",
+      "role": "devops",
+      "quality": "poor",
+      "score": 2,
+      "what_worked": "The agent attempted to execute the task as assigned by the PM.",
+      "what_to_improve": "Failed to complete any meaningful analysis of logs. Should have reported specific findings from log files or explained why logs were inaccessible. The system error indicates the agent got stuck in a loop without producing useful output.",
+      "memory_update": "When analyzing logs, first verify log file locations exist and are readable. If logs are missing or unreadable, report this immediately with specific paths checked rather than timing out."
+    },
+    {
+      "taskId": "t2",
+      "role": "backend",
+      "quality": "poor",
+      "score": 2,
+      "what_worked": "The agent attempted to analyze the session-manager.ts code as requested.",
+      "what_to_improve": "Failed to provide any code analysis or specific findings. Should have examined connection.update handlers, keepalive/heartbeat mechanisms, reconnect logic, and error handling to identify potential causes of disconnection. The timeout suggests the agent couldn't parse or understand the code structure.",
+      "memory_update": "When analyzing TypeScript/Next.js code, first verify the file structure and dependencies. If code analysis tools fail, report specific errors encountered rather than timing out."
+    },
+    {
+      "taskId": "t3",
+      "role": "qa",
+      "quality": "poor",
+      "score": 2,
+      "what_worked": "The agent was assigned to participate in the investigation.",
+      "what_to_improve": "Failed to provide any testing insights or validation of findings. Should have proposed test scenarios for connection stability, suggested log analysis approaches, or validated other agents' findings. The timeout indicates no meaningful QA work was performed.",
+      "memory_update": "QA agents should focus on validation and testing methodologies even when other agents fail. Propose specific test cases for connection issues rather than waiting for others' outputs."
+    },
+    {
+      "taskId": "t4",
+      "role": "security",
+      "quality": "poor",
+      "score": 1,
+      "what_worked": "The agent was included in the task assignment.",
+      "what_to_improve": "Security analysis was not relevant to this specific connection issue. The agent should have recognized this and either provided security context for WhatsApp connections or declined the task. The timeout wasted resources.",
+      "memory_update": "Security agents should assess task relevance before engaging. For connection issues, focus on authentication, token handling, or API security aspects if applicable, otherwise suggest focusing on other roles."
+    }
+  ]
+}

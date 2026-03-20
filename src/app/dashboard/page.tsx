@@ -78,12 +78,12 @@ export default function Dashboard() {
 
   const modeConfig = {
     learning: { label: "למידה", icon: <BookOpen className="w-3.5 h-3.5" />, bg: "bg-amber-500/15 text-amber-400 ring-amber-500/25" },
-    active:   { label: "פעיל",   icon: <Activity className="w-3.5 h-3.5" />,   bg: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/25" },
-    paused:   { label: "מושהה",  icon: <PauseCircle className="w-3.5 h-3.5" />, bg: "bg-neutral-500/15 text-neutral-400 ring-neutral-500/25" },
+    active: { label: "פעיל", icon: <Activity className="w-3.5 h-3.5" />, bg: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/25" },
+    paused: { label: "מושהה", icon: <PauseCircle className="w-3.5 h-3.5" />, bg: "bg-neutral-500/15 text-neutral-400 ring-neutral-500/25" },
   };
 
   return (
-    <div className="min-h-screen text-neutral-200 font-sans selection:bg-emerald-500/30 relative overflow-x-hidden" style={{ background: "#060c18" }}>
+    <div className="min-h-screen text-neutral-200 font-sans selection:bg-emerald-500/30 relative overflow-x-hidden bg-background">
 
       {/* Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
@@ -118,13 +118,12 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-3">
             {profile && (
-              <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ring-inset ${
-                profile.subscription_status === "active" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" :
-                profile.subscription_status === "trial"  ? "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20" :
-                "bg-red-500/10 text-red-400 ring-red-500/20"
-              }`}>
-                {profile.subscription_status === "trial"    && "✨ תקופת ניסיון"}
-                {profile.subscription_status === "active"   && "✅ מנוי פעיל"}
+              <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ring-inset ${profile.subscription_status === "active" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" :
+                  profile.subscription_status === "trial" ? "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20" :
+                    "bg-red-500/10 text-red-400 ring-red-500/20"
+                }`}>
+                {profile.subscription_status === "trial" && "✨ תקופת ניסיון"}
+                {profile.subscription_status === "active" && "✅ מנוי פעיל"}
                 {profile.subscription_status === "past_due" && "⚠️ בפיגור תשלום"}
                 {profile.subscription_status === "canceled" && "❌ מנוי בוטל"}
               </span>
@@ -151,9 +150,9 @@ export default function Dashboard() {
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
           {[
-            { title: "סה״כ עסקים",       value: loading ? "—" : tenants.length,                                    icon: <Building2 className="w-5 h-5" />, color: "text-emerald-400",   glow: "rgba(16,185,129,0.15)" },
-            { title: "מחוברים לווטסאפ", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected).length,  icon: <Wifi className="w-5 h-5" />,      color: "text-teal-300", glow: "rgba(20,184,166,0.15)" },
-            { title: "סוכנים פעילים",    value: loading ? "—" : tenants.filter(t => t.agent_mode === "active").length, icon: <Sparkles className="w-5 h-5" />, color: "text-green-400", glow: "rgba(74,222,128,0.15)" },
+            { title: "סה״כ עסקים", value: loading ? "—" : tenants.length, icon: <Building2 className="w-5 h-5" />, color: "text-emerald-400", glow: "rgba(16,185,129,0.15)" },
+            { title: "מחוברים לווטסאפ", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected).length, icon: <Wifi className="w-5 h-5" />, color: "text-teal-300", glow: "rgba(20,184,166,0.15)" },
+            { title: "סוכנים פעילים", value: loading ? "—" : tenants.filter(t => t.agent_mode === "active").length, icon: <Sparkles className="w-5 h-5" />, color: "text-green-400", glow: "rgba(74,222,128,0.15)" },
           ].map((stat, idx) => (
             <motion.div
               key={stat.title}
@@ -162,7 +161,7 @@ export default function Dashboard() {
               whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
               whileTap={{ scale: 0.98 }}
               transition={{ delay: idx * 0.08, duration: 0.4 }}
-              className="group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-emerald-500/40 rounded-2xl p-5 backdrop-blur-sm overflow-hidden cursor-default transition-colors duration-200"
+              className="group relative glass-panel hover:bg-white/[0.06] hover:border-emerald-500/40 rounded-2xl p-5 overflow-hidden cursor-default transition-colors duration-200"
               style={{ boxShadow: `0 0 20px ${stat.glow}` }}
             >
               <div className="flex items-center justify-between mb-3">
@@ -192,7 +191,7 @@ export default function Dashboard() {
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${showForm
                 ? "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10"
                 : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40"
-              }`}
+                }`}
             >
               {showForm ? "ביטול" : <><Plus className="w-4 h-4" /> הוסף עסק</>}
             </motion.button>
@@ -207,7 +206,7 @@ export default function Dashboard() {
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className="mb-8 overflow-hidden"
               >
-                <div className="bg-white/[0.02] border border-emerald-500/20 rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_rgba(16,185,129,0.07)]">
+                <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_rgba(16,185,129,0.07)]">
                   <h3 className="text-lg font-semibold mb-6 text-white">הוסף עסק חדש למערכת</h3>
                   <form onSubmit={handleCreate} className="space-y-5">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -257,7 +256,7 @@ export default function Dashboard() {
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {[1, 2, 3].map(i => (
-                <div key={i} className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 animate-pulse">
+                <div key={i} className="glass-panel rounded-2xl p-6 animate-pulse">
                   <div className="skeleton h-5 w-2/3 mb-3 rounded-lg" />
                   <div className="skeleton h-3.5 w-full mb-2 rounded" />
                   <div className="skeleton h-3.5 w-3/4 mb-6 rounded" />
@@ -292,7 +291,7 @@ export default function Dashboard() {
                     whileHover={{ y: -3, transition: { duration: 0.2 } }}
                     onMouseEnter={() => router.prefetch(`/tenant/${tenant.id}`)}
                     onClick={() => router.push(`/tenant/${tenant.id}`)}
-                    className="group relative border rounded-2xl p-6 cursor-pointer transition-all duration-300 flex flex-col overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.07] hover:border-emerald-500/40 hover:shadow-[0_8px_32px_rgba(16,185,129,0.12)]"
+                    className="group relative glass-panel rounded-2xl p-6 cursor-pointer transition-all duration-300 flex flex-col overflow-hidden hover:bg-white/[0.04] hover:border-emerald-500/40 hover:shadow-[0_8px_32px_rgba(16,185,129,0.12)]"
                   >
                     {/* Top accent line on hover */}
                     <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-500/0 to-transparent group-hover:via-emerald-500/60 transition-all duration-500" />

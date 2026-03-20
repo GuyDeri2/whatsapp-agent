@@ -1,48 +1,52 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background-primary: #0a0a0f;
-  --color-background-secondary: #12121a;
-  --color-card: rgba(20, 20, 35, 0.8);
-  --color-card-hover: rgba(30, 30, 50, 0.9);
-  --color-glass: rgba(255, 255, 255, 0.04);
-  --color-border-subtle: rgba(255, 255, 255, 0.08);
-  --color-border-hover: rgba(255, 255, 255, 0.15);
-  --color-text-primary: #f0f0f5;
-  --color-text-secondary: #8b8ba3;
-  --color-text-muted: #5c5c75;
-  --color-accent: #6366f1;
-  /* Indigo / Purple */
-  --color-accent-hover: #818cf8;
-  --color-accent-glow: rgba(99, 102, 241, 0.3);
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-display: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: #0B0D14;
+  --color-background-secondary: #131620;
+  --color-foreground: #F8FAFC;
+  --color-card: rgba(19, 22, 32, 0.7);
+  --color-card-hover: rgba(26, 30, 43, 0.85);
+
+  --color-glass: rgba(255, 255, 255, 0.03);
+  --color-border-subtle: rgba(255, 255, 255, 0.05);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #94A3B8;
+  --color-text-muted: #64748B;
+
+  /* Deep Tech Accent - Metallic Blue */
+  --color-accent: #3B82F6;
+  --color-accent-hover: #60A5FA;
+  --color-accent-glow: rgba(59, 130, 246, 0.35);
+  --color-accent-strong: #2563EB;
+
+  /* Trust/Success Emerald */
+  --color-emerald: #10B981;
+  --color-emerald-glow: rgba(16, 185, 129, 0.25);
+
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+
+  --animate-shimmer: shimmer 2.5s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-slow: pulse-slow 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-aurora: aurora 15s linear infinite;
 }
 
 @layer base {
   :root {
-    --bg-primary: #0a0a0f;
-    --bg-secondary: #12121a;
-    --bg-card: rgba(20, 20, 35, 0.8);
-    --bg-card-hover: rgba(30, 30, 50, 0.9);
-    --bg-glass: rgba(255, 255, 255, 0.04);
-    --border: rgba(255, 255, 255, 0.08);
-    --border-hover: rgba(255, 255, 255, 0.15);
-    --text-primary: #f0f0f5;
-    --text-secondary: #8b8ba3;
-    --text-muted: #5c5c75;
-    --accent: #6366f1;
-    --accent-hover: #818cf8;
-    --accent-glow: rgba(99, 102, 241, 0.3);
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --radius: 12px;
-    --radius-sm: 8px;
-    --radius-lg: 16px;
-    --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-    --transition: 200ms ease;
+    --bg-primary: #0B0D14;
+    --text-primary: #F8FAFC;
+    --radius: 16px;
+    --radius-sm: 10px;
+    --radius-lg: 24px;
+    --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    --transition: 300ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   body {
@@ -51,100 +55,171 @@
     line-height: 1.6;
     min-height: 100vh;
     direction: rtl;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Remove 300ms tap delay on all interactive elements */
-  button, a, [role="button"], select, input, textarea, label {
+  /* Interaction Reset */
+  button,
+  a,
+  [role="button"],
+  select,
+  input,
+  textarea,
+  label {
     touch-action: manipulation;
   }
 
-  /* Consistent fast transitions for interactive elements */
+  /* Smooth Premium Buttons */
   button {
-    transition: background-color 150ms ease, color 150ms ease,
-      border-color 150ms ease, opacity 150ms ease,
-      transform 100ms ease, box-shadow 150ms ease;
+    transition: all var(--transition);
   }
 
-  /* Pressed state visual feedback */
   button:active:not(:disabled) {
-    transform: scale(0.97);
-    opacity: 0.9;
+    transform: scale(0.96);
   }
 
-  /* Disabled buttons — clearly gray, not just faded */
   button:disabled {
     cursor: not-allowed;
-    filter: saturate(0.4);
+    filter: saturate(0.2) opacity(0.6);
     transform: none !important;
-    box-shadow: none !important;
   }
 
-  /* Prevent text selection on rapid clicks */
-  button, [role="button"] {
+  /* Utility: no-select */
+  button,
+  [role="button"] {
     user-select: none;
     -webkit-user-select: none;
   }
 
-  /* Custom scrollbar — thin and subtle */
+  /* Premium Subtle Scrollbar */
   ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 6px;
+    height: 6px;
   }
+
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.1);
     border-radius: 99px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.22);
+    border: 1px solid rgba(0, 0, 0, 0.1);
   }
 
-  /* Smooth scrolling */
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
   html {
     scroll-behavior: smooth;
   }
+
+  /* Enhanced Typography classes */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
 }
 
-/* ── Skeleton shimmer animation ───────────────────────────────────── */
+/* ── Custom Animations ───────────────────────────────────────────── */
+
 @keyframes shimmer {
-  0%   { background-position: -400px 0; }
-  100% { background-position:  400px 0; }
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
 }
 
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes pulse-slow {
+
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.3;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes aurora {
+  0% {
+    background-position: 50% 50%, 50% 50%;
+  }
+
+  100% {
+    background-position: 350% 50%, 350% 50%;
+  }
+}
+
+/* Skeleton loader */
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    rgba(255,255,255,0.03) 25%,
-    rgba(255,255,255,0.07) 50%,
-    rgba(255,255,255,0.03) 75%
-  );
-  background-size: 400px 100%;
-  animation: shimmer 1.6s ease-in-out infinite;
-  border-radius: 8px;
+  background: linear-gradient(90deg,
+      rgba(255, 255, 255, 0.02) 25%,
+      rgba(255, 255, 255, 0.06) 50%,
+      rgba(255, 255, 255, 0.02) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
+  border-radius: var(--radius-sm);
 }
 
-/* ── Utility: hide scrollbar visually but keep scrollable ─────────── */
+/* Utility to hide scrollbar smoothly */
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
-/* ── Custom scrollbar for content areas ──────────────────────────── */
+/* ── Custom scrollbar for components ──────────────────────────── */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
+
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.10);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 99px;
 }
+
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.20);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Glass panel global utility */
+.glass-panel {
+  background: rgba(19, 22, 32, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }

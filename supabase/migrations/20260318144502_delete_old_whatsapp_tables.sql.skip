@@ -1,0 +1,94 @@
+-- Migration: Delete old WhatsApp tables (whatsapp_sessions, whatsapp_creds_backup)
+-- Author: Database Agent
+-- Date: 2026-03-18
+-- Context: After successful migration to WhatsApp Cloud API and confirmation that
+--          all tenants have been migrated to whatsapp_cloud_config table.
+
+-- ── Forward migration ──────────────────────────────────────────
+
+-- IMPORTANT: This migration should only be applied after:
+-- 1. All tenants have migrated to whatsapp_cloud_config
+-- 2. Session-manager has been updated to use Cloud API
+-- 3. No active sessions are using the old Baileys WhatsApp Web protocol
+
+-- Safety check: Verify at least one tenant has migrated to Cloud API
+-- This prevents accidental deletion if migration hasn't started
+DO $$
+DECLARE
+    cloud_config_count integer;
+    sessions_count integer;
+    creds_backup_count integer;
+BEGIN
+    -- Check if whatsapp_cloud_config table exists and has data
+    SELECT COUNT(*) INTO cloud_config_count 
+    FROM information_schema.tables 
+    WHERE table_name = 'whatsapp_cloud_config';
+    
+    IF cloud_config_count = 0 THEN
+        RAISE EXCEPTION 'whatsapp_cloud_config table does not exist. Run the whatsapp_cloud_config migration first.';
+    END IF;
+    
+    SELECT COUNT(*) INTO cloud_config_count FROM whatsapp_cloud_config;
+    
+    IF cloud_config_count = 0 THEN
+        RAISE EXCEPTION 'No tenants have migrated to whatsapp_cloud_config yet. Migration not safe.';
+    END IF;
+    
+    -- Log counts for transparency
+    SELECT COUNT(*) INTO sessions_count FROM whatsapp_sessions;
+    SELECT COUNT(*) INTO creds_backup_count FROM whatsapp_creds_backup;
+    
+    RAISE NOTICE 'Deleting old WhatsApp tables: whatsapp_sessions (%), whatsapp_creds_backup (%)', 
+        sessions_count, creds_backup_count;
+    RAISE NOTICE 'Tenants migrated to Cloud API: %', cloud_config_count;
+END $$;
+
+-- 1. Drop trigger first (if exists)
+DROP TRIGGER IF EXISTS whatsapp_sessions_updated_at ON whatsapp_sessions;
+
+-- 2. Drop tables
+DROP TABLE IF EXISTS whatsapp_sessions;
+DROP TABLE IF EXISTS whatsapp_creds_backup;
+
+-- 3. Clean up the safety check function (optional)
+DROP FUNCTION IF EXISTS check_whatsapp_migration_safety;
+
+-- ── Rollback (manual, for reference only) ─────────────────────
+-- Tables would need to be recreated from backup or original schema
+-- No automatic rollback for DROP TABLE operations
+
+-- To recreate whatsapp_sessions:
+/*
+CREATE TABLE IF NOT EXISTS whatsapp_sessions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  session_key text NOT NULL,
+  session_data jsonb NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(tenant_id, session_key)
+);
+
+CREATE TRIGGER whatsapp_sessions_updated_at
+  BEFORE UPDATE ON whatsapp_sessions
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+ALTER TABLE whatsapp_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access on whatsapp_sessions"
+  ON whatsapp_sessions FOR ALL
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
+*/
+
+-- To recreate whatsapp_creds_backup:
+/*
+CREATE TABLE IF NOT EXISTS whatsapp_creds_backup (
+    tenant_id uuid PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    encrypted_creds jsonb NOT NULL,
+    encrypted_keys jsonb NOT NULL DEFAULT '[]'::jsonb,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE whatsapp_creds_backup ENABLE ROW LEVEL SECURITY;
+*/
