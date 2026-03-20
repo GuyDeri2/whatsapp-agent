@@ -25,6 +25,7 @@ import { PresencePauseScheduler } from "./antiban";
 import { handleMessage } from "./message-handler";
 import { broadcastQR, clearQR } from "./qr-manager";
 import { resolveLidPhone, registerLidMapping } from "./lid-resolver";
+import { fetchAndStoreProfilePicture, bulkFetchProfilePictures } from "./profile-pictures";
 import type { TenantSession, SessionHealth } from "./types";
 
 // ── Globals ────────────────────────────────────────────────────────
@@ -243,6 +244,10 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
 
             // Start presence pause scheduler
             presencePauser.start(tenantId, socket);
+
+            // Bulk-fetch profile pictures for conversations without one (fire-and-forget)
+            bulkFetchProfilePictures(socket, tenantId)
+                .catch((err) => console.error(`[${tenantId}] Bulk profile pic error:`, err));
         }
 
         if (connection === "close") {

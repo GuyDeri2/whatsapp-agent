@@ -9,6 +9,7 @@ import { getSupabase } from "./session-manager";
 import { humanSend, RateLimiter } from "./antiban";
 import { generateReply } from "./ai-agent";
 import { resolveLidPhone } from "./lid-resolver";
+import { fetchAndStoreProfilePicture } from "./profile-pictures";
 
 export const rateLimiter = new RateLimiter();
 
@@ -129,6 +130,10 @@ export async function handleMessage(
             }
 
             conversationId = newConv.id;
+
+            // Fetch profile picture (fire-and-forget)
+            fetchAndStoreProfilePicture(socket, jid, tenantId, phoneNumber)
+                .catch((err) => console.error(`[${tenantId}] Profile pic fetch error:`, err));
         }
 
         // ── Save incoming message ──
