@@ -77,13 +77,18 @@ export async function GET(
   const state = Buffer.from(JSON.stringify({ tenantId, userId: user.id, ts, sig })).toString('base64');
 
   // Facebook OAuth URL for Embedded Signup
+  // config_id triggers the WhatsApp Embedded Signup experience —
+  // users can create a new WABA and register their own phone number
+  const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID;
+
   const oauthUrl =
     `https://www.facebook.com/${META_API_VERSION}/dialog/oauth` +
     `?client_id=${META_APP_ID}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     `&response_type=code` +
     `&scope=${scope}` +
-    `&state=${state}`;
+    `&state=${state}` +
+    (META_CONFIG_ID ? `&config_id=${META_CONFIG_ID}` : '');
 
   return NextResponse.redirect(oauthUrl);
 }
