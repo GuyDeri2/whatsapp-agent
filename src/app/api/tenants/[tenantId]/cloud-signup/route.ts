@@ -78,7 +78,9 @@ export async function GET(
 
   // Facebook OAuth URL for Embedded Signup
   // config_id triggers the WhatsApp Embedded Signup experience —
-  // users can create a new WABA and register their own phone number
+  // users can create a new WABA and register their own phone number.
+  // override_default_response_type=true is required for Embedded Signup via redirect.
+  // auth_type=rerequest forces Facebook to show the permissions screen fresh.
   const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID;
 
   const oauthUrl =
@@ -88,7 +90,10 @@ export async function GET(
     `&response_type=code` +
     `&scope=${scope}` +
     `&state=${state}` +
-    (META_CONFIG_ID ? `&config_id=${META_CONFIG_ID}` : '');
+    `&auth_type=rerequest` +
+    (META_CONFIG_ID
+      ? `&config_id=${META_CONFIG_ID}&override_default_response_type=true`
+      : '');
 
   return NextResponse.redirect(oauthUrl);
 }
@@ -119,8 +124,32 @@ export async function DELETE(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Delete WhatsApp Cloud config (use admin to bypass RLS — no DELETE policy)
+  // Get existing config to revoke the Facebook token
   const admin = getSupabaseAdmin();
+  const { data: config } = await admin
+    .from('whatsapp_cloud_config')
+    .select('access_token')
+    .eq('tenant_id', tenantId)
+    .single();
+
+  // Revoke the Facebook access token so next connect starts fresh
+  // (removes app from user's Facebook Business Integrations)
+  if (config?.access_token) {
+    const META_API_VERSION = process.env.META_API_VERSION || 'v21.0';
+    try {
+      await fetch(
+        `https://graph.facebook.com/${META_API_VERSION}/me/permissions`,
+        {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${config.access_token}` },
+        }
+      );
+    } catch {
+      // Non-fatal — continue with local cleanup even if revoke fails
+    }
+  }
+
+  // Delete WhatsApp Cloud config (use admin to bypass RLS — no DELETE policy)
   const { error } = await admin
     .from('whatsapp_cloud_config')
     .delete()
