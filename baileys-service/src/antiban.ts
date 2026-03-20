@@ -127,16 +127,6 @@ export class RateLimiter {
         }
     }
 
-    /** Check warm-up limits for a tenant. Returns effective limits. */
-    getWarmupLimits(connectionAgeDays: number): { maxPerDay: number; minDelayMs: number } {
-        for (const tier of this.config.warmup) {
-            if (connectionAgeDays <= tier.daysMax) {
-                return tier.limits;
-            }
-        }
-        return this.config.warmup[this.config.warmup.length - 1].limits;
-    }
-
     /** Cleanup stale entries */
     cleanup(): void {
         const now = Date.now();

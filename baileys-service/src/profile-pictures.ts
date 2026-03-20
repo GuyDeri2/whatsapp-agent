@@ -82,6 +82,12 @@ export async function fetchAndStoreProfilePicture(
 
         if (uploadError) {
             console.error(`[${tenantId}] Profile pic upload error for ${phoneNumber}:`, uploadError.message);
+            // Still update timestamp to avoid retrying immediately
+            await supabase
+                .from("conversations")
+                .update({ profile_picture_updated_at: now })
+                .eq("tenant_id", tenantId)
+                .eq("phone_number", phoneNumber);
             return null;
         }
 

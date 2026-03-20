@@ -138,6 +138,19 @@ setInterval(() => {
 const replyTimestamps = new Map<string, number[]>();
 const MAX_REPLIES_PER_MINUTE = 5;
 
+// Cleanup stale replyTimestamps entries every 5 minutes
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, timestamps] of replyTimestamps) {
+        const recent = timestamps.filter(t => now - t < 60_000);
+        if (recent.length === 0) {
+            replyTimestamps.delete(key);
+        } else {
+            replyTimestamps.set(key, recent);
+        }
+    }
+}, 5 * 60_000);
+
 function isRateLimited(conversationId: string): boolean {
     const now = Date.now();
     const timestamps = replyTimestamps.get(conversationId) ?? [];
@@ -293,6 +306,7 @@ async function generateAndSendAiReply(
             .from("messages")
             .select("role, content, created_at")
             .eq("conversation_id", conversationId)
+            .eq("tenant_id", tenantId)
             .order("created_at", { ascending: false })
             .limit(20);
 

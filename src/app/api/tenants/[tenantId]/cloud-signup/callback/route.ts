@@ -152,7 +152,7 @@ export async function GET(
       console.error('No WhatsApp Business Account found or incomplete setup:', {
         wabaId,
         phoneNumberId,
-        systemUserAccessToken,
+        hasAccessToken: !!systemUserAccessToken,
         businessesCount: businesses.length
       });
       return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_waba_setup`);

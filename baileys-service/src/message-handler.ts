@@ -160,17 +160,12 @@ export async function handleMessage(
                 .select("phone_number, rule_type")
                 .eq("tenant_id", tenantId);
 
-            const normalize = (p: string) => p.replace(/^\+/, "");
-            const intl = normalize(phoneNumber);
-            const local = intl.startsWith("972") && intl.length >= 11
-                ? "0" + intl.substring(3)
-                : null;
+            const phoneDigits = phoneNumber.replace(/\D/g, "");
 
-            const matched = (rules ?? []).find(
-                (r) =>
-                    normalize(r.phone_number) === intl ||
-                    (local !== null && normalize(r.phone_number) === local)
-            );
+            const matched = (rules ?? []).find((r) => {
+                const ruleDigits = r.phone_number.replace(/\D/g, "");
+                return phoneDigits === ruleDigits || phoneDigits.endsWith(ruleDigits.slice(-9));
+            });
 
             if (tenant.agent_filter_mode === "whitelist" && matched?.rule_type !== "allow") return;
             if (tenant.agent_filter_mode === "blacklist" && matched?.rule_type === "block") return;

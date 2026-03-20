@@ -43,15 +43,23 @@ async function resolveTenant(calendlyUserUri: string): Promise<string | null> {
     // and let the caller narrow by event_type URI if needed.
     const { data } = await supabase
         .from("calendar_integrations")
-        .select("tenant_id")
+        .select("tenant_id, calendar_id")
         .eq("provider", "calendly")
         .eq("is_active", true)
         .limit(20);
 
     if (!data || data.length === 0) return null;
-    // If there's only one Calendly tenant, return it directly
+
+    // Try to match by stored organizer URI (calendar_id may contain it)
+    if (calendlyUserUri) {
+        const match = data.find((d) => d.calendar_id === calendlyUserUri);
+        if (match) return match.tenant_id;
+    }
+
+    // Fallback: if there's only one Calendly tenant, return it
     if (data.length === 1) return data[0].tenant_id;
-    // Multiple tenants — can't determine without more context; return null
+
+    // Multiple tenants, no URI match — can't determine
     return null;
 }
 
