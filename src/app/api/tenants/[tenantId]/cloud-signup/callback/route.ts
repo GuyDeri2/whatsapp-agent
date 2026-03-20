@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { exchangeForLongLivedToken } from '@/lib/whatsapp-cloud';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -124,8 +125,6 @@ export async function GET(
           const systemUsers = systemUserData.data || [];
           
           if (systemUsers.length > 0) {
-            // Get system user token (requires additional API call in real implementation)
-            // For now, we'll use the user access token (simplified)
             systemUserAccessToken = userAccessToken;
             
             // Step 4: Get phone numbers for the WABA
@@ -175,6 +174,18 @@ export async function GET(
       } catch { /* non-fatal */ }
     }
 
+    // Exchange for long-lived token (~60 days instead of ~1 hour)
+    let finalToken = systemUserAccessToken;
+    let tokenExpiresAt: string | null = null;
+    const longLived = await exchangeForLongLivedToken(systemUserAccessToken);
+    if (longLived) {
+      finalToken = longLived.token;
+      tokenExpiresAt = longLived.expiresAt.toISOString();
+      console.log(`[${tenantId}] Exchanged for long-lived token, expires: ${tokenExpiresAt}`);
+    } else {
+      console.warn(`[${tenantId}] Could not exchange for long-lived token — using short-lived token`);
+    }
+
     // Generate a webhook verification token
     const webhookVerifyToken = crypto.randomBytes(32).toString('hex');
 
@@ -183,10 +194,11 @@ export async function GET(
     const { error: upsertError } = await admin.from('whatsapp_cloud_config').upsert(
       {
         tenant_id: tenantId,
-        access_token: systemUserAccessToken,
+        access_token: finalToken,
         phone_number_id: phoneNumberId,
         waba_id: wabaId,
         webhook_verify_token: webhookVerifyToken,
+        token_expires_at: tokenExpiresAt,
       },
       { onConflict: 'tenant_id' }
     );
@@ -200,7 +212,7 @@ export async function GET(
     let displayPhone: string | null = null;
     try {
       const phoneInfoRes = await fetch(
-        `https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name&access_token=${systemUserAccessToken}`
+        `https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name&access_token=${finalToken}`
       );
       if (phoneInfoRes.ok) {
         const phoneInfo = await phoneInfoRes.json();
@@ -228,7 +240,7 @@ export async function GET(
           {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${systemUserAccessToken}`,
+              'Authorization': `Bearer ${finalToken}`,
               'Content-Type': 'application/json',
             },
           }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { exchangeForLongLivedToken } from '@/lib/whatsapp-cloud';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -151,17 +152,30 @@ export async function POST(
             }, { status: 400 });
         }
 
-        // Step 3: Store credentials
+        // Step 3: Exchange for long-lived token (~60 days)
+        let finalToken = accessToken;
+        let tokenExpiresAt: string | null = null;
+        const longLived = await exchangeForLongLivedToken(accessToken);
+        if (longLived) {
+            finalToken = longLived.token;
+            tokenExpiresAt = longLived.expiresAt.toISOString();
+            console.log(`[${tenantId}] Exchanged for long-lived token, expires: ${tokenExpiresAt}`);
+        } else {
+            console.warn(`[${tenantId}] Could not exchange for long-lived token — using short-lived token`);
+        }
+
+        // Step 4: Store credentials
         const admin = getSupabaseAdmin();
         const webhookVerifyToken = crypto.randomBytes(32).toString('hex');
 
         const { error: upsertError } = await admin.from('whatsapp_cloud_config').upsert(
             {
                 tenant_id: tenantId,
-                access_token: accessToken,
+                access_token: finalToken,
                 phone_number_id: finalPhoneNumberId,
                 waba_id: finalWabaId,
                 webhook_verify_token: webhookVerifyToken,
+                token_expires_at: tokenExpiresAt,
             },
             { onConflict: 'tenant_id' }
         );
@@ -171,11 +185,11 @@ export async function POST(
             return NextResponse.json({ error: 'שגיאה בשמירת ההגדרות' }, { status: 500 });
         }
 
-        // Step 4: Get display phone number
+        // Step 5: Get display phone number
         let displayPhone: string | null = null;
         try {
             const phoneInfoRes = await fetch(
-                `https://graph.facebook.com/${META_API_VERSION}/${finalPhoneNumberId}?fields=display_phone_number,verified_name&access_token=${accessToken}`
+                `https://graph.facebook.com/${META_API_VERSION}/${finalPhoneNumberId}?fields=display_phone_number,verified_name&access_token=${finalToken}`
             );
             if (phoneInfoRes.ok) {
                 const phoneInfo = await phoneInfoRes.json();
@@ -185,21 +199,21 @@ export async function POST(
             // Non-fatal
         }
 
-        // Step 5: Update tenant
+        // Step 6: Update tenant
         await admin.from('tenants').update({
             whatsapp_connected: true,
             whatsapp_phone: displayPhone,
             connection_type: 'cloud',
         }).eq('id', tenantId);
 
-        // Step 6: Subscribe WABA to webhook
+        // Step 7: Subscribe WABA to webhook
         try {
             const subscribeRes = await fetch(
                 `https://graph.facebook.com/${META_API_VERSION}/${finalWabaId}/subscribed_apps`,
                 {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${accessToken}`,
+                        'Authorization': `Bearer ${finalToken}`,
                         'Content-Type': 'application/json',
                     },
                 }

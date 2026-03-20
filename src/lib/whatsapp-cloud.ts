@@ -139,6 +139,61 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
     return crypto.timingSafeEqual(sigBuf, expectedBuf);
 }
 
+// ── Token management ────────────────────────────────────────────────
+
+/**
+ * Exchange a short-lived user access token for a long-lived one (~60 days).
+ * Returns { token, expiresAt } or null on failure.
+ */
+export async function exchangeForLongLivedToken(
+    shortLivedToken: string
+): Promise<{ token: string; expiresAt: Date } | null> {
+    const appId = process.env.META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+    if (!appId || !appSecret) return null;
+
+    try {
+        const res = await fetch(
+            `${META_API_BASE}/oauth/access_token?` +
+            new URLSearchParams({
+                grant_type: "fb_exchange_token",
+                client_id: appId,
+                client_secret: appSecret,
+                fb_exchange_token: shortLivedToken,
+            })
+        );
+
+        if (!res.ok) {
+            console.error("[WhatsApp Cloud] Long-lived token exchange failed:", await res.text());
+            return null;
+        }
+
+        const data = await res.json();
+        if (!data.access_token) return null;
+
+        // Meta returns expires_in in seconds (typically ~5184000 = 60 days)
+        const expiresInMs = (data.expires_in ?? 5184000) * 1000;
+        return {
+            token: data.access_token,
+            expiresAt: new Date(Date.now() + expiresInMs),
+        };
+    } catch (err) {
+        console.error("[WhatsApp Cloud] Long-lived token exchange error:", err);
+        return null;
+    }
+}
+
+/**
+ * Refresh a long-lived token before it expires.
+ * Returns new { token, expiresAt } or null on failure.
+ */
+export async function refreshLongLivedToken(
+    currentToken: string
+): Promise<{ token: string; expiresAt: Date } | null> {
+    // Refreshing a long-lived token uses the same endpoint as exchanging
+    return exchangeForLongLivedToken(currentToken);
+}
+
 // ── Send messages ───────────────────────────────────────────────────
 
 interface SendResult {

@@ -414,6 +414,84 @@ cron.schedule("*/15 * * * *", async () => {
     }
 });
 
+// ─── Token refresh (daily at 03:00) ──────────────────────────────────
+// Refresh Meta long-lived tokens that expire within 7 days.
+// Long-lived tokens last ~60 days; refreshing weekly gives plenty of margin.
+cron.schedule("0 3 * * *", async () => {
+    try {
+        const supabase = getSupabase();
+        const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        // Find tokens expiring within 7 days (or with no expiry recorded)
+        const { data: configs, error } = await supabase
+            .from("whatsapp_cloud_config")
+            .select("tenant_id, access_token, token_expires_at")
+            .or(`token_expires_at.is.null,token_expires_at.lt.${sevenDaysFromNow}`);
+
+        if (error || !configs || configs.length === 0) {
+            if (error) console.error("Token refresh query error:", error.message);
+            return;
+        }
+
+        console.log(`🔑 Token refresh: ${configs.length} token(s) need refresh`);
+
+        const META_APP_ID = process.env.META_APP_ID;
+        const META_APP_SECRET = process.env.META_APP_SECRET;
+        const apiVersion = process.env.META_API_VERSION || "v21.0";
+
+        if (!META_APP_ID || !META_APP_SECRET) {
+            console.error("🔑 Token refresh: META_APP_ID or META_APP_SECRET not set");
+            return;
+        }
+
+        for (const cfg of configs) {
+            try {
+                const res = await fetch(
+                    `https://graph.facebook.com/${apiVersion}/oauth/access_token?` +
+                    new URLSearchParams({
+                        grant_type: "fb_exchange_token",
+                        client_id: META_APP_ID,
+                        client_secret: META_APP_SECRET,
+                        fb_exchange_token: cfg.access_token,
+                    })
+                );
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    console.error(`[${cfg.tenant_id}] 🔑 Token refresh failed:`, errText);
+                    continue;
+                }
+
+                const data = await res.json();
+                if (!data.access_token) {
+                    console.error(`[${cfg.tenant_id}] 🔑 Token refresh: no token in response`);
+                    continue;
+                }
+
+                const expiresInMs = (data.expires_in ?? 5184000) * 1000;
+                const newExpiresAt = new Date(Date.now() + expiresInMs).toISOString();
+
+                await supabase
+                    .from("whatsapp_cloud_config")
+                    .update({
+                        access_token: data.access_token,
+                        token_expires_at: newExpiresAt,
+                    })
+                    .eq("tenant_id", cfg.tenant_id);
+
+                // Invalidate config cache so new token is used immediately
+                configCache.delete(cfg.tenant_id);
+
+                console.log(`[${cfg.tenant_id}] 🔑 Token refreshed, new expiry: ${newExpiresAt}`);
+            } catch (err: any) {
+                console.error(`[${cfg.tenant_id}] 🔑 Token refresh error:`, err.message);
+            }
+        }
+    } catch (err: any) {
+        console.error("Token refresh cron fatal:", err.message);
+    }
+});
+
 // ─── Daily batch learning (02:00) ───────────────────────────────────
 cron.schedule("0 2 * * *", async () => {
     if (_learningRunning) {
