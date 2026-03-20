@@ -92,7 +92,7 @@ export async function handleMessage(
             // If paused, don't respond (owner is handling)
             if (existingConv.is_paused) {
                 // Still save the message
-                await _saveMessage(conversationId, "user", content, msgId);
+                await _saveMessage(tenantId, conversationId, "user", content, msgId);
                 return;
             }
         } else {
@@ -121,7 +121,7 @@ export async function handleMessage(
 
         // ── Save incoming message ──
 
-        await _saveMessage(conversationId, "user", content, msgId);
+        await _saveMessage(tenantId, conversationId, "user", content, msgId);
 
         // ── Check contact filters ──
 
@@ -193,7 +193,7 @@ export async function handleMessage(
             await humanSend(socket, jid, cleanReply);
 
             // Save assistant message
-            await _saveMessage(conversationId, "assistant", cleanReply, null, true);
+            await _saveMessage(tenantId, conversationId, "assistant", cleanReply, null, true);
 
             // Record rate limit
             rateLimiter.recordSend(tenantId, conversationId);
@@ -214,6 +214,7 @@ export async function handleMessage(
 // ── Save message to DB ─────────────────────────────────────────────
 
 async function _saveMessage(
+    tenantId: string,
     conversationId: string,
     role: "user" | "assistant" | "owner",
     content: string,
@@ -223,6 +224,7 @@ async function _saveMessage(
     const { error } = await getSupabase()
         .from("messages")
         .insert({
+            tenant_id: tenantId,
             conversation_id: conversationId,
             role,
             content,

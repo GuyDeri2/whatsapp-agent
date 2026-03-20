@@ -206,13 +206,16 @@ export default function TenantPage() {
     }, []);
 
     // ── Fetch tenant info (with sessionStorage cache for instant first paint) ──
-    const fetchTenant = useCallback(async () => {
+    const fetchTenant = useCallback(async (skipCache = false) => {
         const cacheKey = `tenant_cache_${tenantId}`;
         // Show cached data instantly on first render (avoids skeleton on repeat visits)
-        try {
-            const cached = sessionStorage.getItem(cacheKey);
-            if (cached) applyTenantData(JSON.parse(cached));
-        } catch { /* ignore */ }
+        // Skip cache when called from Realtime to avoid flicker with optimistic updates
+        if (!skipCache) {
+            try {
+                const cached = sessionStorage.getItem(cacheKey);
+                if (cached) applyTenantData(JSON.parse(cached));
+            } catch { /* ignore */ }
+        }
 
         const { data } = await supabase
             .from("tenants")
@@ -426,8 +429,8 @@ export default function TenantPage() {
                     filter: `id=eq.${tenantId}`,
                 },
                 () => {
-                    // Re-fetch tenant so whatsapp_connected badge updates immediately
-                    fetchTenant();
+                    // Re-fetch tenant — skip cache to avoid flicker with optimistic updates
+                    fetchTenant(true);
                 }
             )
             .subscribe();
