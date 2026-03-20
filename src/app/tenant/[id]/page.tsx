@@ -29,6 +29,7 @@ interface Tenant {
     handoff_collect_email: boolean;
     whatsapp_connected: boolean;
     whatsapp_phone: string | null;
+    connection_type?: string | null;
     whatsapp_cloud_config?: {
         phone_number_id: string;
         waba_id: string;

@@ -222,5 +222,10 @@ export async function useSupabaseAuthState(
         flushDirty().catch(() => {});
     }
 
-    return { state, saveCreds, clearState, stopSync };
+    /** Force-flush all dirty entries and await completion */
+    async function forceFlush(): Promise<void> {
+        await flushDirty();
+    }
+
+    return { state, saveCreds, clearState, stopSync, forceFlush };
 }

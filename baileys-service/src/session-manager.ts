@@ -31,7 +31,7 @@ import type { TenantSession, SessionHealth } from "./types";
 const sessions = new Map<string, TenantSession>();
 const healthStates = new Map<string, SessionHealth>();
 const reconnecting = new Set<string>();
-const sessionCleanup = new Map<string, { saveCreds: () => Promise<void>; clearState: () => Promise<void>; stopSync: () => void }>();
+const sessionCleanup = new Map<string, { saveCreds: () => Promise<void>; clearState: () => Promise<void>; stopSync: () => void; forceFlush: () => Promise<void> }>();
 
 const presencePauser = new PresencePauseScheduler();
 
@@ -146,8 +146,8 @@ export async function stopSession(tenantId: string, clearData = false): Promise<
 async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
     const supabase = getSupabase();
 
-    const { state, saveCreds, clearState, stopSync } = await useSupabaseAuthState(supabase, tenantId);
-    sessionCleanup.set(tenantId, { saveCreds, clearState, stopSync });
+    const { state, saveCreds, clearState, stopSync, forceFlush } = await useSupabaseAuthState(supabase, tenantId);
+    sessionCleanup.set(tenantId, { saveCreds, clearState, stopSync, forceFlush });
 
     const { version } = await fetchLatestBaileysVersion();
 
@@ -284,6 +284,21 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
 
 // ── Disconnect handler ─────────────────────────────────────────────
 
+/** Flush credentials to DB before destroying session for reconnect */
+async function _flushAndCleanup(tenantId: string): Promise<void> {
+    const cleanup = sessionCleanup.get(tenantId);
+    if (cleanup) {
+        try {
+            await cleanup.forceFlush();
+        } catch (err) {
+            console.error(`[${tenantId}] Flush before reconnect failed:`, err);
+        }
+        cleanup.stopSync();
+        sessionCleanup.delete(tenantId);
+    }
+    sessions.delete(tenantId);
+}
+
 async function _handleDisconnect(tenantId: string, statusCode: number, reason: string): Promise<void> {
     const session = sessions.get(tenantId);
     if (!session) return;
@@ -293,14 +308,14 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
         case DisconnectReason.timedOut: // 408
             // Network issue — reconnect immediately, keep auth
             console.log(`[${tenantId}] Connection lost — reconnecting...`);
-            sessions.delete(tenantId);
+            await _flushAndCleanup(tenantId);
             await _reconnectWithCooldown(tenantId);
             break;
 
         case DisconnectReason.restartRequired: // 515
             // WhatsApp server restart — reconnect in 3s
             console.log(`[${tenantId}] Restart required — reconnecting in 3s...`);
-            sessions.delete(tenantId);
+            await _flushAndCleanup(tenantId);
             setTimeout(() => _reconnectWithCooldown(tenantId), 3000);
             break;
 
@@ -337,14 +352,14 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
         case DisconnectReason.badSession:
             // Corrupted crypto — clear keys only (not creds), reconnect
             console.log(`[${tenantId}] Bad session/multidevice mismatch — clearing keys and reconnecting`);
-            sessions.delete(tenantId);
+            await _flushAndCleanup(tenantId);
             await _reconnectWithCooldown(tenantId);
             break;
 
         case 503: // Service unavailable
             // WhatsApp servers down — wait 60s
             console.log(`[${tenantId}] WhatsApp unavailable — retrying in 60s`);
-            sessions.delete(tenantId);
+            await _flushAndCleanup(tenantId);
             setTimeout(() => _reconnectWithCooldown(tenantId), 60_000);
             break;
 
@@ -364,7 +379,7 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
             const delays = [5000, 15000, 30000, 60000, 120000];
             const delay = delays[Math.min(session.retryCount - 1, delays.length - 1)];
             console.log(`[${tenantId}] Unknown disconnect (${statusCode}) — retry ${session.retryCount}/5 in ${delay / 1000}s`);
-            sessions.delete(tenantId);
+            await _flushAndCleanup(tenantId);
             setTimeout(() => _reconnectWithCooldown(tenantId), delay);
             break;
     }
