@@ -274,15 +274,26 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
     // ── Message events ──
 
     socket.ev.on("messages.upsert", async (m) => {
+        console.log(`[${tenantId}] messages.upsert: type=${m.type}, count=${m.messages.length}`);
+
         if (m.type !== "notify") return;
 
         for (const msg of m.messages) {
-            if (!msg.message || msg.key.fromMe) continue;
-            // Skip status broadcasts
-            if (msg.key.remoteJid === "status@broadcast") continue;
+            const jid = msg.key.remoteJid ?? "unknown";
+            const fromMe = msg.key.fromMe ?? false;
+            const hasMessage = !!msg.message;
+            const isGroup = jid.endsWith("@g.us");
+            const isBroadcast = jid === "status@broadcast";
+
+            // Log every message for debugging
+            console.log(`[${tenantId}] MSG: jid=${jid} fromMe=${fromMe} hasMsg=${hasMessage} group=${isGroup} broadcast=${isBroadcast} pushName=${msg.pushName ?? "none"}`);
+
+            if (!hasMessage || fromMe) continue;
+            if (isBroadcast) continue;
 
             try {
                 await handleMessage(tenantId, socket, msg);
+                console.log(`[${tenantId}] ✓ Handled message from ${jid}`);
             } catch (err) {
                 console.error(`[${tenantId}] Message handler error:`, err);
             }

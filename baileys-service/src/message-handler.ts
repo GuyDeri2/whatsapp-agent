@@ -35,11 +35,17 @@ export async function handleMessage(
     if (!jid) return;
 
     // Skip groups
-    if (jid.endsWith("@g.us")) return;
+    if (jid.endsWith("@g.us")) {
+        console.log(`[${tenantId}] Skipping group message: ${jid}`);
+        return;
+    }
 
     // Dedup
     const msgId = msg.key.id;
-    if (!msgId || processedMessages.has(msgId)) return;
+    if (!msgId || processedMessages.has(msgId)) {
+        console.log(`[${tenantId}] Skipping duplicate: ${msgId}`);
+        return;
+    }
     addProcessed(msgId);
 
     // Extract text content
@@ -60,10 +66,14 @@ export async function handleMessage(
     );
 
     const content = text ?? (hasMedia ? "[מדיה ללא טקסט]" : null);
-    if (!content) return;
+    if (!content) {
+        console.log(`[${tenantId}] Skipping message with no content from ${jid}`);
+        return;
+    }
 
     // Extract phone number from JID
     const phoneNumber = jid.replace("@s.whatsapp.net", "");
+    console.log(`[${tenantId}] Processing message from ${phoneNumber}: "${content.substring(0, 50)}"`);
 
     const supabase = getSupabase();
 
