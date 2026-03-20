@@ -49,6 +49,9 @@ const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID ?? "";
 const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID ?? "";
 const META_API_VERSION = "v21.0";
 
+/** Timeout (ms) — if FB.login callback doesn't fire, fall back to redirect */
+const POPUP_TIMEOUT_MS = 4000;
+
 const ConnectTab = React.memo(function ConnectTab({
     tenant,
     onDisconnect,
@@ -58,10 +61,12 @@ const ConnectTab = React.memo(function ConnectTab({
     const [error, setError] = useState<string | null>(null);
     const [sdkReady, setSdkReady] = useState(false);
     const sessionDataRef = useRef<{ phone_number_id?: string; waba_id?: string }>({});
+    const popupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const callbackFiredRef = useRef(false);
 
     /* ── Load Facebook JS SDK ── */
     useEffect(() => {
-        if (isConnected) return; // Don't load SDK if already connected
+        if (isConnected) return;
 
         // Listen for Embedded Signup session info (v2 postMessage)
         function handleMessage(event: MessageEvent) {
@@ -74,12 +79,12 @@ const ConnectTab = React.memo(function ConnectTab({
                     sessionDataRef.current = data.data;
                 }
             } catch {
-                // Not our message — ignore
+                // Not our message
             }
         }
         window.addEventListener("message", handleMessage);
 
-        // Load FB SDK if not already loaded
+        // Load FB SDK
         if (window.FB) {
             setSdkReady(true);
         } else {
@@ -103,35 +108,59 @@ const ConnectTab = React.memo(function ConnectTab({
             }
         }
 
-        return () => window.removeEventListener("message", handleMessage);
+        return () => {
+            window.removeEventListener("message", handleMessage);
+            if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
+        };
     }, [isConnected]);
 
-    /* ── Connect: FB SDK popup → exchange code on server ── */
+    /* ── Fallback: redirect to server-side OAuth ── */
+    function fallbackToRedirect() {
+        window.location.href = `/api/tenants/${tenant.id}/cloud-signup`;
+    }
+
+    /* ── Connect: try FB SDK popup, fall back to redirect ── */
     const handleConnect = useCallback(() => {
         if (busy) return;
-        if (!window.FB) {
-            setError("Facebook SDK לא נטען. נסה לרענן את הדף.");
+        setError(null);
+        setBusy("connect");
+        callbackFiredRef.current = false;
+        sessionDataRef.current = {};
+
+        // If FB SDK not loaded, go straight to redirect
+        if (!window.FB || !sdkReady) {
+            fallbackToRedirect();
             return;
         }
 
-        setError(null);
-        setBusy("connect");
-        sessionDataRef.current = {};
+        // Set a timeout — if popup is blocked, FB.login never calls the callback
+        popupTimerRef.current = setTimeout(() => {
+            if (!callbackFiredRef.current) {
+                // Popup was likely blocked — fall back to redirect
+                fallbackToRedirect();
+            }
+        }, POPUP_TIMEOUT_MS);
 
         window.FB.login(
             async (response) => {
+                callbackFiredRef.current = true;
+                if (popupTimerRef.current) {
+                    clearTimeout(popupTimerRef.current);
+                    popupTimerRef.current = null;
+                }
+
                 const code = response.authResponse?.code;
                 if (!code) {
                     setBusy(null);
                     if (response.status === "unknown") {
-                        // User closed the popup — not an error
+                        // User closed the popup
                         return;
                     }
                     setError("ההתחברות בוטלה או נכשלה. נסה שוב.");
                     return;
                 }
 
-                // Send code + any session data to our API
+                // Send code + session data to our API
                 try {
                     const res = await fetch(`/api/tenants/${tenant.id}/embedded-signup`, {
                         method: "POST",
@@ -167,7 +196,8 @@ const ConnectTab = React.memo(function ConnectTab({
                 override_default_response_type: true,
             },
         );
-    }, [busy, tenant.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [busy, tenant.id, sdkReady]);
 
     /* ── Disconnect ── */
     async function handleDisconnect() {
@@ -271,7 +301,7 @@ const ConnectTab = React.memo(function ConnectTab({
 
                     <button
                         onClick={handleConnect}
-                        disabled={!!busy || (!sdkReady && !window.FB)}
+                        disabled={!!busy}
                         className={styles.connectBtn}
                     >
                         {busy === "connect"
