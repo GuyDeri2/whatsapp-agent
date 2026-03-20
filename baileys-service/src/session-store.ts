@@ -52,6 +52,21 @@ function decrypt(data: string): string {
     return decipher.update(Buffer.from(encHex, "hex")) + decipher.final("utf8");
 }
 
+/**
+ * Deserialize session data from Supabase.
+ * Handles both text columns (string) and jsonb columns (already-parsed object).
+ * The jsonb case is a safety net — migration changes column to text.
+ */
+function deserializeSessionData(data: unknown): any {
+    if (typeof data === "string") {
+        // Text column or encrypted data — decrypt then parse
+        const decrypted = decrypt(data);
+        return JSON.parse(decrypted, BufferJSON.reviver);
+    }
+    // jsonb column returned a parsed object — roundtrip through JSON to apply BufferJSON reviver
+    return JSON.parse(JSON.stringify(data), BufferJSON.reviver);
+}
+
 // ── Auth state implementation ──────────────────────────────────────
 
 export async function useSupabaseAuthState(
@@ -84,8 +99,7 @@ export async function useSupabaseAuthState(
     // Load or init creds
     const credsRaw = stored.get("creds");
     if (credsRaw) {
-        const decrypted = decrypt(credsRaw);
-        creds = JSON.parse(decrypted, BufferJSON.reviver);
+        creds = deserializeSessionData(credsRaw);
     } else {
         creds = initAuthCreds();
     }
@@ -95,8 +109,7 @@ export async function useSupabaseAuthState(
     for (const [key, value] of stored) {
         if (key === "creds") continue;
         try {
-            const decrypted = decrypt(value);
-            cache.set(key, { value: JSON.parse(decrypted, BufferJSON.reviver), dirty: false });
+            cache.set(key, { value: deserializeSessionData(value), dirty: false });
         } catch {
             // Corrupted key — skip
         }

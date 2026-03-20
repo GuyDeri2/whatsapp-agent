@@ -125,6 +125,24 @@ const ConnectTab = React.memo(function ConnectTab({
                     }
                 }
             )
+            .on(
+                "postgres_changes",
+                {
+                    event: "UPDATE",
+                    schema: "public",
+                    table: "tenants",
+                    filter: `id=eq.${tenant.id}`,
+                },
+                (payload) => {
+                    const row = payload.new as { whatsapp_connected?: boolean };
+                    if (row.whatsapp_connected) {
+                        // Backend set whatsapp_connected = true → close QR and refresh
+                        setShowQR(false);
+                        setQrDataUrl(null);
+                        window.location.reload();
+                    }
+                }
+            )
             .subscribe();
 
         // Also poll for initial QR
