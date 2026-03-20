@@ -87,6 +87,7 @@ export async function POST(
         if (conversation) {
             await admin.from("messages").insert({
                 conversation_id: conversation.id,
+                tenant_id: tenantId,
                 role: "owner",
                 content: text,
                 is_from_agent: false,
