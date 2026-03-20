@@ -8,6 +8,7 @@ import type { WASocket, WAMessage } from "@whiskeysockets/baileys";
 import { getSupabase } from "./session-manager";
 import { humanSend, RateLimiter } from "./antiban";
 import { generateReply } from "./ai-agent";
+import { resolveLidPhone } from "./lid-resolver";
 
 export const rateLimiter = new RateLimiter();
 
@@ -71,8 +72,8 @@ export async function handleMessage(
         return;
     }
 
-    // Extract phone number from JID
-    const phoneNumber = jid.replace("@s.whatsapp.net", "");
+    // Extract phone number from JID (resolve LID → real phone if available)
+    const phoneNumber = await resolveLidPhone(jid, msg, tenantId);
     console.log(`[${tenantId}] Processing message from ${phoneNumber}: "${content.substring(0, 50)}"`);
 
     const supabase = getSupabase();

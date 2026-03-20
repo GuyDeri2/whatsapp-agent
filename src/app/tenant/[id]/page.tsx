@@ -733,6 +733,9 @@ export default function TenantPage() {
     const formatPhone = (phone: string) => {
         if (!phone) return "";
 
+        // LID format (e.g. "217875201687576@lid") — unresolved WhatsApp privacy ID
+        if (phone.endsWith("@lid")) return "מזהה WA";
+
         // Groups have a hyphen in the JID (e.g. "120363404274395120-1234@g.us")
         if (phone.includes("-") || phone.includes("@")) return "קבוצה";
 

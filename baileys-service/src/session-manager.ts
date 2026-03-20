@@ -24,6 +24,7 @@ import { useSupabaseAuthState } from "./session-store";
 import { PresencePauseScheduler } from "./antiban";
 import { handleMessage } from "./message-handler";
 import { broadcastQR, clearQR } from "./qr-manager";
+import { resolveLidPhone, registerLidMapping } from "./lid-resolver";
 import type { TenantSession, SessionHealth } from "./types";
 
 // ── Globals ────────────────────────────────────────────────────────
@@ -309,6 +310,17 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
             }
         }
     });
+
+    // ── LID → phone number resolution ──
+
+    socket.ev.on("chats.phoneNumberShare", async ({ lid, jid: phoneJid }) => {
+        console.log(`[${tenantId}] phoneNumberShare: ${lid} → ${phoneJid}`);
+        try {
+            await registerLidMapping(lid, phoneJid, tenantId);
+        } catch (err) {
+            console.error(`[${tenantId}] LID mapping error:`, err);
+        }
+    });
 }
 
 // ── Disconnect handler ─────────────────────────────────────────────
@@ -540,7 +552,7 @@ async function _saveOwnerOutgoing(tenantId: string, msg: WAMessage): Promise<voi
 
     if (!text) return; // Skip media-only outgoing messages
 
-    const phoneNumber = jid.replace("@s.whatsapp.net", "");
+    const phoneNumber = await resolveLidPhone(jid, msg, tenantId);
     const supabase = getSupabase();
 
     // Find or create conversation
