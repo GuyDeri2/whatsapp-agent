@@ -409,9 +409,12 @@ async function _reconnectWithCooldown(tenantId: string): Promise<void> {
     lastReconnectAt.set(tenantId, Date.now());
 
     try {
-        await createSession(tenantId);
+        // Call _initSocket directly — createSession checks reconnecting set
+        // which would cause a deadlock since we just added tenantId above.
+        await _initSocket(tenantId, false);
     } catch (err) {
         console.error(`[${tenantId}] Reconnect failed:`, err);
+    } finally {
         reconnecting.delete(tenantId);
     }
 }
