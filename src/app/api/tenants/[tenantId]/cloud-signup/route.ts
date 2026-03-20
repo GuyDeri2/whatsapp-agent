@@ -82,7 +82,6 @@ export async function GET(
   // override_default_response_type=true is required for Embedded Signup via redirect.
   // auth_type=rerequest forces Facebook to show the permissions screen fresh.
   const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID;
-  console.log('[cloud-signup] META_CONFIG_ID:', META_CONFIG_ID ? 'SET' : 'NOT SET');
 
   const oauthUrl =
     `https://www.facebook.com/${META_API_VERSION}/dialog/oauth` +
@@ -96,7 +95,6 @@ export async function GET(
       ? `&config_id=${META_CONFIG_ID}&override_default_response_type=true`
       : '');
 
-  console.log('[cloud-signup] OAuth URL:', oauthUrl.substring(0, 200));
   return NextResponse.redirect(oauthUrl);
 }
 

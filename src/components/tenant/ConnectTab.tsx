@@ -1,8 +1,25 @@
 'use client';
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Smartphone, PowerOff, ShieldCheck, Loader2, Wifi, WifiOff } from "lucide-react";
 import styles from "./ConnectTab.module.css";
+
+/* ── Facebook SDK type declarations ── */
+declare global {
+    interface Window {
+        fbAsyncInit?: () => void;
+        FB?: {
+            init: (params: { appId: string; cookie: boolean; xfbml: boolean; version: string }) => void;
+            login: (
+                cb: (response: {
+                    authResponse?: { code?: string; accessToken?: string } | null;
+                    status?: string;
+                }) => void,
+                opts: Record<string, unknown>,
+            ) => void;
+        };
+    }
+}
 
 interface Tenant {
     id: string;
@@ -19,6 +36,19 @@ interface ConnectTabProps {
     onDisconnect?: () => Promise<void>;
 }
 
+/* ── Embedded Signup session data from postMessage ── */
+interface EmbeddedSignupEvent {
+    type: string;
+    data?: {
+        phone_number_id?: string;
+        waba_id?: string;
+    };
+}
+
+const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID ?? "";
+const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID ?? "";
+const META_API_VERSION = "v21.0";
+
 const ConnectTab = React.memo(function ConnectTab({
     tenant,
     onDisconnect,
@@ -26,14 +56,120 @@ const ConnectTab = React.memo(function ConnectTab({
     const isConnected = tenant.whatsapp_connected && !!tenant.whatsapp_cloud_config;
     const [busy, setBusy] = useState<"connect" | "disconnect" | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [sdkReady, setSdkReady] = useState(false);
+    const sessionDataRef = useRef<{ phone_number_id?: string; waba_id?: string }>({});
 
-    function handleConnect() {
+    /* ── Load Facebook JS SDK ── */
+    useEffect(() => {
+        if (isConnected) return; // Don't load SDK if already connected
+
+        // Listen for Embedded Signup session info (v2 postMessage)
+        function handleMessage(event: MessageEvent) {
+            if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") return;
+            try {
+                const data: EmbeddedSignupEvent =
+                    typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+
+                if (data.type === "WA_EMBEDDED_SIGNUP" && data.data) {
+                    sessionDataRef.current = data.data;
+                }
+            } catch {
+                // Not our message — ignore
+            }
+        }
+        window.addEventListener("message", handleMessage);
+
+        // Load FB SDK if not already loaded
+        if (window.FB) {
+            setSdkReady(true);
+        } else {
+            window.fbAsyncInit = () => {
+                window.FB!.init({
+                    appId: META_APP_ID,
+                    cookie: true,
+                    xfbml: false,
+                    version: META_API_VERSION,
+                });
+                setSdkReady(true);
+            };
+
+            if (!document.getElementById("facebook-jssdk")) {
+                const script = document.createElement("script");
+                script.id = "facebook-jssdk";
+                script.src = "https://connect.facebook.net/en_US/sdk.js";
+                script.async = true;
+                script.defer = true;
+                document.body.appendChild(script);
+            }
+        }
+
+        return () => window.removeEventListener("message", handleMessage);
+    }, [isConnected]);
+
+    /* ── Connect: FB SDK popup → exchange code on server ── */
+    const handleConnect = useCallback(() => {
         if (busy) return;
-        setBusy("connect");
-        // Redirect to server-side OAuth flow — works in all browsers, no FB SDK needed
-        window.location.href = `/api/tenants/${tenant.id}/cloud-signup`;
-    }
+        if (!window.FB) {
+            setError("Facebook SDK לא נטען. נסה לרענן את הדף.");
+            return;
+        }
 
+        setError(null);
+        setBusy("connect");
+        sessionDataRef.current = {};
+
+        window.FB.login(
+            async (response) => {
+                const code = response.authResponse?.code;
+                if (!code) {
+                    setBusy(null);
+                    if (response.status === "unknown") {
+                        // User closed the popup — not an error
+                        return;
+                    }
+                    setError("ההתחברות בוטלה או נכשלה. נסה שוב.");
+                    return;
+                }
+
+                // Send code + any session data to our API
+                try {
+                    const res = await fetch(`/api/tenants/${tenant.id}/embedded-signup`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                            code,
+                            waba_id: sessionDataRef.current.waba_id || undefined,
+                            phone_number_id: sessionDataRef.current.phone_number_id || undefined,
+                        }),
+                    });
+
+                    if (res.status === 401) {
+                        window.location.href = "/login";
+                        return;
+                    }
+
+                    const data = await res.json();
+                    if (!res.ok) {
+                        throw new Error(data.error || "שגיאה בהתחברות");
+                    }
+
+                    // Success — reload to show connected state
+                    window.location.reload();
+                } catch (err) {
+                    setError(err instanceof Error ? err.message : "שגיאה בלתי צפויה");
+                    setBusy(null);
+                }
+            },
+            {
+                config_id: META_CONFIG_ID,
+                response_type: "code",
+                override_default_response_type: true,
+            },
+        );
+    }, [busy, tenant.id]);
+
+    /* ── Disconnect ── */
     async function handleDisconnect() {
         if (busy) return;
         setError(null);
@@ -135,7 +271,7 @@ const ConnectTab = React.memo(function ConnectTab({
 
                     <button
                         onClick={handleConnect}
-                        disabled={!!busy}
+                        disabled={!!busy || (!sdkReady && !window.FB)}
                         className={styles.connectBtn}
                     >
                         {busy === "connect"
