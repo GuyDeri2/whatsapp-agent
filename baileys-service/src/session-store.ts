@@ -62,6 +62,7 @@ export async function useSupabaseAuthState(
     saveCreds: () => Promise<void>;
     clearState: () => Promise<void>;
     stopSync: () => void;
+    forceFlush: () => Promise<void>;
 }> {
     // In-memory cache: key -> { value, dirty }
     const cache = new Map<string, { value: unknown; dirty: boolean }>();
