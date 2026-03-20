@@ -78,18 +78,18 @@ export default function Dashboard() {
 
   const modeConfig = {
     learning: { label: "למידה", icon: <BookOpen className="w-3.5 h-3.5" />, bg: "bg-amber-500/15 text-amber-400 ring-amber-500/25" },
-    active:   { label: "פעיל",   icon: <Activity className="w-3.5 h-3.5" />,   bg: "bg-blue-500/15 text-blue-400 ring-blue-500/25" },
+    active:   { label: "פעיל",   icon: <Activity className="w-3.5 h-3.5" />,   bg: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/25" },
     paused:   { label: "מושהה",  icon: <PauseCircle className="w-3.5 h-3.5" />, bg: "bg-neutral-500/15 text-neutral-400 ring-neutral-500/25" },
   };
 
   return (
-    <div className="min-h-screen text-neutral-200 font-sans selection:bg-blue-500/30 relative overflow-x-hidden" style={{ background: "#060c18" }}>
+    <div className="min-h-screen text-neutral-200 font-sans selection:bg-emerald-500/30 relative overflow-x-hidden" style={{ background: "#060c18" }}>
 
       {/* Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute top-[-15%] right-[-10%] w-[600px] h-[600px] rounded-full opacity-25" style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)", filter: "blur(90px)" }} />
-        <div className="absolute bottom-[-15%] left-[-10%] w-[700px] h-[700px] rounded-full opacity-15" style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)", filter: "blur(100px)" }} />
-        <div className="absolute top-[40%] left-[30%] w-[400px] h-[400px] rounded-full opacity-[0.07]" style={{ background: "radial-gradient(circle, #60a5fa 0%, transparent 70%)", filter: "blur(80px)" }} />
+        <div className="absolute top-[-15%] right-[-10%] w-[600px] h-[600px] rounded-full opacity-25" style={{ background: "radial-gradient(circle, #10b981 0%, transparent 70%)", filter: "blur(90px)" }} />
+        <div className="absolute bottom-[-15%] left-[-10%] w-[700px] h-[700px] rounded-full opacity-15" style={{ background: "radial-gradient(circle, #059669 0%, transparent 70%)", filter: "blur(100px)" }} />
+        <div className="absolute top-[40%] left-[30%] w-[400px] h-[400px] rounded-full opacity-[0.07]" style={{ background: "radial-gradient(circle, #34d399 0%, transparent 70%)", filter: "blur(80px)" }} />
         {/* Subtle grid */}
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
       </div>
@@ -104,9 +104,9 @@ export default function Dashboard() {
           className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-10"
         >
           <div className="flex items-center gap-4">
-            <div className="relative w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.25)]">
-              <Bot className="w-6 h-6 text-blue-400" />
-              <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-[#060c18] animate-pulse" />
+            <div className="relative w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shadow-[0_0_24px_rgba(16,185,129,0.25)]">
+              <Bot className="w-6 h-6 text-emerald-400" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#060c18] animate-pulse" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white tracking-tight">
@@ -119,7 +119,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-3">
             {profile && (
               <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ring-inset ${
-                profile.subscription_status === "active" ? "bg-blue-500/10 text-blue-400 ring-blue-500/20" :
+                profile.subscription_status === "active" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" :
                 profile.subscription_status === "trial"  ? "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20" :
                 "bg-red-500/10 text-red-400 ring-red-500/20"
               }`}>
@@ -151,9 +151,9 @@ export default function Dashboard() {
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
           {[
-            { title: "סה״כ עסקים",       value: loading ? "—" : tenants.length,                                    icon: <Building2 className="w-5 h-5" />, color: "text-blue-400",   glow: "rgba(59,130,246,0.15)" },
-            { title: "מחוברים לווטסאפ", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected).length,  icon: <Wifi className="w-5 h-5" />,      color: "text-indigo-300", glow: "rgba(99,102,241,0.15)" },
-            { title: "סוכנים פעילים",    value: loading ? "—" : tenants.filter(t => t.agent_mode === "active").length, icon: <Sparkles className="w-5 h-5" />, color: "text-sky-400", glow: "rgba(56,189,248,0.15)" },
+            { title: "סה״כ עסקים",       value: loading ? "—" : tenants.length,                                    icon: <Building2 className="w-5 h-5" />, color: "text-emerald-400",   glow: "rgba(16,185,129,0.15)" },
+            { title: "מחוברים לווטסאפ", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected).length,  icon: <Wifi className="w-5 h-5" />,      color: "text-teal-300", glow: "rgba(20,184,166,0.15)" },
+            { title: "סוכנים פעילים",    value: loading ? "—" : tenants.filter(t => t.agent_mode === "active").length, icon: <Sparkles className="w-5 h-5" />, color: "text-green-400", glow: "rgba(74,222,128,0.15)" },
           ].map((stat, idx) => (
             <motion.div
               key={stat.title}
@@ -162,7 +162,7 @@ export default function Dashboard() {
               whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
               whileTap={{ scale: 0.98 }}
               transition={{ delay: idx * 0.08, duration: 0.4 }}
-              className="group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-blue-500/40 rounded-2xl p-5 backdrop-blur-sm overflow-hidden cursor-default transition-colors duration-200"
+              className="group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-emerald-500/40 rounded-2xl p-5 backdrop-blur-sm overflow-hidden cursor-default transition-colors duration-200"
               style={{ boxShadow: `0 0 20px ${stat.glow}` }}
             >
               <div className="flex items-center justify-between mb-3">
@@ -173,8 +173,8 @@ export default function Dashboard() {
                 onMouseEnter={e => (e.currentTarget.style.filter = `drop-shadow(0 0 12px ${stat.glow})`)}
                 onMouseLeave={e => (e.currentTarget.style.filter = "none")}
               >{stat.value}</p>
-              <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-500/30 to-transparent group-hover:via-blue-500/70 transition-all duration-300" />
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 group-hover:from-blue-500/[0.04] to-transparent transition-all duration-300 rounded-2xl pointer-events-none" />
+              <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent group-hover:via-emerald-500/70 transition-all duration-300" />
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/0 group-hover:from-emerald-500/[0.04] to-transparent transition-all duration-300 rounded-2xl pointer-events-none" />
             </motion.div>
           ))}
         </div>
@@ -191,7 +191,7 @@ export default function Dashboard() {
               onClick={() => setShowForm(!showForm)}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${showForm
                 ? "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10"
-                : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40"
+                : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40"
               }`}
             >
               {showForm ? "ביטול" : <><Plus className="w-4 h-4" /> הוסף עסק</>}
@@ -207,7 +207,7 @@ export default function Dashboard() {
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className="mb-8 overflow-hidden"
               >
-                <div className="bg-white/[0.02] border border-blue-500/20 rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_rgba(59,130,246,0.07)]">
+                <div className="bg-white/[0.02] border border-emerald-500/20 rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_rgba(16,185,129,0.07)]">
                   <h3 className="text-lg font-semibold mb-6 text-white">הוסף עסק חדש למערכת</h3>
                   <form onSubmit={handleCreate} className="space-y-5">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -215,27 +215,27 @@ export default function Dashboard() {
                         <label className="block text-xs font-medium text-slate-400 mb-1.5">שם העסק <span className="text-red-400">*</span></label>
                         <input type="text" required value={formData.business_name}
                           onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all placeholder-slate-600"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
                           placeholder="לדוגמה: חנות אלקטרוניקה" />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-400 mb-1.5">לקוחות יעד</label>
                         <input type="text" value={formData.target_customers}
                           onChange={(e) => setFormData({ ...formData, target_customers: e.target.value })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all placeholder-slate-600"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
                           placeholder="למשל: חובבי טכנולוגיה..." />
                       </div>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-400 mb-1.5">מוצרים / שירותים</label>
                       <textarea value={formData.products} onChange={(e) => setFormData({ ...formData, products: e.target.value })} rows={2}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all resize-none placeholder-slate-600"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all resize-none placeholder-slate-600"
                         placeholder="מה אתם מוכרים?" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-400 mb-1.5">תיאור העסק</label>
                       <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={2}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all resize-none placeholder-slate-600"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all resize-none placeholder-slate-600"
                         placeholder="מה העסק שלך עושה?" />
                     </div>
                     <div className="flex justify-end gap-3 pt-2 border-t border-white/5">
@@ -244,7 +244,7 @@ export default function Dashboard() {
                         ביטול
                       </button>
                       <button type="submit" disabled={creating}
-                        className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-500/25">
+                        className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-emerald-500/25">
                         {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> יוצר...</> : "צור סוכן חדש"}
                       </button>
                     </div>
@@ -275,7 +275,7 @@ export default function Dashboard() {
               <h3 className="text-xl font-semibold text-white mb-2">אין עסקים עדיין</h3>
               <p className="text-slate-400 mb-6 max-w-xs mx-auto">הוסף את העסק הראשון שלך כדי להתחיל לאמן את סוכן ה-AI.</p>
               <button onClick={() => setShowForm(true)}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-blue-500/25 inline-flex items-center gap-2">
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-emerald-500/25 inline-flex items-center gap-2">
                 <Plus className="w-4 h-4" /> הוסף עסק ראשון
               </button>
             </motion.div>
@@ -292,13 +292,13 @@ export default function Dashboard() {
                     whileHover={{ y: -3, transition: { duration: 0.2 } }}
                     onMouseEnter={() => router.prefetch(`/tenant/${tenant.id}`)}
                     onClick={() => router.push(`/tenant/${tenant.id}`)}
-                    className="group relative border rounded-2xl p-6 cursor-pointer transition-all duration-300 flex flex-col overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.07] hover:border-blue-500/40 hover:shadow-[0_8px_32px_rgba(59,130,246,0.12)]"
+                    className="group relative border rounded-2xl p-6 cursor-pointer transition-all duration-300 flex flex-col overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.07] hover:border-emerald-500/40 hover:shadow-[0_8px_32px_rgba(16,185,129,0.12)]"
                   >
                     {/* Top accent line on hover */}
-                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-500/0 to-transparent group-hover:via-blue-500/60 transition-all duration-500" />
+                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-500/0 to-transparent group-hover:via-emerald-500/60 transition-all duration-500" />
 
                     <div className="flex justify-between items-start mb-3">
-                      <h3 className="text-base font-semibold text-white truncate pr-2 group-hover:text-blue-300 transition-colors leading-tight">
+                      <h3 className="text-base font-semibold text-white truncate pr-2 group-hover:text-emerald-300 transition-colors leading-tight">
                         {tenant.business_name}
                       </h3>
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset shrink-0 ${mode.bg}`}>
@@ -316,10 +316,10 @@ export default function Dashboard() {
                         {tenant.whatsapp_connected ? (
                           <>
                             <span className="relative flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                             </span>
-                            <span className="text-blue-400 font-medium" dir="ltr">{tenant.whatsapp_phone || "מחובר"}</span>
+                            <span className="text-emerald-400 font-medium" dir="ltr">{tenant.whatsapp_phone || "מחובר"}</span>
                           </>
                         ) : (
                           <>
@@ -328,7 +328,7 @@ export default function Dashboard() {
                           </>
                         )}
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs text-slate-600 group-hover:text-blue-400 transition-colors">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 group-hover:text-emerald-400 transition-colors">
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity">פתח</span>
                         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
                       </div>
