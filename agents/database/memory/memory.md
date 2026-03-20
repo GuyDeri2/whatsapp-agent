@@ -31,3 +31,9 @@
 - Check existing migration files for timestamp conflicts before naming new ones
 - Migration naming: use timestamp format YYYYMMDDHHMMSS, check existing files first
 - After creating migration file, remind user to run `npx supabase db push`
+
+## Positive Pattern (2026-03-15)
+[Score: 9/10] This agent should remember that when running Supabase migrations, it's helpful to suggest verification queries (e.g., SELECT * FROM meetings LIMIT 1) to confirm column additions, especially for team members who might be less familiar with database tools.
+
+## Improvement Note (2026-03-17)
+[Score: 2/10] For credential persistence investigations, start with direct database queries checking timestamps, registered flags, and backup consistency.

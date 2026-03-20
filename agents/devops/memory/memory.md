@@ -1,12 +1,130 @@
 # DevOps Memory
 
+## CRITICAL RULE: ALWAYS DEPLOY YOURSELF — NEVER ASK THE USER
+
+After ANY code change, migration, or fix — YOU must deploy everything. Never say "run this yourself" or "apply this manually". You have full access to all deployment tools.
+
 ## Infrastructure Overview
 
-- **Frontend + API**: Vercel (automatic deploys on push to main)
-- **Session Manager**: Needs dedicated always-on server (VPS/cloud VM)
-  - Can't run on Vercel (serverless, stateless — Baileys needs persistent WebSocket)
-  - Run with PM2: `pm2 start dist/server.js --name whatsapp-session-manager`
-- **Database**: Supabase managed (no infra needed)
+- **Frontend + API**: Vercel (automatic deploys on push to `main`)
+- **Session Manager**: Render Web Service (always-on, zero-downtime deploys)
+- **Database**: Supabase managed PostgreSQL
+
+## Service IDs & Connection Details
+
+| Service | ID / Reference | URL |
+|---------|---------------|-----|
+| **Supabase project** | `ckglxxqncffjszmcntuu` | Linked via `npx supabase` CLI |
+| **Render service** | `srv-d6ksj5fgi27c73bjllkg` | whatsapp-agent-rl0k.onrender.com |
+| **Render workspace** | `tea-d6k1r77gi27c73ck01l0` | — |
+| **Vercel project** | Auto-linked | guyderi2 account |
+
+## How to Deploy — MANDATORY after every change
+
+### 1. Vercel (Next.js frontend + API)
+```bash
+# Option A: Auto-deploy via git push (preferred)
+git push origin main
+# Vercel auto-deploys from main. Done.
+
+# Option B: Manual deploy (if needed)
+npx vercel --prod --yes
+```
+
+### 2. Render (Session Manager)
+Render auto-deploys from git push to main. If you need to check status or trigger manually:
+```bash
+# Use MCP tools — NOT CLI:
+# - mcp__render__list_deploys(serviceId: "srv-d6ksj5fgi27c73bjllkg")
+# - mcp__render__get_deploy(serviceId: "srv-d6ksj5fgi27c73bjllkg", deployId: "...")
+# - mcp__render__list_logs(resource: ["srv-d6ksj5fgi27c73bjllkg"])
+```
+
+### 3. Supabase (Database migrations)
+```bash
+# Push pending migrations to production
+npx supabase db push
+
+# It will prompt Y/n — answer automatically via:
+echo "Y" | npx supabase db push
+
+# Verify migration applied:
+npx supabase migration list
+```
+
+### 4. Full Deploy Checklist (run ALL of these after any change)
+```bash
+# 1. Build check
+cd session-manager && npx tsc --noEmit
+cd .. && npx next build
+
+# 2. Git commit & push (triggers Vercel + Render auto-deploy)
+git add <files>
+git commit -m "message"
+git push origin main
+
+# 3. DB migrations (if any new .sql files in supabase/migrations/)
+npx supabase db push
+
+# 4. Verify deploys — SEE POST-DEPLOY VERIFICATION BELOW
+```
+
+### 5. Post-Deploy Verification — MANDATORY after EVERY deploy
+
+After every `git push`, you MUST verify the deploy succeeded. Never assume success.
+
+**Render (Session Manager):**
+```
+# 1. Wait ~2 minutes for build + deploy
+# 2. Check deploy status:
+mcp__render__list_deploys(serviceId: "srv-d6ksj5fgi27c73bjllkg", limit: 3)
+# → Verify latest deploy status is "live" (not "build_failed" or "update_failed")
+
+# 3. Check startup logs for errors:
+mcp__render__list_logs(resource: ["srv-d6ksj5fgi27c73bjllkg"], limit: 30)
+# → Must see: "WhatsApp Session Manager running on http://0.0.0.0:PORT"
+# → Must see: "Waiting 10s before restoring sessions"
+# → Must NOT see: uncaught exceptions, crash loops, or "Error" in startup
+
+# 4. If WhatsApp was connected, verify session restored:
+mcp__render__list_logs(resource: ["srv-d6ksj5fgi27c73bjllkg"], text: ["restore"], limit: 10)
+# → Should see: "Restoring N session(s)..." or "No sessions to restore"
+# → If restoring, must see: "Connection opened" (not repeated crash/reconnect)
+
+# 5. Check for anti-ban health:
+mcp__render__list_logs(resource: ["srv-d6ksj5fgi27c73bjllkg"], text: ["Anti-ban"], limit: 5)
+```
+
+**Vercel (Next.js):**
+- `git push` output shows the deploy URL — verify no build errors
+- If build fails, Vercel keeps the previous deploy live (no downtime)
+
+**Supabase (Migrations):**
+```bash
+npx supabase migration list
+# → All migrations should show "Applied"
+```
+
+**If any deploy fails:**
+1. Read the error logs immediately
+2. Fix the issue
+3. Re-deploy
+4. NEVER leave a failed deploy unresolved
+
+## Monitoring & Logs
+
+### Render Logs (Session Manager)
+```bash
+# Use MCP tool:
+# mcp__render__list_logs(resource: ["srv-d6ksj5fgi27c73bjllkg"], text: ["error"], limit: 50)
+# mcp__render__list_logs(resource: ["srv-d6ksj5fgi27c73bjllkg"], text: ["shutdown"], limit: 20)
+```
+
+### Supabase SQL (direct queries)
+```bash
+npx supabase db execute --sql "SELECT count(*) FROM tenants"
+# Or use mcp__claude_ai_Supabase__execute_sql(project_id: "ckglxxqncffjszmcntuu", query: "...")
+```
 
 ## Environment Variables Checklist
 
@@ -14,19 +132,18 @@ When adding a new env var:
 1. Add to `.env.local` (gitignored)
 2. Add to `.env.local.example` (committed)
 3. Add to Vercel project settings (for Next.js app)
-4. Add to server `.env.local` (for session-manager)
+4. Add to Render service env vars (for session-manager) — use MCP: `mcp__render__update_environment_variables`
+5. **Do NOT ask the user to add env vars** — use the tools above
 
 ## Session Manager Process Management
 
 ```bash
-# Dev
+# Dev (local)
 cd session-manager && npm run dev
 
-# Production (PM2)
-cd session-manager && npm run build
-pm2 start dist/server.js --name session-mgr --restart-delay=3000
-pm2 save
-pm2 startup
+# Production: Render handles this automatically
+# Build: npm run build (configured in Render)
+# Start: node dist/server.js (configured in Render)
 ```
 
 ## Key Monitoring Points
@@ -55,12 +172,64 @@ For endpoints that call DeepSeek AI (learning engine, manual triggers):
 - You own: Vercel config, Render deployment, CI/CD — not application code
 - Work in parallel with other agents on infrastructure while they work on code
 
-## Lessons — 2026-03-13
-- Vercel: use `npx vercel --prod --yes` — project is already linked
-- Render: use REST API with $RENDER_API_KEY — find service ID first, then deploy
-- Always verify deploy succeeded after triggering — don't assume success
-- Env vars needed for CLI: VERCEL_TOKEN, RENDER_API_KEY, SUPABASE_ACCESS_TOKEN
-- Run `npm run build` before any Vercel deploy to catch errors early
+## Lessons — 2026-03-17 (updated)
+- **NEVER ask user to deploy or run migrations** — do it yourself with the tools above
+- Vercel: auto-deploys from `git push origin main` — no manual step needed
+- Render: auto-deploys from `git push origin main` — service ID: `srv-d6ksj5fgi27c73bjllkg`
+- Render MCP tools: `list_deploys`, `list_logs`, `get_deploy`, `update_environment_variables`
+- Supabase: `npx supabase db push` applies pending migrations — CLI is authenticated
+- Supabase project ref: `ckglxxqncffjszmcntuu` — linked in the repo
+- Always `npx tsc --noEmit` + `npx next build` before pushing
+- Always verify deploy succeeded — check Render logs via MCP, Vercel via git push output
+- Deploy order: build check → git push (Vercel+Render) → supabase db push (if migrations)
+
+## Infrastructure Changes — 2026-03-17
+
+### New Environment Variable
+- `SESSION_ENCRYPTION_KEY` — required on Render for encrypted creds backup (AES-256-GCM)
+- Without this, WhatsApp sessions won't auto-reconnect after deploys
+- Must be set as a secret in Render service environment
+
+### New Files
+- `session-manager/src/antiban.ts` — anti-ban protection module (health monitoring, gaussian jitter, presence pause)
+- `supabase/migrations/20260316130000_add_whatsapp_creds_backup.sql` — new `whatsapp_creds_backup` table
+
+### Auto-Reconnect After Deploy
+- BEFORE: every deploy disconnected WhatsApp — creds were wiped by `clearAuthState` and no backup existed
+- AFTER: creds are encrypted and backed up to `whatsapp_creds_backup` table; `restoreAllSessions()` checks this table on startup
+- Signal protocol keys (pre-keys, sender keys, sessions) are also backed up — prevents PreKeyError after restore
+
+### New API Endpoint
+- `GET /sessions/:tenantId/health` — returns anti-ban health status (risk level, score, disconnect count, failed messages)
+
+### Deleted Files
+- `src/app/api/webhook/route.ts` — legacy pre-multi-tenant webhook, replaced by session-manager message handling
+
+## Production Security Hardening Deploy — 2026-03-17
+
+### What was deployed
+Commit `f83394a` — security hardening + anti-ban improvements. Pushed to GitHub → Vercel auto-deploy + manual Render deploy triggered.
+
+### New/Updated Environment Variables
+- `OAUTH_STATE_SECRET` — optional, falls back to `SUPABASE_SERVICE_ROLE_KEY`. Used for HMAC-signing OAuth state parameters. Recommend setting a dedicated value for easier key rotation.
+- `SESSION_ENCRYPTION_KEY` — now **loudly warns** on startup if missing, and `saveCredsBackup()` **throws** instead of silently skipping. Must be set on Render.
+
+### Changes affecting deployment
+- OAuth routes now require auth — users must be logged in to initiate Google/Outlook OAuth. No infra change needed, but note that unauthenticated OAuth flows will now return 401.
+- Anti-ban: unique browser fingerprint per tenant — deterministic, no config needed. Each tenant auto-gets a different browser string from a pool of 6 options.
+- Global rate limit (25 msgs/min) is in-memory per process — resets on restart. Acceptable for single-instance session-manager.
 
 ## Improvement Note (2026-03-14)
 [Score: 1/10] For frontend Supabase Realtime tasks, DevOps typically only needs to ensure: 1) Supabase project has Realtime enabled, 2) WebSocket connections are allowed in firewall rules, 3) No deployment conflicts with existing subscriptions.
+
+## Positive Pattern (2026-03-15)
+[Score: 10/10] This agent should remember that when providing environment variable instructions, it's helpful to mention security best practices (marking as secrets, using Render's secret management features) and to suggest incremental testing approaches.
+
+## Improvement Note (2026-03-15)
+[Score: 2/10] When analyzing logs, first verify log file locations exist and are readable. If logs are missing or unreadable, report this immediately with specific paths checked rather than timing out.
+
+## Improvement Note (2026-03-17)
+[Score: 2/10] For log analysis tasks, start with specific log query patterns (e.g., error codes, session IDs) rather than broad exploration to avoid iteration limits.
+
+## Positive Pattern (2026-03-17)
+[Score: 9/10] When checking deployment environments, also verify corresponding service configurations (like Supabase dashboard) for complete picture.

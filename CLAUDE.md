@@ -16,9 +16,9 @@ A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsAp
 | Styling | CSS Modules + globals.css — **no external UI library** |
 | Auth | Supabase SSR (`@supabase/ssr`) |
 | Database | Supabase (PostgreSQL + RLS + Realtime) |
-| WhatsApp | Baileys 6.x (WebSocket, in session-manager service) |
+| WhatsApp | Meta WhatsApp Cloud API (Embedded Signup, webhooks) |
 | AI | DeepSeek API via OpenAI-compatible SDK (`model: deepseek-chat`) |
-| Deploy | Vercel (Next.js) + dedicated VPS (session-manager) |
+| Deploy | Vercel (Next.js) + Render (session-manager cron service) |
 
 ---
 
@@ -33,30 +33,33 @@ A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsAp
 │   │   ├── login/page.tsx
 │   │   ├── tenant/[id]/page.tsx        ← main dashboard (tabbed)
 │   │   └── api/
-│   │       ├── webhook/route.ts
+│   │       ├── webhooks/whatsapp-cloud/route.ts  ← Meta webhook (GET verify + POST messages)
 │   │       ├── tenants/route.ts
 │   │       ├── tenants/[tenantId]/route.ts
 │   │       ├── tenants/[tenantId]/messages/route.ts
 │   │       ├── tenants/[tenantId]/contacts/route.ts
-│   │       └── sessions/[tenantId]/[action]/route.ts
+│   │       └── tenants/[tenantId]/cloud-signup/   ← OAuth flow (GET init + callback + DELETE disconnect)
 │   ├── components/tenant/
-│   │   ├── ConnectTab.tsx              ← WhatsApp QR connect
+│   │   ├── ConnectTab.tsx              ← WhatsApp Cloud API connect (Embedded Signup)
 │   │   ├── SettingsTab.tsx             ← business profile + agent config
 │   │   ├── CapabilitiesTab.tsx         ← knowledge base, agent mode, filters
 │   │   ├── ChatTab.tsx                 ← WhatsApp chat display
 │   │   └── ContactsTab.tsx             ← contact rules (whitelist/blacklist)
-│   └── lib/supabase/
-│       ├── client.ts                   ← browser client
-│       ├── server.ts                   ← server component client
-│       └── admin.ts                    ← service role client
+│   └── lib/
+│       ├── whatsapp-cloud.ts           ← Cloud API client (send, verify, config cache)
+│       ├── ai-agent.ts                 ← AI reply generation (DeepSeek)
+│       └── supabase/
+│           ├── client.ts               ← browser client
+│           ├── server.ts               ← server component client
+│           └── admin.ts                ← service role client
 ├── session-manager/
 │   └── src/
-│       ├── server.ts                   ← Express + cron jobs
-│       ├── session-manager.ts          ← Baileys multi-session
-│       ├── message-handler.ts          ← routes incoming WA messages
+│       ├── server.ts                   ← Express cron service (reminders, learning, auto-unpause)
 │       ├── ai-agent.ts                 ← DeepSeek AI reply generation
 │       ├── learning-engine.ts          ← batch learning from owner replies
-│       └── session-store.ts            ← Supabase-backed session persistence
+│       ├── reminders.ts                ← meeting reminder logic
+│       ├── scheduling.ts               ← meeting booking + availability
+│       └── date-utils.ts               ← Hebrew date formatting
 ├── agents/                             ← AI dev team (see below)
 ├── supabase/                           ← DB migrations
 ├── .env.local                          ← secrets (gitignored)
@@ -72,14 +75,18 @@ A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsAp
 - `agent_prompt` — custom AI instructions (user-editable, fed into system prompt)
 - `agent_mode` — `learning` | `active` | `paused`
 - `agent_filter_mode` — `all` | `whitelist` | `blacklist`
-- `whatsapp_phone`
+- `whatsapp_phone`, `whatsapp_connected`
+
+### `whatsapp_cloud_config`
+- `tenant_id` (FK → tenants), `phone_number_id`, `access_token`, `waba_id`, `webhook_verify_token`
+- One row per tenant — stores Meta Cloud API credentials
 
 ### `conversations`
-- `id`, `tenant_id`, `phone_number`, `contact_name`, `is_group`, `updated_at`
+- `id`, `tenant_id`, `phone_number`, `contact_name`, `is_group`, `is_paused`, `updated_at`
 
 ### `messages`
 - `id`, `conversation_id`, `role` (`user`/`assistant`/`owner`), `content`
-- `is_from_agent`, `media_url`, `media_type`, `created_at`
+- `is_from_agent`, `media_url`, `media_type`, `wa_message_id`, `status`, `created_at`
 
 ### `knowledge_base`
 - `id`, `tenant_id`, `category`, `question`, `answer`, `source` (`manual`/`learned`), `updated_at`
@@ -106,24 +113,38 @@ A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsAp
     .select('id').eq('id', tenantId).eq('user_id', user.id).single();
   if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   ```
+- Never log access tokens — only pass in Authorization headers
 
 ### Phone Numbers
 - Stored without `+`, international format: `972501234567`
-- WhatsApp JID: `972501234567@s.whatsapp.net` (individual), `...@g.us` (group)
 - Handle both `972x` (international) and `0x` (local Israeli) formats
+- Cloud API accepts E.164 without `+` prefix
 
 ### AI (DeepSeek)
 - Client: `new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })`
 - Model: `deepseek-chat`
 - JSON mode: `response_format: { type: 'json_object' }` — wraps arrays in object, parse robustly
 
+### WhatsApp Cloud API
+- Webhook endpoint: `/api/webhooks/whatsapp-cloud` (GET for verification, POST for messages)
+- Webhook signature verification via `X-Hub-Signature-256` + `META_APP_SECRET`
+- Message deduplication via `message_id` column (partial unique index)
+- Meta requires webhook to return 200 within 2 seconds — process async
+- Tenant routing: `phone_number_id` in webhook → lookup `whatsapp_cloud_config`
+
 ### Environment Variables
 ```
+NEXT_PUBLIC_APP_URL
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
-SUPABASE_URL
 DEEPSEEK_API_KEY
+META_APP_ID
+META_APP_SECRET
+META_API_VERSION (default: v21.0)
+WHATSAPP_WEBHOOK_VERIFY_TOKEN
+SESSION_MANAGER_URL
+SESSION_MANAGER_SECRET
 ```
 File: `.env.local` at project root (gitignored). See `.env.local.example`.
 
@@ -144,32 +165,32 @@ A multi-agent system for getting structured development guidance from specialize
 | `devops` | Vercel, PM2, CI/CD, infrastructure |
 | `qa` | Tests, edge cases, acceptance criteria |
 
-### How to Use
-```bash
-cd agents
+### How to Use (Claude Code Commands)
+```
+# Run a task with the full team (Claude Code acts as PM)
+/project:team "Add a search bar to the contacts page"
 
-# Run a task (PM orchestrates the team)
-npx tsx run.ts "Add a search bar to the contacts page"
-npx tsx run.ts "Add rate limiting to API routes"
-npx tsx run.ts "Improve the WhatsApp reconnect error UX"
+# Run a single specialist agent
+/project:agent-frontend "Fix loading state in ChatTab"
+/project:agent-backend "Add rate limiting to API routes"
+/project:agent-database "Add indexes for slow queries"
 
-# Give explicit feedback (agents learn from it)
-npx tsx run.ts feedback frontend 9 "Clean component, good TypeScript"
-npx tsx run.ts feedback backend 5 "Forgot to validate tenant ownership"
+# Give feedback to improve agent learning
+/project:agent-feedback frontend 9 "Clean component, good TypeScript"
 ```
 
 ### How It Works
-1. PM receives command → creates structured plan (JSON)
-2. Relevant agents run **in parallel** (or sequential when there are dependencies)
-3. PM synthesizes all outputs into an actionable implementation plan
-4. Reviewer LLM evaluates each agent → updates `agents/memory/<role>/memory.md`
-5. Run logs saved to `agents/logs/<runId>.json`
+1. Claude Code acts as PM — reads agent knowledge, creates plan
+2. Subagents launched via Agent tool (parallel when possible)
+3. Each subagent has full Claude Code capabilities (Read, Edit, Write, Bash, Grep...)
+4. Agents **actually implement** changes — edit files, write code, run commands
+5. Memory files updated with lessons learned after each run
 
 ### Memory System
-- Each agent has `agents/memory/<role>/memory.md` — learned patterns, project preferences
-- Shared context: `agents/memory/shared/memory.md` — full project context
-- Memory grows automatically after every run
-- Give explicit feedback to accelerate learning
+- Each agent has `agents/<role>/memory/memory.md` — learned patterns, project preferences
+- Shared context: `agents/shared/memory/memory.md` — full project context
+- Knowledge files: `agents/<role>/README.md` + `agents/<role>/skills/skills.md`
+- Memory grows after every run + explicit feedback via `/project:agent-feedback`
 
 ---
 
@@ -179,21 +200,21 @@ npx tsx run.ts feedback backend 5 "Forgot to validate tenant ownership"
 # Frontend + API (Next.js)
 npm run dev         # port 3000
 
-# Session Manager (WhatsApp service)
+# Session Manager (cron service — reminders, learning, auto-unpause)
 cd session-manager
 npm run dev         # port 3001
 
-# AI Dev Team
-cd agents
-npx tsx run.ts "your task"
+# AI Dev Team (Claude Code commands)
+# /project:team "your task"
+# /project:agent-<role> "your task"
 ```
 
 ---
 
 ## Important Notes
 
-- **Session Manager must stay running** — Baileys WebSocket connections are stateful
-- **Don't wipe Supabase auth state** — stored WhatsApp sessions are expensive to re-establish
-- **Baileys may fire duplicate message events** — deduplication is important
+- **Session Manager is cron-only** — runs reminders, batch learning, auto-unpause. No WebSocket sessions.
+- **WhatsApp messages flow through webhooks** — Meta sends to `/api/webhooks/whatsapp-cloud`, Next.js processes serverlessly.
+- **Embedded Signup (OAuth)** — tenants connect WhatsApp via Meta OAuth flow, credentials stored in `whatsapp_cloud_config`.
 - **agent_prompt is user-controlled** — be aware of prompt injection risk when feeding it to the AI
-- **Learning engine runs on cron** — batch processes owner replies every 6 hours
+- **Learning engine runs on cron** — batch processes owner replies daily at 02:00

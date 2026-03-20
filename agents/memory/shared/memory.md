@@ -69,7 +69,6 @@ Primary language: Hebrew (RTL), secondary: English.
 │   │   ├── login/page.tsx
 │   │   ├── tenant/[id]/page.tsx          ← main dashboard
 │   │   └── api/
-│   │       ├── webhook/route.ts
 │   │       ├── tenants/route.ts
 │   │       ├── tenants/[tenantId]/route.ts
 │   │       ├── tenants/[tenantId]/messages/route.ts
@@ -91,8 +90,9 @@ Primary language: Hebrew (RTL), secondary: English.
 │       ├── session-manager.ts            ← Baileys multi-session
 │       ├── message-handler.ts            ← incoming WA messages
 │       ├── ai-agent.ts                   ← DeepSeek AI replies
+│       ├── antiban.ts                    ← Anti-ban protection (health, jitter, presence)
 │       ├── learning-engine.ts            ← batch learning
-│       └── session-store.ts             ← Supabase session persistence
+│       └── session-store.ts             ← Supabase session persistence + encrypted backup
 └── agents/                              ← AI dev team (this folder)
 ```
 
@@ -158,3 +158,47 @@ DEEPSEEK_API_KEY=...
 - Frontend owned: src/app/tenant/[id]/page.tsx, src/components/tenant/*.tsx
 - Database owned: supabase/migrations/ (new files only)
 - This approach: zero conflicts, all 3 agents finished cleanly
+
+### Anti-Ban & WhatsApp Safety Patterns — 2026-03-17
+- **Read receipts are critical**: `socket.readMessages([msg.key])` on every incoming message — skipping blue ticks is a major bot tell
+- **Gaussian jitter > uniform random**: Use Box-Muller transform for delays — human reaction times are gaussian, not uniform
+- **Presence pause**: periodically send `unavailable` for 5-20 min — always-online is a bot signature. Messages still process normally.
+- **Health monitoring**: track disconnects (especially 403/401) and failed sends. Risk scoring with decay (2pts/min).
+- **Night mode**: Israeli hours 23:00-07:00 should have 3x longer response delays
+- **System JID filtering**: filter @broadcast, @newsletter, 0@s.whatsapp.net, 1-3 digit JIDs, WhatsApp support numbers, Meta probe ranges (1203631XXXX, 1650XXXXXXX). This mimics real WhatsApp client behavior — safe to keep.
+- **baileys-antiban npm package is broken** (no dist/) — don't attempt to use it. Build features from scratch.
+
+### LID (Linked Identity) System Knowledge — 2026-03-17 (UPDATED)
+- WhatsApp LIDs are pseudo-IDs (e.g., `217875201687576@lid`) — same contact can message via both LID and real phone JID
+- LID numbers are always ≥15 digits; real Israeli phones are ≤13 digits
+- `clearAuthState()` must preserve `lid_*` rows and `contacts` row in whatsapp_sessions
+- **CRITICAL FIX v2**: `mergeLidIfNeeded()` runs BEFORE any real-phone conversation is created — prevents split conversations
+  - Reverse-lookups memory LID→phone map, falls back to `socket.onWhatsApp()` API
+  - Called from both `messages.upsert` handler and `sendMessage()`
+- LID resolution layers: memory map → DB fallback → name matching → onWhatsApp API
+- Deferred fix: 1s timeout (was 3s) + onWhatsApp last-resort fallback
+- LID sweep: periodic 60s check for ≥15-digit phone conversations
+
+### Encrypted Creds Backup — 2026-03-17
+- `whatsapp_creds_backup` table — separate from `whatsapp_sessions`, survives `clearAuthState`
+- Each field encrypted individually with AES-256-GCM + unique random IV per field per write
+- `SESSION_ENCRYPTION_KEY` env var required
+- Backup saved 10s after connect + refreshed every 6h
+- Deleted on terminal disconnect (loggedOut/connectionReplaced) to prevent stale restore loops
+- `restoreAllSessions()` checks backup table when no regular creds exist → auto-reconnect after deploy
+
+### Production Security Hardening — 2026-03-17
+A full security audit was performed before market launch. 7 issues found and fixed:
+1. **OAuth CSRF** (P0): Routes had no auth. Now require user login + tenant ownership + HMAC-signed state (10min expiry).
+2. **getSession→getUser** (P1): 4 route handlers migrated to server-validated auth.
+3. **Sessions GET** (P1): Added tenant ownership check.
+4. **Calendly webhook** (P2): Timing-safe HMAC comparison.
+5. **SSRF** (P2): Lead webhook URL now blocks private IPs.
+6. **SESSION_ENCRYPTION_KEY** (P2): Loud warning + throw on backup attempt if missing.
+7. **Anti-ban**: Unique browser fingerprint per tenant (6 options, hash-based), read receipt delay (1-3s gaussian), global rate limit (25 msgs/min).
+- New env var: `OAUTH_STATE_SECRET` (optional, falls back to SUPABASE_SERVICE_ROLE_KEY)
+- User decision: speed > safety — typing cap stays 3s max, no proportional duration for long messages.
+
+### New DB Tables — 2026-03-17
+- `whatsapp_creds_backup`: tenant_id (PK), encrypted_creds (jsonb), encrypted_keys (jsonb), updated_at
+- `tenants.handoff_collect_email`: boolean, default false — controls whether AI asks for email during handoff

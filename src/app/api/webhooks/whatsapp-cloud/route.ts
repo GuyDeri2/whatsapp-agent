@@ -4,13 +4,14 @@
  * GET  — Webhook verification (Meta sends this when you register the webhook URL)
  * POST — Incoming messages and status updates from WhatsApp
  *
- * This is a Next.js serverless API route — no VPS needed.
+ * Uses Next.js `after()` to return 200 instantly and process in the background.
  * Multi-tenant routing: phone_number_id in the webhook payload maps to a tenant
  * via the whatsapp_cloud_config table.
  */
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { generateReply } from "@/lib/ai-agent";
 import {
     verifyWebhookSignature,
     getCloudConfigByPhoneId,
@@ -84,41 +85,36 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Unsupported object type" }, { status: 400 });
         }
 
-        // 3. Must return 200 quickly — Meta retries on timeout
-        // Process messages in the background via waitUntil-style pattern
-        const processingPromises: Promise<void>[] = [];
+        // 3. Return 200 immediately — process in background via after()
+        // Meta requires 200 within ~5 seconds, DeepSeek can take 10s+
+        after(async () => {
+            for (const entry of payload.entry) {
+                for (const change of entry.changes) {
+                    if (change.field !== "messages") continue;
 
-        for (const entry of payload.entry) {
-            for (const change of entry.changes) {
-                if (change.field !== "messages") continue;
+                    const { value } = change;
+                    const phoneNumberId = value.metadata.phone_number_id;
 
-                const { value } = change;
-                const phoneNumberId = value.metadata.phone_number_id;
-
-                // Handle incoming messages
-                if (value.messages && value.messages.length > 0) {
-                    const contacts = value.contacts || [];
-                    for (const message of value.messages) {
-                        const senderName = contacts.find(c => c.wa_id === message.from)?.profile?.name || null;
-                        processingPromises.push(
-                            processIncomingMessage(phoneNumberId, message, senderName)
+                    // Handle incoming messages (parallel per message)
+                    if (value.messages && value.messages.length > 0) {
+                        const contacts = value.contacts || [];
+                        await Promise.allSettled(
+                            value.messages.map(message => {
+                                const senderName = contacts.find(c => c.wa_id === message.from)?.profile?.name || null;
+                                return processIncomingMessage(phoneNumberId, message, senderName);
+                            })
                         );
                     }
-                }
 
-                // Handle status updates (delivered, read, failed)
-                if (value.statuses && value.statuses.length > 0) {
-                    for (const status of value.statuses) {
-                        processingPromises.push(
-                            processStatusUpdate(phoneNumberId, status)
+                    // Handle status updates (parallel)
+                    if (value.statuses && value.statuses.length > 0) {
+                        await Promise.allSettled(
+                            value.statuses.map(status => processStatusUpdate(phoneNumberId, status))
                         );
                     }
                 }
             }
-        }
-
-        // Wait for processing (within serverless timeout)
-        await Promise.allSettled(processingPromises);
+        });
 
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (err) {
@@ -206,40 +202,44 @@ async function processIncomingMessage(
 
     const supabase = getSupabaseAdmin();
 
-    // Mark as read (send blue checkmarks)
-    markMessageRead(config, message.id).catch(() => {});
+    // Mark as read + upsert conversation + fetch tenant in parallel
+    const [, convResult, tenantResult] = await Promise.all([
+        markMessageRead(config, message.id).catch(() => {}),
+        supabase
+            .from("conversations")
+            .upsert(
+                {
+                    tenant_id: tenantId,
+                    phone_number: phoneNumber,
+                    is_group: false,
+                    updated_at: new Date().toISOString(),
+                },
+                { onConflict: "tenant_id,phone_number" }
+            )
+            .select("id, is_paused, contact_name")
+            .single(),
+        supabase
+            .from("tenants")
+            .select("agent_mode, agent_filter_mode")
+            .eq("id", tenantId)
+            .single(),
+    ]);
 
-    // 1. Upsert conversation
-    const { data: conversation, error: convError } = await supabase
-        .from("conversations")
-        .upsert(
-            {
-                tenant_id: tenantId,
-                phone_number: phoneNumber,
-                is_group: false, // Cloud API doesn't support groups
-                updated_at: new Date().toISOString(),
-            },
-            { onConflict: "tenant_id,phone_number" }
-        )
-        .select("id, is_paused, contact_name")
-        .single();
-
-    if (convError || !conversation) {
-        console.error(`[${tenantId}] Conversation upsert failed:`, convError);
+    if (convResult.error || !convResult.data) {
+        console.error(`[${tenantId}] Conversation upsert failed:`, convResult.error);
         return;
     }
+    const conversation = convResult.data;
 
-    // Update contact name if we got one from the webhook and don't have one yet
+    // Update contact name (fire-and-forget)
     if (senderName && !conversation.contact_name) {
-        await supabase
-            .from("conversations")
-            .update({ contact_name: senderName })
-            .eq("id", conversation.id);
+        supabase.from("conversations").update({ contact_name: senderName }).eq("id", conversation.id).then(() => {});
     }
 
-    // 2. Store the incoming message
-    const { error: msgError } = await supabase.from("messages").insert({
+    // Store the incoming message (don't await — start AI generation in parallel)
+    const msgInsertPromise = supabase.from("messages").insert({
         conversation_id: conversation.id,
+        tenant_id: tenantId,
         role: "user",
         content: messageText,
         sender_name: senderName,
@@ -250,49 +250,31 @@ async function processIncomingMessage(
         status: "delivered",
     });
 
-    if (msgError) {
-        console.error(`[${tenantId}] Message insert failed:`, msgError);
+    // Check if we should generate AI reply
+    const tenant = tenantResult.data;
+    if (!tenant || tenant.agent_mode !== "active" || conversation.is_paused || isRateLimited(conversation.id)) {
+        await msgInsertPromise; // Still need to store the message
         return;
     }
 
-    // 3. Check tenant's agent mode and respond if active
-    const { data: tenant } = await supabase
-        .from("tenants")
-        .select("agent_mode, agent_filter_mode, whatsapp_phone, owner_phone")
-        .eq("id", tenantId)
-        .single();
-
-    if (!tenant) return;
-
-    // Skip if paused or learning mode
-    if (tenant.agent_mode !== "active") {
-        if (tenant.agent_mode === "learning") {
-            console.log(`[${tenantId}] Learning mode — stored message, no AI reply`);
+    // Check contact filter (skip DB call for "all" mode)
+    if (tenant.agent_filter_mode !== "all") {
+        const allowed = await checkContactFilter(supabase, tenantId, phoneNumber, tenant.agent_filter_mode);
+        if (!allowed) {
+            await msgInsertPromise;
+            return;
         }
-        return;
     }
 
-    // Skip if conversation is paused (owner is handling)
-    if (conversation.is_paused) {
-        console.log(`[${tenantId}] Conversation paused — skipping AI reply`);
-        return;
-    }
+    // Start AI generation in parallel with message storage
+    const [msgResult] = await Promise.all([
+        msgInsertPromise,
+        generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText),
+    ]);
 
-    // Skip if rate limited
-    if (isRateLimited(conversation.id)) {
-        console.log(`[${tenantId}] Rate limited — skipping AI reply`);
-        return;
+    if (msgResult.error) {
+        console.error(`[${tenantId}] Message insert failed:`, msgResult.error);
     }
-
-    // Check contact filter rules
-    const allowed = await checkContactFilter(supabase, tenantId, phoneNumber, tenant.agent_filter_mode);
-    if (!allowed) {
-        console.log(`[${tenantId}] Contact filtered — skipping AI reply for ${phoneNumber}`);
-        return;
-    }
-
-    // 4. Generate AI reply
-    await generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber);
 }
 
 // ── AI Reply Generation ─────────────────────────────────────────────
@@ -302,14 +284,11 @@ async function generateAndSendAiReply(
     supabase: ReturnType<typeof getSupabaseAdmin>,
     tenantId: string,
     conversationId: string,
-    phoneNumber: string
+    phoneNumber: string,
+    latestMessage: string
 ): Promise<void> {
     try {
-        // Dynamically import ai-agent functions
-        // The AI agent module is shared between session-manager and webhook
-        const { generateReply } = await import("@/lib/ai-agent");
-
-        // Get recent conversation history
+        // Fetch conversation history
         const { data: messages } = await supabase
             .from("messages")
             .select("role, content, created_at")
@@ -317,13 +296,17 @@ async function generateAndSendAiReply(
             .order("created_at", { ascending: false })
             .limit(20);
 
-        if (!messages) return;
-
-        // Reverse to get chronological order
-        const history = messages.reverse().map(m => ({
+        // Build history — include the latest message even if it hasn't been stored yet
+        let history = (messages ?? []).reverse().map(m => ({
             role: m.role as "user" | "assistant" | "owner",
             content: m.content,
         }));
+
+        // If the latest message isn't in history yet (parallel insert), append it
+        const lastMsg = history[history.length - 1];
+        if (!lastMsg || lastMsg.content !== latestMessage || lastMsg.role !== "user") {
+            history.push({ role: "user", content: latestMessage });
+        }
 
         // Generate AI reply
         const reply = await generateReply(tenantId, history);
@@ -337,17 +320,22 @@ async function generateAndSendAiReply(
             // Send via Cloud API
             const result = await sendTextMessage(config, phoneNumber, cleanReply);
 
-            if (result.success) {
-                // Store the AI reply in DB
-                await supabase.from("messages").insert({
-                    conversation_id: conversationId,
-                    role: "assistant",
-                    content: cleanReply,
-                    is_from_agent: true,
-                    wa_message_id: result.messageId,
-                    status: "sent",
-                });
+            // Store the AI reply in DB regardless of send success
+            const { error: replyInsertError } = await supabase.from("messages").insert({
+                conversation_id: conversationId,
+                tenant_id: tenantId,
+                role: "assistant",
+                content: cleanReply,
+                is_from_agent: true,
+                wa_message_id: result.messageId ?? null,
+                status: result.success ? "sent" : "failed",
+            });
 
+            if (replyInsertError) {
+                console.error(`[${tenantId}] AI reply insert failed:`, replyInsertError);
+            }
+
+            if (result.success) {
                 console.log(`[${tenantId}] AI replied to ${phoneNumber}`);
             } else {
                 console.error(`[${tenantId}] Failed to send AI reply:`, result.error);
@@ -361,11 +349,6 @@ async function generateAndSendAiReply(
                 .update({ is_paused: true })
                 .eq("id", conversationId);
             console.log(`[${tenantId}] Conversation paused — handed off to human`);
-
-            // Notify owner if configured
-            if (config) {
-                // TODO: Send notification to owner (push notification, email, etc.)
-            }
         }
     } catch (err) {
         console.error(`[${tenantId}] AI reply generation failed:`, err);

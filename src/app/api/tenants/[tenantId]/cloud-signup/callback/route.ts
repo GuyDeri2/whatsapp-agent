@@ -180,11 +180,52 @@ export async function GET(
       return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=save_failed`);
     }
 
-    // TODO: In production, you would also:
-    // 1. Configure webhook URL: `POST /api/webhooks/whatsapp-cloud`
-    // 2. Verify webhook with Meta
-    // 3. Set up message templates
-    // 4. Start session-manager in cloud mode instead of Baileys mode
+    // Step 6: Get the actual phone number to display in the dashboard
+    let displayPhone: string | null = null;
+    try {
+      const phoneInfoRes = await fetch(
+        `https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name&access_token=${systemUserAccessToken}`
+      );
+      if (phoneInfoRes.ok) {
+        const phoneInfo = await phoneInfoRes.json();
+        displayPhone = phoneInfo.display_phone_number?.replace(/\D/g, '') ?? null;
+      }
+    } catch {
+      // Non-fatal — phone display is nice-to-have
+    }
+
+    // Step 7: Update tenant record with connection status
+    await admin.from('tenants').update({
+      whatsapp_connected: true,
+      whatsapp_phone: displayPhone,
+    }).eq('id', tenantId);
+
+    // Step 8: Subscribe WABA to our webhook (so Meta sends us messages)
+    const WEBHOOK_URL = `${appUrl}/api/webhooks/whatsapp-cloud`;
+    const GLOBAL_VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+
+    if (GLOBAL_VERIFY_TOKEN) {
+      try {
+        const subscribeRes = await fetch(
+          `https://graph.facebook.com/${META_API_VERSION}/${wabaId}/subscribed_apps`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${systemUserAccessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        if (subscribeRes.ok) {
+          console.log(`[${tenantId}] ✅ WABA ${wabaId} subscribed to webhook`);
+        } else {
+          const subErr = await subscribeRes.text();
+          console.error(`[${tenantId}] ⚠️ Webhook subscription failed:`, subErr);
+        }
+      } catch (subErr) {
+        console.error(`[${tenantId}] ⚠️ Webhook subscription error:`, subErr);
+      }
+    }
 
     // Redirect back to the tenant connect tab with success indicator
     return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&connected=whatsapp_cloud`);

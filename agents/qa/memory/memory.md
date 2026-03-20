@@ -74,5 +74,76 @@ jest.mock('openai', () => ({
 - Test cache invalidation: verify tenant config cache clears when settings change
 - N+1 fix: verify batch query returns correct "previous message" for each handoff
 
+## New Test Scenarios — 2026-03-17
+
+### Anti-Ban Module (`antiban.ts`)
+- Test `gaussianRandom(min, max)`: all values must fall within [min, max], distribution should cluster around midpoint
+- Test `getHumanDebounceDelay()`: verify night hours (23:00-07:00 Israel) produce 3x longer delays
+- Test health scoring: `onDisconnect` with 403 adds 40pts, with 401 adds 60pts, normal adds 15pts
+- Test score decay: score should decrease by 2 per minute when no events
+- Test risk level transitions: 0-29=low, 30-59=medium, 60-84=high, 85-100=critical
+- Test `startPresencePauseScheduler`: verify it calls sendPresence("unavailable") then later sendPresence("available")
+- Test `onMessageFailed`: verify it increments score by 20
+
+### LID Conversation Splitting
+- Test: message from LID JID (≥15 digit number) → verify deferred fix runs after 3s
+- Test: `clearAuthState()` preserves `lid_*` and `contacts` rows in whatsapp_sessions
+- Test: LID sweep SQL filter — `.like("phone_number", "_______________%" )` correctly matches ≥15 char strings
+- Test: connection guard — deferred LID fix should NOT run if session disconnected during 3s wait
+
+### Encrypted Creds Backup
+- Test: `saveCredsBackup()` skips when no `SESSION_ENCRYPTION_KEY`
+- Test: `saveCredsBackup()` → `restoreCredsFromBackup()` round-trip preserves creds and signal keys
+- Test: `clearSessionData()` deletes backup from `whatsapp_creds_backup` table
+- Test: `clearAuthState()` does NOT delete backup (only `clearSessionData` does)
+
+### Read Receipts
+- Test: `socket.readMessages()` called on every incoming message (not outgoing)
+- Test: read receipt failure is non-fatal (caught and ignored)
+
+### Webhook Route Deletion
+- Test: `src/app/api/webhook/route.ts` no longer exists
+- Test: no references to `/api/webhook` in frontend code
+
+## Production Security Hardening Tests — 2026-03-17
+
+### OAuth HMAC State
+- Test: initiate OAuth without auth → should return 401
+- Test: initiate OAuth for tenant user doesn't own → should return 403
+- Test: callback with tampered state (wrong HMAC sig) → should redirect with error
+- Test: callback with expired state (>10min old) → should redirect with error
+- Test: callback with valid state → should succeed and link calendar
+
+### getSession → getUser Migration
+- Test: send request with expired JWT cookie to messages/contacts routes → should return 401 (previously would have succeeded with getSession)
+- Test: valid user accessing own tenant → still works
+
+### Sessions GET Auth
+- Test: user A tries to GET session status of user B's tenant → should return 404
+- Test: user A GETs own tenant session → should succeed
+
+### SSRF Protection
+- Test: set lead_webhook_url to `http://127.0.0.1:8080/steal` → should return 400 "private address"
+- Test: set lead_webhook_url to `http://10.0.0.1/internal` → should return 400
+- Test: set lead_webhook_url to valid external URL → should succeed
+
+### Anti-Ban Improvements
+- Test: `getBrowserForTenant(tenantId)` returns same browser for same tenantId across calls (deterministic)
+- Test: `getBrowserForTenant("a")` ≠ `getBrowserForTenant("b")` for different tenantIds (most cases)
+- Test: `getGlobalSendDelay()` returns 0 for first 25 calls, then >0 for the 26th
+- Test: read receipt `setTimeout` delay is 1000-3000ms range
+
 ## Improvement Note (2026-03-14)
 [Score: 1/10] For testing Supabase Realtime: 1) Test subscription/unsubscription lifecycle, 2) Verify UI updates on INSERT/UPDATE/DELETE events, 3) Test network disconnection recovery, 4) Verify tenant isolation in subscriptions.
+
+## Improvement Note (2026-03-15)
+[Score: 2/10] For contact_name bug verification, prepare test cases for outgoing messages from owner's phone vs. interface before deep tool analysis to prevent iteration limits.
+
+## Improvement Note (2026-03-15)
+[Score: 2/10] QA agents should focus on validation and testing methodologies even when other agents fail. Propose specific test cases for connection issues rather than waiting for others' outputs.
+
+## Positive Pattern (2026-03-17)
+[Score: 7/10] When asked to investigate and fix, balance test planning with immediate debugging suggestions. Connect test scenarios to likely root causes (e.g., 'Test credential cleanup failures might indicate issues in clearAuthState').
+
+## Positive Pattern (2026-03-17)
+[Score: 8/10] When creating test cases for OAuth flows, include configuration validation tests (e.g., 'Test: Missing environment variables returns appropriate error').

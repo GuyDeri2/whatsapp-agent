@@ -1,158 +1,128 @@
-# Agents — AI Dev Team
+# Agents — AI Dev Team (Powered by Claude Code)
 
-This folder contains an AI-powered development team for the WhatsApp Agent project.
+This folder contains the **knowledge base** for the AI dev team. The agents run through **Claude Code** (not DeepSeek).
+
+## How It Works Now
+
+Agents are invoked via Claude Code custom commands (slash commands):
+
+```
+/project:team "Add a search bar to the contacts page"     ← Full team orchestration
+/project:agent-frontend "Fix the loading state in ChatTab" ← Single agent
+/project:agent-backend "Add rate limiting to API routes"    ← Single agent
+/project:agent-feedback frontend 9 "Great component!"       ← Record feedback
+```
+
+### Available Commands
+
+| Command | What it does |
+|---------|-------------|
+| `/project:team <task>` | PM orchestrates the full team — plans, dispatches subagents, synthesizes |
+| `/project:agent-frontend <task>` | Frontend specialist (React, Next.js, CSS Modules) |
+| `/project:agent-backend <task>` | Backend specialist (API routes, Supabase, session-manager) |
+| `/project:agent-ux <task>` | UX designer (flows, copy, layout, accessibility) |
+| `/project:agent-security <task>` | Security engineer (auth, RLS, multi-tenant isolation) |
+| `/project:agent-devops <task>` | DevOps engineer (deploy, infrastructure, CI/CD) |
+| `/project:agent-qa <task>` | QA engineer (tests, edge cases, acceptance criteria) |
+| `/project:agent-database <task>` | Database architect (schema, migrations, RLS, indexes) |
+| `/project:agent-feedback <role> <score> "<comment>"` | Record feedback for an agent |
 
 ## Architecture
 
-Each agent has its own directory with:
+Each agent has its own directory with knowledge files:
 - **README.md** — role definition, responsibilities, skills, critical rules
 - **skills/** — detailed techniques, code patterns, templates
-- **memory/** — personal learned patterns (auto-updated by reviewer after each run)
+- **memory/** — personal learned patterns (grows over time)
 
 ```
 agents/
-├── run.ts              ← CLI entry: npx tsx run.ts "<task>"
-├── types.ts            ← All TypeScript interfaces
-├── memory-manager.ts   ← File-based memory R/W
-├── base-agent.ts       ← Abstract base class (loads README.md automatically)
-├── pm-agent.ts         ← PM: plans, dispatches, synthesizes
-├── reviewer.ts         ← Post-task feedback loop + memory updates
-│
-├── pm/                 ← Project Manager (Orchestrator)
-│   ├── README.md       ← PM role definition & workflow
-│   ├── skills/
-│   │   └── orchestration.md
-│   └── memory/
-│       └── memory.md
-│
-├── frontend/           ← React/Next.js specialist
+├── pm/                 ← Project Manager knowledge
+│   ├── README.md
+│   ├── skills/orchestration.md
+│   └── memory/memory.md
+├── frontend/           ← Frontend Developer knowledge
 │   ├── README.md
 │   ├── skills/skills.md
 │   └── memory/memory.md
-│
-├── backend/            ← API/DB/session-manager specialist
+├── backend/            ← Backend Developer knowledge
 │   ├── README.md
 │   ├── skills/skills.md
 │   └── memory/memory.md
-│
-├── ux/                 ← UX design specialist
+├── ux/                 ← UX Designer knowledge
 │   ├── README.md
 │   ├── skills/skills.md
 │   └── memory/memory.md
-│
-├── security/           ← Security review specialist
+├── security/           ← Security Engineer knowledge
 │   ├── README.md
 │   ├── skills/skills.md
 │   └── memory/memory.md
-│
-├── devops/             ← Infrastructure specialist
+├── devops/             ← DevOps Engineer knowledge
 │   ├── README.md
 │   ├── skills/skills.md
 │   └── memory/memory.md
-│
-├── qa/                 ← Testing specialist
+├── qa/                 ← QA Engineer knowledge
 │   ├── README.md
 │   ├── skills/skills.md
 │   └── memory/memory.md
-│
-├── database/           ← Database Architect (NEW)
-│   ├── README.md       ← Schema design, RLS, migrations, indexes
+├── database/           ← Database Architect knowledge
+│   ├── README.md
 │   ├── skills/skills.md
 │   └── memory/memory.md
-│
-├── shared/             ← Shared context (loaded by ALL agents)
-│   ├── memory/
-│   │   └── memory.md  ← Shared lessons and project context
-│   └── knowledge/
-│       └── project-context.md  ← Project overview (reference copy)
-│
-└── team/               ← TypeScript agent classes (thin wrappers)
-    ├── frontend.ts     ← Just declares role + roleLabel
-    ├── backend.ts
-    ├── ux.ts
-    ├── security.ts
-    ├── devops.ts
-    └── qa.ts
+└── shared/             ← Shared context (loaded by ALL agents)
+    └── memory/memory.md
 ```
-
-## How It Works
-
-1. **Role definitions live in markdown** — each agent's persona, skills, and rules are in `<role>/README.md`
-2. **`base-agent.ts` loads README.md at runtime** — no hardcoded prompts in TypeScript
-3. **Memory is co-located with each agent** — `<role>/memory/memory.md` grows automatically after each run
-4. **`team/*.ts` files are thin** — just `role` and `roleLabel`, everything else from markdown
 
 ## Flow
 
 ```
-User command
+User invokes /project:team "task"
      ↓
-PM reads pm/README.md + pm/memory/memory.md + shared/memory/memory.md
+Claude Code reads PM knowledge + shared memory
      ↓
-PM creates JSON plan
+Claude Code (as PM) creates a plan, presents to user
      ↓
-Agents run (each loads their README.md + memory automatically)
+Subagents launched via Agent tool (parallel when possible)
+  Each subagent reads: README.md + skills + memory for its role
+  Each subagent ACTUALLY IMPLEMENTS changes (edits files, writes code, runs commands)
      ↓
-PM synthesizes all outputs
+Claude Code synthesizes results, verifies build
      ↓
-Reviewer LLM evaluates + updates <role>/memory/memory.md
-     ↓
-Run log saved to logs/<runId>.json
+Memory files updated with lessons learned
 ```
+
+## Key Differences from Old System (DeepSeek)
+
+| Aspect | Old (DeepSeek) | New (Claude Code) |
+|--------|---------------|-------------------|
+| Brain | DeepSeek API | Claude (Opus/Sonnet) |
+| Tools | 4 basic tools, 35 call limit | Full Claude Code toolset (Read, Edit, Write, Bash, Grep, Glob, Agent...) |
+| Execution | Advisory only | Actually implements changes |
+| Learning | Reviewer LLM updates memory | Claude Code auto-memory + manual memory updates |
+| Speed | Sequential API calls | Parallel subagents |
+| Context | Limited (4000 tokens output) | Full codebase access |
 
 ## Editing Agent Behaviour
 
 To change how an agent thinks or what it knows:
-- **Edit the agent's `README.md`** — this is the source of truth for the agent's persona
-- **Add to `skills/`** — add reference docs, patterns, code examples
-- **Edit `memory/memory.md`** — add manual lessons or corrections
-
-No TypeScript changes needed for prompt/persona adjustments.
-
-## Agent Roster
-
-| Agent | Role |
-|-------|------|
-| `pm` | Orchestrator — plans, dispatches, synthesizes |
-| `frontend` | React/Next.js UI implementation |
-| `backend` | API routes, Supabase, session-manager logic |
-| `ux` | UX design, user flows, Hebrew copy |
-| `security` | Security review, auth, RLS, data protection |
-| `devops` | Vercel, PM2, CI/CD, infrastructure |
-| `qa` | Tests, edge cases, acceptance criteria |
-| `database` | Schema design, migrations, RLS, indexes, query optimisation |
+- **Edit `<role>/README.md`** — source of truth for the agent's persona
+- **Add to `skills/`** — reference docs, patterns, code examples
+- **Edit `memory/memory.md`** — manual lessons or corrections
+- **Use `/project:agent-feedback`** — structured feedback that updates memory
 
 ## Adding a New Agent
 
 1. Create `<role>/README.md` with role definition
 2. Create `<role>/skills/skills.md` with key patterns
 3. Create `<role>/memory/memory.md` (empty or initial content)
-4. Add the role to `AgentRole` type in `types.ts`
-5. Create `team/<role>.ts` (just role + roleLabel, extends BaseAgent)
-6. Register the agent in `PMAgent.team` map in `pm-agent.ts`
-7. Add delegation rules to `pm/README.md`
+4. Create `.claude/commands/agent-<role>.md` with the command template
+5. Add the role to the `/project:team` command's agent table
+6. Add delegation rules to `agents/pm/README.md`
 
-## CLI Usage
+## Legacy TypeScript Files (Deprecated)
 
-```bash
-# Run a development task
-npx tsx agents/run.ts "Add a search bar to the contacts page"
-npx tsx agents/run.ts "Add rate limiting to API routes"
+The following files are from the old DeepSeek-based system and are **no longer used**:
+- `run.ts`, `base-agent.ts`, `pm-agent.ts`, `reviewer.ts`
+- `types.ts`, `memory-manager.ts`, `tsconfig.json`, `package.json`
+- `team/*.ts`
 
-# Give explicit feedback for learning
-npx tsx agents/run.ts feedback <role> <score 1-10> "<comment>"
-npx tsx agents/run.ts feedback security 7 "Good analysis but missed rate limiting"
-```
-
-## Dependencies
-
-- `openai` — DeepSeek API (OpenAI-compatible)
-- `dotenv` — loads `.env.local` from parent directory
-- `tsx` — TypeScript execution (dev only)
-
-Install: `npm install` from within this `agents/` folder.
-
-## Execution Capabilities (CLI Access)
-Unlike basic LLM templates, every agent in this framework has access (via their `base-agent.ts` executor loop) to an `execute_cli_command` tool.
-- Agents CAN and SHOULD use this to run tests, build the project (`npm run build`), push to Supabase (`npx supabase db push`), or deploy to services like Vercel or Render.
-- They will automatically receive the STDOUT/STDERR back in their prompt context.
+These can be safely removed once the new Claude Code system is confirmed working.

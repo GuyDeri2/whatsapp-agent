@@ -56,5 +56,41 @@
 - Polling fallback: 60s is enough when Realtime subscriptions are active (30s was overkill)
 - User (Guy) prefers concise diffs — only change what's needed, no extra cleanup
 
+## Changes — 2026-03-17
+
+### handoff_collect_email Setting
+- Added `handoff_collect_email: boolean` to `Tenant` interface in `page.tsx`
+- Added to `editForm` initial state (default: `false`)
+- Removed `(data as any).handoff_collect_email` cast — now properly typed
+- Toggle UI added in SettingsTab.tsx (copy-paste of existing toggle pattern)
+
+### Webhook Route Deleted
+- `src/app/api/webhook/route.ts` was deleted (legacy code, no tenant isolation)
+- `.next` cache may need clearing after this deletion (`rm -rf .next`)
+
+### Anti-Ban Health Endpoint Available
+- `GET /sessions/:tenantId/health` returns `{ risk, score, disconnects, failedMessages }`
+- Can be used in dashboard to show WhatsApp connection health status to tenant owners
+- Risk levels: low/medium/high/critical
+
+## Production Security Hardening (Frontend Impact) — 2026-03-17
+
+### OAuth Flow Change
+- OAuth initiation (`/api/oauth/google` and `/api/oauth/outlook`) now requires authenticated user with tenant ownership.
+- If user is not logged in, OAuth will return 401. Frontend should ensure user is authenticated before starting OAuth flow.
+- No UI changes needed — the existing flow already requires login.
+
+### API Auth Hardened
+- All API routes (`messages`, `contacts`, `sessions`) now use `getUser()` instead of `getSession()`.
+- Expired sessions will now correctly return 401 instead of being silently accepted.
+- Frontend should handle 401 responses by redirecting to login.
+
+### Anti-Ban Health Dashboard (Available)
+- `GET /sessions/:tenantId/health` now includes additional info: unique browser fingerprint name, global rate limit status.
+- Can be shown in ConnectTab or a new health widget for tenant owners.
+
 ## Improvement Note (2026-03-14)
 [Score: 2/10] When implementing Supabase Realtime subscriptions in Next.js, ensure the agent can access and analyze the relevant source files (page.tsx, CapabilitiesTab.tsx, LeadsTab.tsx, CalendarTab.tsx) to understand existing patterns before attempting modifications.
+
+## Positive Pattern (2026-03-17)
+[Score: 7/10] For OAuth issues, always check the actual Supabase dashboard configuration and test the flow end-to-end before reporting assumptions.

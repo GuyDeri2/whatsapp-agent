@@ -47,92 +47,65 @@ export async function POST(
             );
         }
 
-        // 4. Try Cloud API first, fallback to Baileys session-manager
+        // 4. Send via WhatsApp Cloud API
         const cloudConfig = await getCloudConfigByTenantId(tenantId);
 
-        if (cloudConfig) {
-            // ── Cloud API path ──
-            const result = await sendTextMessage(cloudConfig, phone_number, text);
-
-            if (!result.success) {
-                return NextResponse.json(
-                    { error: result.error || "Failed to send message via Cloud API" },
-                    { status: 502 }
-                );
-            }
-
-            // Store the owner's message in DB
-            const admin = getSupabaseAdmin();
-
-            // Find or create conversation
-            const { data: conversation } = await admin
-                .from("conversations")
-                .upsert(
-                    {
-                        tenant_id: tenantId,
-                        phone_number,
-                        is_group: false,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "tenant_id,phone_number" }
-                )
-                .select("id")
-                .single();
-
-            if (conversation) {
-                await admin.from("messages").insert({
-                    conversation_id: conversation.id,
-                    role: "owner",
-                    content: text,
-                    is_from_agent: false,
-                    wa_message_id: result.messageId,
-                    status: "sent",
-                });
-
-                // Pause the conversation — owner is handling manually
-                await admin
-                    .from("conversations")
-                    .update({ is_paused: true })
-                    .eq("id", conversation.id);
-            }
-
-            return NextResponse.json({
-                success: true,
-                messageId: result.messageId,
-                via: "cloud_api",
-            });
-        }
-
-        // ── Baileys fallback (legacy) ──
-        const jid = phone_number.includes("-")
-            ? `${phone_number}@g.us`
-            : `${phone_number}@s.whatsapp.net`;
-
-        const sessionManagerUrl =
-            process.env.SESSION_MANAGER_URL || "http://127.0.0.1:3001";
-        const sessionManagerSecret = process.env.SESSION_MANAGER_SECRET || "";
-
-        const res = await fetch(`${sessionManagerUrl}/sessions/${tenantId}/messages`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                ...(sessionManagerSecret && {
-                    Authorization: `Bearer ${sessionManagerSecret}`,
-                }),
-            },
-            body: JSON.stringify({ jid, text }),
-        });
-
-        if (!res.ok) {
-            const errorData = await res.json();
+        if (!cloudConfig) {
             return NextResponse.json(
-                { error: errorData.error || "Failed to send message" },
-                { status: res.status }
+                { error: "WhatsApp Cloud API לא מוגדר לעסק זה" },
+                { status: 400 }
             );
         }
 
-        const data = await res.json();
-        return NextResponse.json({ ...data, via: "baileys" });
+        const result = await sendTextMessage(cloudConfig, phone_number, text);
+
+        if (!result.success) {
+            return NextResponse.json(
+                { error: result.error || "Failed to send message via Cloud API" },
+                { status: 502 }
+            );
+        }
+
+        // Store the owner's message in DB
+        const admin = getSupabaseAdmin();
+
+        // Find or create conversation
+        const { data: conversation } = await admin
+            .from("conversations")
+            .upsert(
+                {
+                    tenant_id: tenantId,
+                    phone_number,
+                    is_group: false,
+                    updated_at: new Date().toISOString(),
+                },
+                { onConflict: "tenant_id,phone_number" }
+            )
+            .select("id")
+            .single();
+
+        if (conversation) {
+            await admin.from("messages").insert({
+                conversation_id: conversation.id,
+                role: "owner",
+                content: text,
+                is_from_agent: false,
+                wa_message_id: result.messageId,
+                status: "sent",
+            });
+
+            // Pause the conversation — owner is handling manually
+            await admin
+                .from("conversations")
+                .update({ is_paused: true })
+                .eq("id", conversation.id);
+        }
+
+        return NextResponse.json({
+            success: true,
+            messageId: result.messageId,
+            via: "cloud_api",
+        });
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return NextResponse.json({ error: message }, { status: 500 });

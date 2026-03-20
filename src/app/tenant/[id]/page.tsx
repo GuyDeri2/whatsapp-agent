@@ -150,8 +150,7 @@ export default function TenantPage() {
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads" | "calendar">("chat");
-    const [qrCode, setQrCode] = useState<string | null>(null);
-    const [connectionStatus, setConnectionStatus] = useState<string>("unknown");
+    // QR code and connection status removed — WhatsApp Cloud API uses OAuth, not QR scanning
     const [saving, setSaving] = useState(false);
     const [editForm, setEditForm] = useState({
         business_name: "",
@@ -216,12 +215,17 @@ export default function TenantPage() {
 
         const { data } = await supabase
             .from("tenants")
-            .select("*")
+            .select("*, whatsapp_cloud_config(phone_number_id, waba_id)")
             .eq("id", tenantId)
             .single();
         if (data) {
-            applyTenantData(data);
-            try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* ignore */ }
+            // Supabase returns the relation as an array — unwrap to single object or null
+            const cloudConfig = Array.isArray(data.whatsapp_cloud_config)
+                ? data.whatsapp_cloud_config[0] ?? null
+                : data.whatsapp_cloud_config ?? null;
+            const tenantWithConfig = { ...data, whatsapp_cloud_config: cloudConfig } as Tenant;
+            applyTenantData(tenantWithConfig);
+            try { sessionStorage.setItem(cacheKey, JSON.stringify(tenantWithConfig)); } catch { /* ignore */ }
         }
     }, [supabase, tenantId, applyTenantData]);
 
@@ -297,22 +301,8 @@ export default function TenantPage() {
         fetchConversations();
         fetchContactRules();
 
-        // Fetch live connection status from session-manager on load
-        // so connectionStatus reflects reality even after a page refresh
-        fetch(`/api/sessions/${tenantId}/status`)
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-                if (!data) return;
-                if (data.status === "connected") {
-                    setConnectionStatus("connected");
-                } else if (data.qrCode) {
-                    setQrCode(data.qrCode);
-                    setConnectionStatus("waiting_scan");
-                } else {
-                    setConnectionStatus("disconnected");
-                }
-            })
-            .catch(() => { /* ignore — session-manager may be unreachable */ });
+        // Connection status is now determined from whatsapp_cloud_config (loaded with tenant)
+        // No need to poll session-manager
 
         const channels: RealtimeChannel[] = [];
 
@@ -630,104 +620,8 @@ export default function TenantPage() {
         }
     };
 
-    // ── Connect WhatsApp ──
-    const handleConnect = async () => {
-        setConnectionStatus("connecting");
-        setQrCode(null);
-        try {
-            const res = await fetch(`/api/sessions/${tenantId}/start`, { method: "POST" });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Failed to start");
-
-            if (data.qrCode) {
-                setQrCode(data.qrCode);
-                setConnectionStatus("waiting_scan");
-            } else if (data.status === "connected") {
-                setConnectionStatus("connected");
-                await fetchTenant();
-            }
-
-            // Clear any previous QR polling interval before starting a new one
-            if (qrPollingRef.current) clearInterval(qrPollingRef.current);
-
-            qrPollingRef.current = setInterval(async () => {
-                try {
-                    const statusRes = await fetch(`/api/sessions/${tenantId}/status`);
-                    const statusData = await statusRes.json();
-                    if (statusData.status === "connected") {
-                        setConnectionStatus("connected");
-                        setQrCode(null);
-                        await fetchTenant();
-                        if (qrPollingRef.current) {
-                            clearInterval(qrPollingRef.current);
-                            qrPollingRef.current = null;
-                        }
-                        showToast("ווטסאפ מחובר בהצלחה!", "success");
-                    } else if (statusData.qrCode) {
-                        setQrCode(statusData.qrCode);
-                        setConnectionStatus("waiting_scan");
-                    }
-                } catch {
-                    // ignore polling errors
-                }
-            }, 3000);
-
-            // Stop polling after 2 minutes regardless
-            setTimeout(() => {
-                if (qrPollingRef.current) {
-                    clearInterval(qrPollingRef.current);
-                    qrPollingRef.current = null;
-                }
-            }, 120000);
-        } catch (err: any) {
-            console.error(err);
-            const errMsg = err.message || "שגיאה בחיבור לשרת";
-            showToast(`שגיאה: ${errMsg}`, "error");
-            setConnectionStatus("disconnected");
-        }
-    };
-
-    // ── Disconnect WhatsApp ──
-    const handleDisconnect = async () => {
-        try {
-            await fetch(`/api/sessions/${tenantId}/stop`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ clearData: true }),
-            });
-            setConnectionStatus("disconnected");
-            setQrCode(null);
-            await fetchTenant();
-            showToast("ווטסאפ נותק", "success");
-        } catch {
-            showToast("שגיאה בניתוק ווטסאפ", "error");
-        }
-    };
-
-    const handleReconnect = async (clearAuth = false) => {
-        showToast("מתחבר מחדש...", "success");
-        setConnectionStatus("connecting");
-        try {
-            const res = await fetch(`/api/sessions/${tenantId}/reconnect`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ clearAuth }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Failed to reconnect");
-            if (data.qrCode) {
-                setQrCode(data.qrCode);
-                setConnectionStatus("waiting_scan");
-            }
-            await fetchTenant();
-            showToast(clearAuth ? "נוצר QR חדש — סרוק שוב" : "מתחבר מחדש...", "success");
-        } catch (err: any) {
-            console.error(err);
-            const errMsg = err.message || "שגיאה בחיבור לשרת";
-            showToast(`שגיאה בהתחברות מחדש: ${errMsg}`, "error");
-            setConnectionStatus("disconnected");
-        }
-    };
+    // WhatsApp connect/disconnect is now handled by ConnectTab via Cloud API OAuth
+    // No more session-manager polling or QR code management
 
     // ── Select conversation ──
     const selectConversation = (conv: Conversation) => {
@@ -1172,11 +1066,9 @@ export default function TenantPage() {
                     <div className="p-6 overflow-y-auto w-full max-w-4xl mx-auto h-full">
                         <ConnectTab
                             tenant={tenant}
-                            connectionStatus={connectionStatus}
-                            qrCode={qrCode}
-                            handleConnect={handleConnect}
-                            handleReconnect={handleReconnect}
-                            handleDisconnect={handleDisconnect}
+                            onDisconnect={async () => {
+                                await fetchTenant();
+                            }}
                         />
                     </div>
                 )}

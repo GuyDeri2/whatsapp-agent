@@ -62,5 +62,118 @@
 - Dead code must be deleted, not kept — webhook/route.ts with wrong API key was removed
 - Always run `npm run build` after changes to verify no TypeScript errors
 
+## Anti-Ban Protection Module — 2026-03-17
+A new `session-manager/src/antiban.ts` module was created to reduce WhatsApp ban risk:
+
+### What was built and WHY:
+1. **Gaussian jitter** (Box-Muller transform) — BEFORE: `Math.random()` produced uniform delays (1.5-4.5s) that formed detectable patterns. NOW: gaussian distribution clusters delays around the midpoint, mimicking human reaction times. Night hours (23:00-07:00 Israel) automatically 3x longer.
+2. **Read receipts** — BEFORE: no `readMessages()` calls — WhatsApp never saw blue ticks, a major bot tell. NOW: `socket.readMessages([msg.key])` called on every incoming message before processing. Added in session-manager.ts messages.upsert handler.
+3. **Health monitoring** — tracks disconnects and failed message sends with risk scoring (0-100). Score decays 2pts/min. 4 risk levels: low/medium/high/critical. Accessible via `GET /sessions/:tenantId/health`.
+4. **Presence pause scheduler** — BEFORE: bot was always "online" 24/7 (unnatural). NOW: every 1-3 hours, sends `unavailable` for 5-20 minutes, then returns to `available`. Messages still process normally — only the displayed status changes.
+5. **Message send failure tracking** — `makeHumanSend()` now catches send errors and feeds them to the health monitor via `onMessageFailed()`.
+
+### Key architectural decisions:
+- `baileys-antiban` npm package was evaluated but rejected — no `dist/` folder, broken package. All features implemented from scratch.
+- Antiban module is stateless per-process (no DB persistence for health scores) — scores reset on deploy. This is intentional: fresh start after deploy is fine.
+- Presence pause does NOT stop message processing — only affects the visible "online" status indicator.
+- `getHumanDebounceDelay()` replaces the old `getDebounceDelay` in message-handler.ts.
+
+## LID Conversation Splitting Fix v2 — 2026-03-17
+v1 fix (preserve lid_* rows + deferred fix + sweep) was INSUFFICIENT. Conversations still split.
+
+### The REAL root cause (discovered v2)
+When contact sends via LID and owner replies, TWO conversations created:
+1. LID conversation (`phone_number = "200274408960102"`) — from incoming LID message (mapping unknown)
+2. Real-phone conversation (`phone_number = "972522827528"`) — from owner reply (phone or dashboard)
+
+The v1 deferred fix (3s) ran TOO LATE — owner replies arrive in <1s. Name matching unreliable.
+
+### v2 Fix: `mergeLidIfNeeded()` — proactive merge BEFORE conversation creation
+New function that runs BEFORE any real-phone conversation is created:
+1. Reverse-lookup in `tenantLidToPhone` map — find any LID→this phone mapping
+2. `socket.onWhatsApp(realPhone)` API — asks WhatsApp "what LID does this phone have?"
+3. If found → `fixLidConversation()` merges before the new conversation is upserted
+
+Called from TWO critical paths:
+- `messages.upsert` handler: before `handleIncomingMessage` for real-phone messages (covers fromMe=true)
+- `sendMessage()`: before conversation upsert (covers dashboard owner replies)
+
+### Also improved:
+- Deferred fix delay: 3s → 1s (contacts.upsert fires in ~200ms)
+- Deferred fix now has `socket.onWhatsApp()` as last-resort fallback
+
+### v1 fixes (still active, layered defense):
+1. `clearAuthState()` now preserves `lid_*` and `contacts` rows
+2. Deferred LID fix: 1-second setTimeout after unresolved LID message
+3. Periodic LID sweep: every 60 seconds, finds conversations with ≥15-digit phone numbers
+4. LID sweep SQL optimized: `.like("phone_number", "_______________%" )` (15 underscores)
+5. Connection state guard on deferred fix
+
+### Code review fixes (as any removal, named constants):
+- `(sessionInfo as any)._lidSweepInterval` → typed `sessionInfo.lidSweepInterval` (added to SessionInfo interface)
+- Magic numbers → `LID_SWEEP_INTERVAL_MS`, `LID_DEFERRED_FIX_DELAY_MS`, `MAX_KNOWLEDGE_BASE_ENTRIES`
+- `handoff_collect_email` added to TenantProfile and Tenant interfaces (removed `as any` casts)
+- "double-encrypted" misleading comment → accurate "per-field AES-256-GCM" description
+
+## Encrypted Creds Backup — 2026-03-17
+WHY: Every deploy killed WhatsApp connections because `clearAuthState` wiped creds, and there was no backup.
+
+### What was built:
+1. `whatsapp_creds_backup` table — separate from `whatsapp_sessions`, survives `clearAuthState`
+2. `saveCredsBackup()` — encrypts creds + all signal keys individually with AES-256-GCM (unique IV per field)
+3. `restoreCredsFromBackup()` — decrypts and restores to cache on deploy
+4. `restoreAllSessions()` checks backup table when no regular creds exist
+5. `clearSessionData()` deletes backup on terminal states (loggedOut, connectionReplaced) to prevent stale restore loops
+6. Creds backup saved 10s after connect + refreshed every 6 hours
+
+## Webhook Route Deleted — 2026-03-17
+`src/app/api/webhook/route.ts` was legacy code from pre-multi-tenant era. Used OpenAI GPT-4, WhatsApp Cloud API, no tenant_id in upsert conflict key (CRITICAL tenant isolation breach). Deleted entirely.
+
+## Production Security Hardening (API Routes) — 2026-03-17
+
+### OAuth Routes Fixed
+- `src/app/api/oauth/google/route.ts` + `outlook/route.ts`: Added `getUser()` auth + tenant ownership check before initiating OAuth flow. State parameter now HMAC-signed with `OAUTH_STATE_SECRET`.
+- `src/app/api/oauth/google/callback/route.ts` + `outlook/callback/route.ts`: Added HMAC verification + 10-minute state expiry.
+- WHY: Previously NO auth — anyone could link their Google/Outlook to any tenant. CSRF attack vector.
+
+### getSession() → getUser() Migration
+- `messages/route.ts` and `contacts/route.ts` (all 3 handlers: GET, POST, DELETE) now use `getUser()` instead of `getSession()`.
+- WHY: `getSession()` reads JWT from cookie without server validation. `getUser()` validates against Supabase auth server — catches expired/revoked sessions.
+
+### Sessions GET Auth
+- `sessions/[tenantId]/[action]/route.ts` GET handler: Added tenant ownership check (`owner_id = user.id`).
+- WHY: Any authenticated user could previously check any tenant's session status.
+
+### SSRF Protection
+- `leads/export/route.ts`: Blocks private IPs (127.x, 10.x, 192.168.x, 172.16-31.x, 169.254.x, localhost, 0.0.0.0, ::1) in webhook URL.
+- WHY: Tenant-controlled URL could probe internal network.
+
+### Calendly Webhook
+- `webhooks/calendly/route.ts`: `===` → `crypto.timingSafeEqual()` for HMAC comparison.
+- WHY: String comparison leaks timing info that could be used to forge signatures.
+
+### Anti-Ban Improvements in session-manager
+- **Unique browser fingerprint**: Each tenant gets a deterministic browser from `BROWSER_OPTIONS` array (6 options: Chrome/Ubuntu, Safari/macOS, Edge/Windows, etc.) via hash of tenantId. BEFORE: all tenants used `Browsers.ubuntu("Chrome")` — high ban risk when multiple accounts share same IP.
+- **Read receipt delay**: 1-3 second gaussian delay before `socket.readMessages()`. BEFORE: instant read receipts (bot-like).
+- **Global rate limit**: Max 25 messages/minute across ALL conversations via `getGlobalSendDelay()` in antiban.ts. Prevents burst sending.
+
+### SESSION_ENCRYPTION_KEY Enforcement
+- `session-store.ts`: Loud warning on startup if missing. `saveCredsBackup()` now throws instead of silently returning.
+
 ## Improvement Note (2026-03-14)
 [Score: 1/10] For Supabase Realtime implementation tasks, backend work is typically limited to ensuring tables have Realtime enabled and proper RLS policies. Avoid excessive iterations when the core work is frontend integration.
+
+## Improvement Note (2026-03-15)
+[Score: 2/10] When analyzing session-manager code for contact_name handling in outgoing messages, avoid infinite loops by setting internal iteration limits and validating tool responses early.
+
+## Improvement Note (2026-03-15)
+[Score: 2/10] When analyzing TypeScript/Next.js code, first verify the file structure and dependencies. If code analysis tools fail, report specific errors encountered rather than timing out.
+
+## Improvement Note (2026-03-17)
+[Score: 2/10] When facing iteration limits, prioritize the most critical investigation steps first and provide partial findings rather than failing completely.
+
+## Positive Pattern (2026-03-17)
+[Score: 9/10] When investigating version-specific issues, always check commit history for recent fixes and correlate with server logs to validate ongoing problems. The infinite QR loop fix in commit e7985ee is critical for session stability.
+
+## Positive Pattern (2026-03-17)
+[Score: 8/10] When investigating OAuth issues, clearly map which OAuth flow (authentication vs. integration) is being discussed and how they interact.

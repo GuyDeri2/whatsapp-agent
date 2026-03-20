@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -113,8 +114,9 @@ export async function DELETE(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Delete WhatsApp Cloud config
-  const { error } = await supabase
+  // Delete WhatsApp Cloud config (use admin to bypass RLS — no DELETE policy)
+  const admin = getSupabaseAdmin();
+  const { error } = await admin
     .from('whatsapp_cloud_config')
     .delete()
     .eq('tenant_id', tenantId);
@@ -125,7 +127,7 @@ export async function DELETE(
   }
 
   // Update tenant whatsapp_connected status
-  await supabase
+  await admin
     .from('tenants')
     .update({ whatsapp_connected: false, whatsapp_phone: null })
     .eq('id', tenantId);
