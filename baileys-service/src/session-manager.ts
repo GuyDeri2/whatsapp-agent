@@ -128,14 +128,22 @@ export async function stopSession(tenantId: string, clearData = false): Promise<
     reconnecting.delete(tenantId);
 
     if (clearData) {
+        const supabase = getSupabase();
+
         // Update tenant status in DB
-        await getSupabase()
+        await supabase
             .from("tenants")
             .update({ whatsapp_connected: false, whatsapp_phone: null, connection_type: "none" })
             .eq("id", tenantId);
 
-        await getSupabase()
+        await supabase
             .from("baileys_config")
+            .delete()
+            .eq("tenant_id", tenantId);
+
+        // Delete all conversations (messages cascade via FK)
+        await supabase
+            .from("conversations")
             .delete()
             .eq("tenant_id", tenantId);
     }

@@ -163,8 +163,14 @@ export async function DELETE(
   // Update tenant whatsapp_connected status
   await admin
     .from('tenants')
-    .update({ whatsapp_connected: false, whatsapp_phone: null })
+    .update({ whatsapp_connected: false, whatsapp_phone: null, connection_type: 'none' })
     .eq('id', tenantId);
+
+  // Delete all conversations (messages cascade via FK)
+  await admin
+    .from('conversations')
+    .delete()
+    .eq('tenant_id', tenantId);
 
   return NextResponse.json({ success: true });
 }
