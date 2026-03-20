@@ -25,7 +25,7 @@ export async function POST(
         // 2. Verify tenant ownership
         const { data: tenant, error: tenantError } = await supabase
             .from("tenants")
-            .select("owner_id")
+            .select("owner_id, connection_type")
             .eq("id", tenantId)
             .single();
 
@@ -47,21 +47,57 @@ export async function POST(
             );
         }
 
-        // 4. Send via WhatsApp Cloud API
+        // 4. Send via the appropriate channel
+        let sendResult: { success: boolean; messageId?: string; error?: string; via: string };
+
         const cloudConfig = await getCloudConfigByTenantId(tenantId);
 
-        if (!cloudConfig) {
+        if (cloudConfig) {
+            // Cloud API path
+            const result = await sendTextMessage(cloudConfig, phone_number, text);
+            sendResult = { ...result, via: "cloud_api" };
+        } else if (tenant.connection_type === "baileys") {
+            // Baileys path — send via baileys-service
+            const baileysUrl = process.env.BAILEYS_SERVICE_URL;
+            const baileysSecret = process.env.SESSION_MANAGER_SECRET;
+
+            if (!baileysUrl || !baileysSecret) {
+                return NextResponse.json(
+                    { error: "Baileys service not configured" },
+                    { status: 500 }
+                );
+            }
+
+            try {
+                const res = await fetch(`${baileysUrl}/sessions/${tenantId}/send`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${baileysSecret}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ to: phone_number, text }),
+                });
+
+                if (!res.ok) {
+                    const errBody = await res.text();
+                    sendResult = { success: false, error: errBody, via: "baileys" };
+                } else {
+                    sendResult = { success: true, via: "baileys" };
+                }
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : "Unknown error";
+                sendResult = { success: false, error: msg, via: "baileys" };
+            }
+        } else {
             return NextResponse.json(
-                { error: "WhatsApp Cloud API לא מוגדר לעסק זה" },
+                { error: "WhatsApp לא מחובר לעסק זה" },
                 { status: 400 }
             );
         }
 
-        const result = await sendTextMessage(cloudConfig, phone_number, text);
-
-        if (!result.success) {
+        if (!sendResult.success) {
             return NextResponse.json(
-                { error: result.error || "Failed to send message via Cloud API" },
+                { error: sendResult.error || "Failed to send message" },
                 { status: 502 }
             );
         }
@@ -91,7 +127,7 @@ export async function POST(
                 role: "owner",
                 content: text,
                 is_from_agent: false,
-                wa_message_id: result.messageId,
+                wa_message_id: sendResult.messageId ?? null,
                 status: "sent",
             });
 
@@ -104,8 +140,8 @@ export async function POST(
 
         return NextResponse.json({
             success: true,
-            messageId: result.messageId,
-            via: "cloud_api",
+            messageId: sendResult.messageId ?? null,
+            via: sendResult.via,
         });
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unknown error";
