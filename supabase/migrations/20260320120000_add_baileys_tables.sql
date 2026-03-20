@@ -69,20 +69,5 @@ WHERE whatsapp_connected = true
   AND connection_type = 'none'
   AND id IN (SELECT tenant_id FROM whatsapp_cloud_config);
 
--- ── Ensure whatsapp_sessions table exists (for Baileys auth state) ──
-CREATE TABLE IF NOT EXISTS whatsapp_sessions (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    key text NOT NULL,
-    value text NOT NULL,
-    created_at timestamptz DEFAULT now(),
-    updated_at timestamptz DEFAULT now(),
-    UNIQUE(tenant_id, key)
-);
-
-ALTER TABLE whatsapp_sessions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Service role full access on whatsapp_sessions"
-    ON whatsapp_sessions FOR ALL
-    USING (true)
-    WITH CHECK (true);
+-- ── whatsapp_sessions already exists with (session_key, session_data) columns ──
+-- No changes needed — session-store code uses those column names.

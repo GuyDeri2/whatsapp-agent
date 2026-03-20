@@ -72,12 +72,12 @@ export async function useSupabaseAuthState(
 
     const { data: rows } = await supabase
         .from("whatsapp_sessions")
-        .select("key, value")
+        .select("session_key, session_data")
         .eq("tenant_id", tenantId);
 
     const stored = new Map<string, string>();
     for (const row of rows ?? []) {
-        stored.set(row.key, row.value);
+        stored.set(row.session_key, row.session_data);
     }
 
     // Load or init creds
@@ -104,15 +104,15 @@ export async function useSupabaseAuthState(
     // ── Periodic batch sync ──
 
     async function flushDirty() {
-        const dirtyEntries: { tenant_id: string; key: string; value: string }[] = [];
+        const dirtyEntries: { tenant_id: string; session_key: string; session_data: string }[] = [];
 
         for (const [key, entry] of cache) {
             if (!entry.dirty) continue;
             const serialized = JSON.stringify(entry.value, BufferJSON.replacer);
             dirtyEntries.push({
                 tenant_id: tenantId,
-                key,
-                value: encrypt(serialized),
+                session_key: key,
+                session_data: encrypt(serialized),
             });
             entry.dirty = false;
         }
@@ -121,13 +121,13 @@ export async function useSupabaseAuthState(
 
         const { error } = await supabase
             .from("whatsapp_sessions")
-            .upsert(dirtyEntries, { onConflict: "tenant_id,key" });
+            .upsert(dirtyEntries, { onConflict: "tenant_id,session_key" });
 
         if (error) {
             console.error(`[${tenantId}] Session sync error:`, error.message);
             // Mark entries as dirty again for next sync
             for (const entry of dirtyEntries) {
-                const cached = cache.get(entry.key);
+                const cached = cache.get(entry.session_key);
                 if (cached) cached.dirty = true;
             }
         }
@@ -174,7 +174,7 @@ export async function useSupabaseAuthState(
                                 .from("whatsapp_sessions")
                                 .delete()
                                 .eq("tenant_id", tenantId)
-                                .eq("key", key)
+                                .eq("session_key", key)
                                 .then(() => {});
                         } else {
                             cache.set(key, { value, dirty: true });
