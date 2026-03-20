@@ -41,7 +41,12 @@ const ConnectTab = React.memo(function ConnectTab({
         try {
             const res = await fetch(`/api/tenants/${tenant.id}/cloud-signup`, {
                 method: "DELETE",
+                credentials: "include",
             });
+            if (res.status === 401) {
+                window.location.href = "/login";
+                return;
+            }
             const text = await res.text();
             let data: { error?: string } = {};
             try { data = JSON.parse(text); } catch { /* ok */ }
