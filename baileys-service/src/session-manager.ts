@@ -334,9 +334,11 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
             break;
 
         case DisconnectReason.connectionReplaced: // 440
-            // Another device took over — clear session
-            console.log(`[${tenantId}] Connection replaced — session cleared`);
-            await stopSession(tenantId, true);
+            // Another instance (e.g. new deploy) took over — just stop socket.
+            // Do NOT clear data: the new instance uses the same credentials
+            // and conversations should be preserved.
+            console.log(`[${tenantId}] Connection replaced — stopping local socket (data preserved)`);
+            await stopSession(tenantId, false);
             break;
 
         case DisconnectReason.forbidden: // 403
