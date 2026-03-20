@@ -1,27 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
 import { Smartphone, PowerOff, ShieldCheck, Loader2, Wifi, WifiOff } from "lucide-react";
 import styles from "./ConnectTab.module.css";
-
-declare global {
-    interface Window {
-        FB: {
-            init: (params: { appId: string; cookie: boolean; xfbml: boolean; version: string }) => void;
-            login: (callback: (response: FBLoginResponse) => void, options: Record<string, unknown>) => void;
-        };
-        fbAsyncInit: () => void;
-        _waEmbeddedSignupData?: { waba_id: string; phone_number_id: string };
-    }
-}
-
-interface FBLoginResponse {
-    authResponse?: {
-        code?: string;
-        accessToken?: string;
-    };
-    status: string;
-}
 
 interface Tenant {
     id: string;
@@ -38,9 +19,6 @@ interface ConnectTabProps {
     onDisconnect?: () => Promise<void>;
 }
 
-const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID || "";
-const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID || "";
-
 const ConnectTab = React.memo(function ConnectTab({
     tenant,
     onDisconnect,
@@ -48,132 +26,12 @@ const ConnectTab = React.memo(function ConnectTab({
     const isConnected = tenant.whatsapp_connected && !!tenant.whatsapp_cloud_config;
     const [busy, setBusy] = useState<"connect" | "disconnect" | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [sdkLoaded, setSdkLoaded] = useState(false);
-
-    // Load Facebook SDK
-    useEffect(() => {
-        const initFB = () => {
-            window.FB.init({
-                appId: META_APP_ID,
-                cookie: true,
-                xfbml: true,
-                version: "v21.0",
-            });
-            setSdkLoaded(true);
-        };
-
-        if (window.FB) {
-            initFB();
-            return;
-        }
-
-        window.fbAsyncInit = initFB;
-
-        const script = document.createElement("script");
-        script.src = "https://connect.facebook.net/en_US/sdk.js";
-        script.async = true;
-        script.defer = true;
-        script.crossOrigin = "anonymous";
-        document.body.appendChild(script);
-    }, []);
-
-    // Listen for Embedded Signup postMessage events
-    const handleMessage = useCallback((event: MessageEvent) => {
-        if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") {
-            return;
-        }
-        try {
-            const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-            if (data.type === "WA_EMBEDDED_SIGNUP") {
-                if (data.event === "FINISH" || data.event === "FINISH_ONLY_WABA") {
-                    const { waba_id, phone_number_id } = data.data || {};
-                    if (waba_id && phone_number_id) {
-                        window._waEmbeddedSignupData = { waba_id, phone_number_id };
-                    }
-                } else if (data.event === "CANCEL") {
-                    setBusy(null);
-                }
-            }
-        } catch {
-            // Not relevant
-        }
-    }, []);
-
-    useEffect(() => {
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
-    }, [handleMessage]);
 
     function handleConnect() {
         if (busy) return;
-
-        if (!window.FB || !window.FB.login) {
-            setError("Facebook SDK לא נטען. רענן את הדף ונסה שוב.");
-            return;
-        }
-
-        if (!META_APP_ID || !META_CONFIG_ID) {
-            setError(`הגדרות Meta חסרות (appId=${META_APP_ID}, configId=${META_CONFIG_ID}). פנה לתמיכה.`);
-            return;
-        }
-
-        // Always call FB.init() before FB.login() to ensure SDK is ready
-        window.FB.init({
-            appId: META_APP_ID,
-            cookie: true,
-            xfbml: true,
-            version: "v21.0",
-        });
-
-        try {
-            window.FB.login(
-                function (response: FBLoginResponse) {
-                    if (response.status !== "connected" || !response.authResponse?.code) {
-                        setBusy(null);
-                        return;
-                    }
-
-                    setBusy("connect");
-                    const code = response.authResponse.code;
-                    const signupData = window._waEmbeddedSignupData;
-
-                    fetch(`/api/tenants/${tenant.id}/embedded-signup`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            code,
-                            waba_id: signupData?.waba_id,
-                            phone_number_id: signupData?.phone_number_id,
-                        }),
-                    })
-                        .then((res) => res.json().then((d) => ({ ok: res.ok, data: d })))
-                        .then(({ ok, data }) => {
-                            if (!ok) {
-                                setError(data.error || "שגיאה בחיבור WhatsApp");
-                                setBusy(null);
-                                return;
-                            }
-                            window.location.reload();
-                        })
-                        .catch((err) => {
-                            setError(err instanceof Error ? err.message : "שגיאה בלתי צפויה");
-                            setBusy(null);
-                        });
-                },
-                {
-                    config_id: META_CONFIG_ID,
-                    response_type: "code",
-                    override_default_response_type: true,
-                    extras: {
-                        setup: {},
-                        featureType: "",
-                        sessionInfoVersion: "3",
-                    },
-                }
-            );
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "שגיאה בפתיחת חלון ההתחברות");
-        }
+        setBusy("connect");
+        // Redirect to server-side OAuth flow — works in all browsers, no FB SDK needed
+        window.location.href = `/api/tenants/${tenant.id}/cloud-signup`;
     }
 
     async function handleDisconnect() {
