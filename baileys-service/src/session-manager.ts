@@ -22,7 +22,7 @@ import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { useSupabaseAuthState } from "./session-store";
 import { PresencePauseScheduler } from "./antiban";
-import { handleMessage } from "./message-handler";
+import { handleMessage, extractMessageContent } from "./message-handler";
 import { broadcastQR, clearQR } from "./qr-manager";
 import { resolveLidPhone, registerLidMapping } from "./lid-resolver";
 import { fetchAndStoreProfilePicture, bulkFetchProfilePictures } from "./profile-pictures";
@@ -548,14 +548,8 @@ async function _saveOwnerOutgoing(tenantId: string, msg: WAMessage): Promise<voi
     const jid = msg.key.remoteJid;
     if (!jid || jid.endsWith("@g.us")) return; // Skip groups
 
-    const text =
-        msg.message?.conversation ??
-        msg.message?.extendedTextMessage?.text ??
-        msg.message?.imageMessage?.caption ??
-        msg.message?.videoMessage?.caption ??
-        null;
-
-    if (!text) return; // Skip media-only outgoing messages
+    const text = extractMessageContent(msg);
+    if (!text) return; // Skip protocol/system messages
 
     const phoneNumber = await resolveLidPhone(jid, msg, tenantId);
     const supabase = getSupabase();

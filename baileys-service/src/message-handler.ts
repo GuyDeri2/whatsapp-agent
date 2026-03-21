@@ -26,6 +26,86 @@ function addProcessed(id: string) {
 }
 
 /**
+ * Extract human-readable content from a WAMessage.
+ * Returns null if the message has no meaningful content to store.
+ */
+export function extractMessageContent(msg: WAMessage): string | null {
+    const m = msg.message;
+    if (!m) return null;
+
+    // Text messages
+    const text =
+        m.conversation ??
+        m.extendedTextMessage?.text ??
+        m.imageMessage?.caption ??
+        m.videoMessage?.caption ??
+        null;
+
+    if (text) {
+        // Append quoted context if replying to a message
+        const quoted = m.extendedTextMessage?.contextInfo?.quotedMessage;
+        if (quoted) {
+            const quotedText =
+                quoted.conversation ??
+                quoted.extendedTextMessage?.text ??
+                quoted.imageMessage?.caption ??
+                null;
+            if (quotedText) {
+                return `[בתגובה ל: "${quotedText.substring(0, 80)}"]\n${text}`;
+            }
+        }
+        return text;
+    }
+
+    // Reaction
+    if (m.reactionMessage) {
+        const emoji = m.reactionMessage.text;
+        return emoji ? `[ריאקציה: ${emoji}]` : null;
+    }
+
+    // Location
+    if (m.locationMessage) {
+        const loc = m.locationMessage;
+        const name = loc.name || loc.address || "";
+        return `[מיקום${name ? `: ${name}` : ""}]`;
+    }
+    if (m.liveLocationMessage) {
+        return "[מיקום חי]";
+    }
+
+    // Contact card
+    if (m.contactMessage) {
+        const displayName = m.contactMessage.displayName ?? "";
+        return `[כרטיס איש קשר: ${displayName}]`;
+    }
+    if (m.contactsArrayMessage) {
+        const names = m.contactsArrayMessage.contacts?.map(c => c.displayName).join(", ") ?? "";
+        return `[כרטיסי אנשי קשר: ${names}]`;
+    }
+
+    // Poll
+    if (m.pollCreationMessage) {
+        const q = m.pollCreationMessage.name ?? "";
+        const opts = m.pollCreationMessage.options?.map(o => o.optionName).join(", ") ?? "";
+        return `[סקר: ${q} | אפשרויות: ${opts}]`;
+    }
+
+    // Media with descriptive labels
+    if (m.imageMessage) return "[תמונה]";
+    if (m.videoMessage) return "[סרטון]";
+    if (m.audioMessage) {
+        return m.audioMessage.ptt ? "[הודעה קולית]" : "[קובץ שמע]";
+    }
+    if (m.documentMessage) {
+        const fileName = m.documentMessage.fileName ?? "מסמך";
+        return `[מסמך: ${fileName}]`;
+    }
+    if (m.stickerMessage) return "[סטיקר]";
+
+    return null;
+}
+
+/**
  * Handle an incoming WhatsApp message.
  */
 export async function handleMessage(
@@ -51,23 +131,7 @@ export async function handleMessage(
     addProcessed(msgId);
 
     // Extract text content
-    const text =
-        msg.message?.conversation ??
-        msg.message?.extendedTextMessage?.text ??
-        msg.message?.imageMessage?.caption ??
-        msg.message?.videoMessage?.caption ??
-        null;
-
-    // Handle media without text
-    const hasMedia = !!(
-        msg.message?.imageMessage ??
-        msg.message?.videoMessage ??
-        msg.message?.audioMessage ??
-        msg.message?.documentMessage ??
-        msg.message?.stickerMessage
-    );
-
-    const content = text ?? (hasMedia ? "[מדיה ללא טקסט]" : null);
+    const content = extractMessageContent(msg);
     if (!content) {
         console.log(`[${tenantId}] Skipping message with no content from ${jid}`);
         return;
