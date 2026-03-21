@@ -47,11 +47,27 @@ export async function PATCH(req: Request, { params }: Params) {
 
   const update: Record<string, unknown> = { tenant_id: tenantId, updated_at: new Date().toISOString() };
   if (body.scheduling_enabled !== undefined) update.scheduling_enabled = body.scheduling_enabled;
-  if (body.meeting_duration !== undefined) update.duration_minutes = body.meeting_duration;
-  if (body.buffer_between !== undefined) update.buffer_minutes = body.buffer_between;
+  if (body.meeting_duration !== undefined) {
+    const v = Number(body.meeting_duration);
+    if (!Number.isInteger(v) || v < 5 || v > 480) return NextResponse.json({ error: 'Invalid meeting duration' }, { status: 400 });
+    update.duration_minutes = v;
+  }
+  if (body.buffer_between !== undefined) {
+    const v = Number(body.buffer_between);
+    if (!Number.isInteger(v) || v < 0 || v > 120) return NextResponse.json({ error: 'Invalid buffer time' }, { status: 400 });
+    update.buffer_minutes = v;
+  }
   if (body.timezone !== undefined) update.timezone = body.timezone;
-  if (body.min_notice_hours !== undefined) update.booking_notice_hours = body.min_notice_hours;
-  if (body.booking_window_days !== undefined) update.booking_window_days = body.booking_window_days;
+  if (body.min_notice_hours !== undefined) {
+    const v = Number(body.min_notice_hours);
+    if (!Number.isInteger(v) || v < 0 || v > 168) return NextResponse.json({ error: 'Invalid notice hours' }, { status: 400 });
+    update.booking_notice_hours = v;
+  }
+  if (body.booking_window_days !== undefined) {
+    const v = Number(body.booking_window_days);
+    if (!Number.isInteger(v) || v < 1 || v > 90) return NextResponse.json({ error: 'Invalid booking window' }, { status: 400 });
+    update.booking_window_days = v;
+  }
   if (body.meeting_label !== undefined) update.meeting_type_label = body.meeting_label;
 
   const { error } = await supabase

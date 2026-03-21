@@ -117,7 +117,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 end_time:          endTime,
                 status:            "confirmed",
             },
-            { onConflict: "tenant_id,start_time", ignoreDuplicates: false }
+            { onConflict: "tenant_id,calendar_event_id", ignoreDuplicates: false }
         );
 
         if (error) {

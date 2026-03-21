@@ -42,13 +42,18 @@ export default function Dashboard() {
   const [creating, setCreating] = useState(false);
 
   const fetchTenants = useCallback(async () => {
-    const res = await fetch("/api/tenants");
-    const data = await res.json();
-    if (data.tenants) {
-      setTenants(data.tenants);
-      data.tenants.forEach((t: Tenant) => router.prefetch(`/tenant/${t.id}`));
+    try {
+      const res = await fetch("/api/tenants");
+      if (!res.ok) { setLoading(false); return; }
+      const data = await res.json();
+      if (data.tenants) {
+        setTenants(data.tenants);
+        data.tenants.forEach((t: Tenant) => router.prefetch(`/tenant/${t.id}`));
+      }
+      if (data.profile) setProfile(data.profile);
+    } catch (err) {
+      console.error("Failed to fetch tenants:", err);
     }
-    if (data.profile) setProfile(data.profile);
     setLoading(false);
   }, [router]);
 

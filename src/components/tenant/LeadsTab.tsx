@@ -52,14 +52,19 @@ const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: any }) {
 
     const handleSaveWebhook = async () => {
         setWebhookSaving(true);
-        await fetch(`/api/tenants/${tenant.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ lead_webhook_url: webhookUrl || null }),
-        });
+        try {
+            const res = await fetch(`/api/tenants/${tenant.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ lead_webhook_url: webhookUrl || null }),
+            });
+            if (!res.ok) throw new Error("Save failed");
+            setWebhookSaved(true);
+            setTimeout(() => setWebhookSaved(false), 2500);
+        } catch {
+            alert("שגיאה בשמירת ה-Webhook URL");
+        }
         setWebhookSaving(false);
-        setWebhookSaved(true);
-        setTimeout(() => setWebhookSaved(false), 2500);
     };
 
     const handleExport = async () => {

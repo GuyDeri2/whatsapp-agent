@@ -189,7 +189,9 @@ export async function useSupabaseAuthState(
                                 .delete()
                                 .eq("tenant_id", tenantId)
                                 .eq("session_key", key)
-                                .then(() => {});
+                                .then(({ error: delErr }) => {
+                                    if (delErr) console.error(`[${tenantId}] Session key delete error (${key}):`, delErr.message);
+                                });
                         } else {
                             cache.set(key, { value, dirty: true });
                         }
