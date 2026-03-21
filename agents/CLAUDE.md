@@ -90,17 +90,6 @@ Claude Code synthesizes results, verifies build
 Memory files updated with lessons learned
 ```
 
-## Key Differences from Old System (DeepSeek)
-
-| Aspect | Old (DeepSeek) | New (Claude Code) |
-|--------|---------------|-------------------|
-| Brain | DeepSeek API | Claude (Opus/Sonnet) |
-| Tools | 4 basic tools, 35 call limit | Full Claude Code toolset (Read, Edit, Write, Bash, Grep, Glob, Agent...) |
-| Execution | Advisory only | Actually implements changes |
-| Learning | Reviewer LLM updates memory | Claude Code auto-memory + manual memory updates |
-| Speed | Sequential API calls | Parallel subagents |
-| Context | Limited (4000 tokens output) | Full codebase access |
-
 ## Editing Agent Behaviour
 
 To change how an agent thinks or what it knows:
@@ -117,12 +106,3 @@ To change how an agent thinks or what it knows:
 4. Create `.claude/commands/agent-<role>.md` with the command template
 5. Add the role to the `/project:team` command's agent table
 6. Add delegation rules to `agents/pm/README.md`
-
-## Legacy TypeScript Files (Deprecated)
-
-The following files are from the old DeepSeek-based system and are **no longer used**:
-- `run.ts`, `base-agent.ts`, `pm-agent.ts`, `reviewer.ts`
-- `types.ts`, `memory-manager.ts`, `tsconfig.json`, `package.json`
-- `team/*.ts`
-
-These can be safely removed once the new Claude Code system is confirmed working.

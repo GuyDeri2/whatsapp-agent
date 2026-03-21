@@ -1,5 +1,21 @@
 # WhatsApp Agent — Project Context for Claude Code
 
+## Task Delegation Rule (IMPORTANT)
+
+When the user gives you a development task (feature, bug fix, refactor, audit, etc.), **always use the AI dev team system**:
+
+1. **Read the PM knowledge**: `agents/pm/README.md`, `agents/pm/memory/memory.md`, `agents/shared/memory/memory.md`
+2. **Plan like the PM**: Decide which agents are needed (frontend, backend, ux, security, devops, qa, database)
+3. **Launch subagents via the Agent tool** — include each agent's README + skills + memory in the prompt
+4. **Run independent agents in parallel**
+5. **Synthesize results**, verify build, update memory
+
+This applies to **all tasks except**: simple questions, quick lookups, conversations, and trivial one-line fixes. For those, respond directly.
+
+The agents run as Claude Code subagents (Agent tool) — NOT via external APIs or terminal commands.
+
+---
+
 ## What This Project Is
 A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsApp customer support with AI.
 - Target: Israeli small-to-medium businesses (restaurants, clinics, shops)
