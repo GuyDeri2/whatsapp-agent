@@ -34,5 +34,9 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error.message)}`);
     }
 
-    return NextResponse.redirect(`${origin}/login?error=no_code`);
+    // Log all params for debugging
+    const allParams = Object.fromEntries(searchParams.entries());
+    console.error("[auth/callback] no code param. All params:", JSON.stringify(allParams));
+    const oauthError = searchParams.get("error_description") || searchParams.get("error") || "no_code";
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(oauthError)}`);
 }
