@@ -310,16 +310,17 @@ async function generateAndSendAiReply(
             .order("created_at", { ascending: false })
             .limit(20);
 
-        // Build history — include the latest message even if it hasn't been stored yet
+        // Build history with created_at for gap detection
         let history = (messages ?? []).reverse().map(m => ({
             role: m.role as "user" | "assistant" | "owner",
             content: m.content,
+            created_at: m.created_at,
         }));
 
         // If the latest message isn't in history yet (parallel insert), append it
         const lastMsg = history[history.length - 1];
         if (!lastMsg || lastMsg.content !== latestMessage || lastMsg.role !== "user") {
-            history.push({ role: "user", content: latestMessage });
+            history.push({ role: "user", content: latestMessage, created_at: new Date().toISOString() });
         }
 
         // Generate AI reply

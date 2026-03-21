@@ -462,7 +462,7 @@ cron.schedule("0 3 * * *", async () => {
                     continue;
                 }
 
-                const data = await res.json();
+                const data = await res.json() as { access_token?: string; expires_in?: number };
                 if (!data.access_token) {
                     console.error(`[${cfg.tenant_id}] 🔑 Token refresh: no token in response`);
                     continue;

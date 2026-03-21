@@ -248,10 +248,10 @@ export async function handleMessage(
 
         // ── Generate AI reply ──
 
-        // Fetch recent history
+        // Fetch recent history (with created_at for gap detection)
         const { data: history } = await supabase
             .from("messages")
-            .select("role, content")
+            .select("role, content, created_at")
             .eq("conversation_id", conversationId)
             .eq("tenant_id", tenantId)
             .order("created_at", { ascending: true })
@@ -260,6 +260,7 @@ export async function handleMessage(
         const chatHistory = (history ?? []).map((m) => ({
             role: m.role as "user" | "assistant" | "owner",
             content: m.content,
+            created_at: m.created_at,
         }));
 
         const reply = await generateReply(tenantId, chatHistory);
