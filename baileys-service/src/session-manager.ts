@@ -37,18 +37,6 @@ const sessionCleanup = new Map<string, { saveCreds: () => Promise<void>; clearSt
 
 const presencePauser = new PresencePauseScheduler();
 
-/** SOCKS5 proxy agent — routes WhatsApp WebSocket through Israeli IP */
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const proxyAgent = process.env.WA_PROXY_URL
-    ? new (require("socks-proxy-agent").SocksProxyAgent)(process.env.WA_PROXY_URL)
-    : undefined;
-
-if (proxyAgent) {
-    console.log("[proxy] WhatsApp connections will route through proxy");
-} else {
-    console.log("[proxy] No WA_PROXY_URL set — connecting directly");
-}
-
 // Reconnect cooldown — minimum 30s between reconnect attempts
 const lastReconnectAt = new Map<string, number>();
 const RECONNECT_COOLDOWN_MS = 30_000;
@@ -186,8 +174,6 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
         connectTimeoutMs: 60_000,
         markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false,
-        agent: proxyAgent,
-        fetchAgent: proxyAgent,
     });
 
     const session: TenantSession = {
