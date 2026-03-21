@@ -172,7 +172,7 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
         keepAliveIntervalMs: 25_000,
         defaultQueryTimeoutMs: 60_000,
         connectTimeoutMs: 60_000,
-        markOnlineOnConnect: true,
+        markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false,
     });
 
@@ -259,7 +259,7 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
             session.lastDisconnect = new Date();
             presencePauser.stop(tenantId);
 
-            // Track disconnect in health state
+            // Track disconnect in health state + update risk score
             const health = healthStates.get(tenantId);
             if (health) {
                 health.disconnectHistory.push({ code: statusCode, at: new Date() });
@@ -267,6 +267,33 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
                 if (health.disconnectHistory.length > 20) {
                     health.disconnectHistory = health.disconnectHistory.slice(-20);
                 }
+
+                // Risk score adjustments based on disconnect type
+                if (statusCode === 403) {
+                    health.riskScore = 100; // Banned — max risk
+                } else if (statusCode === 515) {
+                    health.riskScore = Math.min(100, health.riskScore + 10);
+                } else if (statusCode === 408) {
+                    health.riskScore = Math.min(100, health.riskScore + 5);
+                }
+
+                // Frequent disconnects in last hour → extra risk
+                const oneHourAgo = Date.now() - 3_600_000;
+                const recentDisconnects = health.disconnectHistory.filter(
+                    (d) => d.at.getTime() > oneHourAgo
+                ).length;
+                if (recentDisconnects >= 5) {
+                    health.riskScore = Math.min(100, health.riskScore + 15);
+                } else if (recentDisconnects >= 3) {
+                    health.riskScore = Math.min(100, health.riskScore + 5);
+                }
+
+                // Decay risk score on normal reconnectable disconnects
+                if (statusCode === 515 || statusCode === 408) {
+                    // Will decay naturally via watchdog probes
+                }
+
+                console.log(`[${tenantId}] Risk score: ${health.riskScore} (disconnect ${statusCode}, ${recentDisconnects} in last hour)`);
             }
 
             await _handleDisconnect(tenantId, statusCode, reason);
@@ -485,6 +512,10 @@ export async function runWatchdog(): Promise<void> {
             health.lastProbeAt = new Date();
             health.lastProbeOk = true;
             health.consecutiveFailures = 0;
+            // Decay risk score on successful probe (gradual recovery)
+            if (health.riskScore > 0) {
+                health.riskScore = Math.max(0, health.riskScore - 2);
+            }
         } catch {
             health.lastProbeOk = false;
             health.consecutiveFailures++;

@@ -270,14 +270,27 @@ export async function handleMessage(
         const cleanReply = reply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
+            // Anti-ban: block identical messages sent to too many different contacts
+            if (!rateLimiter.canSendContent(tenantId, conversationId, cleanReply)) {
+                console.warn(`[${tenantId}] Identical content blocked for conversation ${conversationId}`);
+                return;
+            }
+
+            // Mark incoming message as read (anti-ban: humans always read before replying)
+            try {
+                await socket.readMessages([msg.key]);
+            } catch {
+                // Non-fatal — some messages may not support read receipts
+            }
+
             // Send with human-like behavior
             await humanSend(socket, jid, cleanReply);
 
             // Save assistant message
             await _saveMessage(tenantId, conversationId, "assistant", cleanReply, null, true);
 
-            // Record rate limit
-            rateLimiter.recordSend(tenantId, conversationId);
+            // Record rate limit + content tracking
+            rateLimiter.recordSend(tenantId, conversationId, cleanReply);
         }
 
         // Pause conversation if handoff

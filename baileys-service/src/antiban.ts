@@ -57,10 +57,24 @@ function isNightTime(config: AntiBanConfig): boolean {
 
 // ── Rate limiter ───────────────────────────────────────────────────
 
+/** Tracks recent message content to detect identical messages sent to multiple contacts */
+interface ContentTracker {
+    /** Set of conversation IDs this content was sent to */
+    conversations: Set<string>;
+    /** Timestamp of first send */
+    firstSentAt: number;
+}
+
 export class RateLimiter {
     private config: AntiBanConfig;
     private conversationLimits = new Map<string, ConversationRateLimit>();
     private tenantLimits = new Map<string, TenantRateLimit>();
+    /** Key: `${tenantId}:${contentHash}` → tracks how many different conversations received this content */
+    private recentContent = new Map<string, ContentTracker>();
+    /** Max different conversations that can receive identical content in a window */
+    private static readonly MAX_IDENTICAL_RECIPIENTS = 3;
+    /** Window for identical content detection (30 minutes) */
+    private static readonly CONTENT_WINDOW_MS = 30 * 60_000;
 
     constructor(config: AntiBanConfig = DEFAULT_ANTIBAN_CONFIG) {
         this.config = config;
@@ -112,8 +126,37 @@ export class RateLimiter {
         return true;
     }
 
+    /**
+     * Check if sending this content is safe (not identical to messages sent to too many other contacts).
+     * Returns true if allowed.
+     */
+    canSendContent(tenantId: string, conversationId: string, content: string): boolean {
+        const hash = this.hashContent(content);
+        const key = `${tenantId}:${hash}`;
+        const now = Date.now();
+
+        const tracker = this.recentContent.get(key);
+        if (!tracker) return true; // First time sending this content
+
+        // Expired window
+        if (now - tracker.firstSentAt > RateLimiter.CONTENT_WINDOW_MS) {
+            this.recentContent.delete(key);
+            return true;
+        }
+
+        // Already sent to this conversation — that's fine (follow-up/retry)
+        if (tracker.conversations.has(conversationId)) return true;
+
+        // Would exceed max recipients
+        if (tracker.conversations.size >= RateLimiter.MAX_IDENTICAL_RECIPIENTS) {
+            return false;
+        }
+
+        return true;
+    }
+
     /** Record that a message was sent */
-    recordSend(tenantId: string, conversationId: string): void {
+    recordSend(tenantId: string, conversationId: string, content?: string): void {
         const conv = this.conversationLimits.get(conversationId);
         if (conv) {
             conv.minuteCount++;
@@ -125,6 +168,23 @@ export class RateLimiter {
             tenant.hourCount++;
             tenant.dayCount++;
         }
+
+        // Track content for identical message detection
+        if (content) {
+            const hash = this.hashContent(content);
+            const key = `${tenantId}:${hash}`;
+            let tracker = this.recentContent.get(key);
+            if (!tracker) {
+                tracker = { conversations: new Set(), firstSentAt: Date.now() };
+                this.recentContent.set(key, tracker);
+            }
+            tracker.conversations.add(conversationId);
+        }
+    }
+
+    /** Simple content hash — normalize whitespace, lowercase, take first 100 chars */
+    private hashContent(content: string): string {
+        return content.trim().toLowerCase().replace(/\s+/g, " ").substring(0, 100);
     }
 
     /** Cleanup stale entries */
@@ -133,6 +193,12 @@ export class RateLimiter {
         for (const [key, val] of this.conversationLimits) {
             if (now - val.hourWindowStart > 7_200_000) {
                 this.conversationLimits.delete(key);
+            }
+        }
+        // Cleanup expired content trackers
+        for (const [key, tracker] of this.recentContent) {
+            if (now - tracker.firstSentAt > RateLimiter.CONTENT_WINDOW_MS) {
+                this.recentContent.delete(key);
             }
         }
     }
