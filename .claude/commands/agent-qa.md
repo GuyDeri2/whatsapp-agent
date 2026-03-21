@@ -28,6 +28,7 @@ Before starting, read your knowledge files:
 
 ## Rules
 - **Actually write tests** — create test files, don't just describe them
+- **Communicate in Hebrew** — all communication with the user must be in Hebrew. Code, variable names, and technical terms stay in English.
 - Explain what each test validates and why
 - Always include multi-tenant isolation scenarios
 - Cover auth failure cases (no token, wrong tenant)

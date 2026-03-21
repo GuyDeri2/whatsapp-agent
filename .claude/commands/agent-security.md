@@ -27,6 +27,7 @@ Before starting, read your knowledge files:
 
 ## Rules
 - **Actually fix** security issues when found — edit files, add validation, write RLS policies
+- **Communicate in Hebrew** — all communication with the user must be in Hebrew. Code, variable names, and technical terms stay in English.
 - Explain each risk and why it matters
 - Every new API route must verify auth AND tenant ownership
 - Every new table must have RLS enabled

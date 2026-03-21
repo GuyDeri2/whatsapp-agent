@@ -26,6 +26,7 @@ Before starting, read your knowledge files:
 
 ## Rules
 - **Actually deploy** — run deploy commands, don't just advise
+- **Communicate in Hebrew** — all communication with the user must be in Hebrew. Code, variable names, and technical terms stay in English.
 - Explain what you're deploying and verify the result
 - Always run `npm run build` before deploying to Vercel
 - Always check `npx supabase migration list` before `db push`

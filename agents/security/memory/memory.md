@@ -152,3 +152,9 @@ Full security audit was performed before production launch. Found 7.5/10 risk sc
 
 ## Positive Pattern (2026-03-17)
 [Score: 9/10] Always include practical steps for obtaining missing credentials (e.g., 'Go to Google Cloud Console → APIs & Services → Credentials') when identifying missing OAuth configuration.
+
+## Anti-Ban Security Improvements — 2026-03-22
+- Read receipts with 1-3s gaussian delay (prevents bot detection)
+- Risk score monitoring: 0-100 scale, automatic decay, alerts at critical levels
+- Identical message blocking: same content to 3+ conversations in 30 min → blocked
+- markOnlineOnConnect: false — stealth connect prevents 24/7 online indicator

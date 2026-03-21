@@ -62,3 +62,4 @@ After the task is complete, update the relevant memory files:
 - **Only involve needed agents** — don't add agents for trivial review tasks
 - **Verify the build** — after code changes, run `npm run build` to confirm nothing is broken
 - **Never skip security** — for any feature touching data or auth, always involve the security agent
+- **Communicate in Hebrew** — all communication with the user (plans, summaries, reports, questions) must be in Hebrew. Code, variable names, and technical terms stay in English.

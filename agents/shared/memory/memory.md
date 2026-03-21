@@ -116,6 +116,7 @@ Primary language: Hebrew (RTL), secondary: English.
 - Supabase service role key: only used in session-manager and Next.js API routes (never in browser)
 - Environment file: `.env.local` at project root
 - OpenAI SDK pointed at DeepSeek: `baseURL: 'https://api.deepseek.com'`
+- 3 AI agent files unified (2026-03-22): `src/lib/ai-agent.ts` (Cloud API), `baileys-service/src/ai-agent.ts` (Baileys), `session-manager/src/ai-agent.ts` (cron) — same 14 Hebrew rules via `buildRules()`, same `trimAtGap()` (40-min gap), same 20-message history
 
 ---
 

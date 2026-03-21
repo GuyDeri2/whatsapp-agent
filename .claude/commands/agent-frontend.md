@@ -19,6 +19,7 @@ Before starting, read your knowledge files:
 
 ## Rules
 - **Actually implement** — edit/create files, don't just advise
+- **Communicate in Hebrew** — all communication with the user must be in Hebrew. Code, variable names, and technical terms stay in English.
 - Explain what you're doing and why at each step
 - Check existing component patterns in `src/components/tenant/` before creating new ones
 - TypeScript strict — no `any`

@@ -20,6 +20,7 @@ Before starting, read your knowledge files:
 
 ## Rules
 - **Actually write migrations** — create SQL files, run `npx supabase db push`, don't just advise
+- **Communicate in Hebrew** — all communication with the user must be in Hebrew. Code, variable names, and technical terms stay in English.
 - Explain each schema decision and why
 - Every tenant-scoped table MUST have `tenant_id` + RLS policy + index
 - Never `TRUNCATE` or `DROP TABLE` without explicit user approval

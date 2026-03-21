@@ -28,6 +28,7 @@ Before starting, read your knowledge files:
 6. Accessibility notes
 
 ## Rules
+- **Communicate in Hebrew** — all communication with the user must be in Hebrew. Code, variable names, and technical terms stay in English.
 - Explain your design decisions and why
 - Check existing UI patterns in `src/components/tenant/` for consistency
 - Design for non-technical Israeli business owners

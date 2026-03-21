@@ -94,3 +94,8 @@
 
 ## Positive Pattern (2026-03-17)
 [Score: 7/10] For OAuth issues, always check the actual Supabase dashboard configuration and test the flow end-to-end before reporting assumptions.
+
+## AI Agent Unification — 2026-03-22
+- All 3 AI agents now share the same 14 Hebrew rules and behavior
+- Frontend doesn't call AI directly, but should know: max_tokens is 300 for real-time replies, 20-message history with 40-min gap detection
+- No frontend changes needed for this unification

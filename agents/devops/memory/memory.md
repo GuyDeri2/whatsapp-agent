@@ -233,3 +233,8 @@ Commit `f83394a` — security hardening + anti-ban improvements. Pushed to GitHu
 
 ## Positive Pattern (2026-03-17)
 [Score: 9/10] When checking deployment environments, also verify corresponding service configurations (like Supabase dashboard) for complete picture.
+
+## Baileys Service — 2026-03-22
+- **Render service ID**: `srv-d6uko0ndiees73chbe7g` (separate from session-manager `srv-d6ksj5fgi27c73bjllkg`)
+- Anti-ban fixes deployed: read receipts, identical message blocking, risk score tracking, markOnlineOnConnect: false
+- AI agent unification deployed: 14 Hebrew rules, 40-min gap detection, 20-message history

@@ -177,3 +177,18 @@ WHY: Every deploy killed WhatsApp connections because `clearAuthState` wiped cre
 
 ## Positive Pattern (2026-03-17)
 [Score: 8/10] When investigating OAuth issues, clearly map which OAuth flow (authentication vs. integration) is being discussed and how they interact.
+
+## Anti-Ban Fixes — 2026-03-22
+4 fixes implemented in baileys-service:
+1. **Identical message detection** (`antiban.ts`): `canSendContent()` blocks same text to 3+ different conversations in 30 min
+2. **Risk score tracking** (`session-manager.ts`): 403→100pts, 515→+10, 408→+5, frequent disconnects→+15, decay -2/probe
+3. **Read receipts** (`message-handler.ts`): `socket.readMessages([msg.key])` before processing
+4. **markOnlineOnConnect: false** (`session-manager.ts`): stealth connect
+
+## AI Agent Unification — 2026-03-22
+3 separate AI agents (`src/lib/ai-agent.ts`, `baileys-service/src/ai-agent.ts`, `session-manager/src/ai-agent.ts`) unified:
+- Shared `buildRules()` function with 14 canonical Hebrew rules
+- `trimAtGap()` — 40-minute gap detection (silence > 40 min = new conversation boundary)
+- History: 10 → 20 messages, includes `created_at` for gap detection
+- max_tokens: Cloud API & Baileys = 300, Session-Manager cron = 500
+- Each service remains separate (different imports, different contexts) but identical behavior

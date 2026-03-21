@@ -103,3 +103,11 @@ The PM plan was well-structured and correctly interpreted the original command. 
 
 ## Planning Pattern (2026-03-17)
 The task breakdown was well-structured but should have explicitly distinguished between the two OAuth flows (user authentication via Supabase vs. calendar integration via custom API). All agents were correctly selected, but the synthesis could have been more specific about which flow was failing (likely the Supabase authentication OAuth based on the original command mentioning login/register pages).
+## Agent System Cleanup — 2026-03-22
+- Deleted ~40 deprecated files from agents/ (run.ts, base-agent.ts, pm-agent.ts, reviewer.ts, types.ts, memory-manager.ts, team/*.ts, workflows/, memory/, logs/, node_modules/)
+- All agents now work exclusively through Claude Code Agent tool — no external DeepSeek API calls
+- PM auto-delegation rule added to CLAUDE.md: all dev tasks route through PM + subagents
+- Hebrew communication rule added to all agent command files
+
+## Communication Rule — 2026-03-22
+All agents must communicate with the user (Guy) in Hebrew. Code, variable names, and technical terms stay in English. This was added to all `.claude/commands/agent-*.md` files and `team.md`.
