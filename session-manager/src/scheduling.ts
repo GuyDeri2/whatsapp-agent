@@ -55,7 +55,7 @@ export async function getSchedulingContext(tenantId: string): Promise<string> {
 
     const { data: settings } = await supabase
         .from("meeting_settings")
-        .select("*")
+        .select("scheduling_enabled, duration_minutes, buffer_minutes, booking_notice_hours, booking_window_days, timezone")
         .eq("tenant_id", tenantId)
         .single();
 
@@ -63,7 +63,7 @@ export async function getSchedulingContext(tenantId: string): Promise<string> {
 
     const { data: rules } = await supabase
         .from("availability_rules")
-        .select("*")
+        .select("day_of_week, start_time, end_time")
         .eq("tenant_id", tenantId)
         .order("day_of_week")
         .order("start_time");

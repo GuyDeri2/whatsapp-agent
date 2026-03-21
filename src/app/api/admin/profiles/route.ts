@@ -29,7 +29,7 @@ export async function GET() {
 
     const { data: profiles, error } = await getSupabaseAdmin()
         .from("profiles")
-        .select("*")
+        .select("id, email, first_name, last_name, role, approval_status, created_at")
         .order("created_at", { ascending: false });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -301,9 +301,7 @@ export default function TenantPage() {
         // Prefetch dashboard so back-navigation is instant
         router.prefetch("/dashboard");
 
-        fetchTenant();
-        fetchConversations();
-        fetchContactRules();
+        Promise.all([fetchTenant(), fetchConversations(), fetchContactRules()]);
 
         // Connection status is now determined from whatsapp_cloud_config (loaded with tenant)
         // No need to poll session-manager
@@ -528,7 +526,10 @@ export default function TenantPage() {
         });
 
         if (res.ok) {
-            fetchContactRules(); // Replace temp with real server-generated ID
+            const { rule: serverRule } = await res.json();
+            if (serverRule?.id) {
+                setContactRules(prev => prev.map(r => r.id === tempId ? { ...r, id: serverRule.id } : r));
+            }
             showToast("כלל אנשי קשר נוסף", "success");
         } else {
             setContactRules(prev => prev.filter(r => r.id !== tempId)); // Revert
@@ -557,7 +558,10 @@ export default function TenantPage() {
         });
 
         if (res.ok) {
-            fetchContactRules(); // Replace temp with real server-generated ID
+            const { rule: serverRule } = await res.json();
+            if (serverRule?.id) {
+                setContactRules(prev => prev.map(r => r.id === tempId ? { ...r, id: serverRule.id } : r));
+            }
             showToast(
                 ruleType === "allow"
                     ? `${conv.contact_name || formatPhone(conv.phone_number)} נוסף לרשימה הלבנה`
@@ -633,7 +637,6 @@ export default function TenantPage() {
         selectedConvIdRef.current = conv.id;
         // Don't clear messages — avoids flash of empty state while loading
         fetchMessages(conv.id);
-        fetchConversations(); // Refresh sidebar to show latest previews
     };
 
     // ── Send message ──

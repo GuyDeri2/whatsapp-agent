@@ -44,15 +44,19 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
     };
 
     useEffect(() => {
-        fetchLearnings();
-        if (tenant?.id) {
-            fetch(`/api/tenants/${tenant.id}/unanswered-questions`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data.questions) setUnanswered(data.questions);
-                })
-                .catch(err => console.error(err));
-        }
+        const fetchAll = async () => {
+            const promises: Promise<void>[] = [fetchLearnings()];
+            if (tenant?.id) {
+                promises.push(
+                    fetch(`/api/tenants/${tenant.id}/unanswered-questions`)
+                        .then(res => res.json())
+                        .then(data => { if (data.questions) setUnanswered(data.questions); })
+                        .catch(err => console.error(err))
+                );
+            }
+            await Promise.all(promises);
+        };
+        fetchAll();
     }, [tenant?.id, supabase]);
 
     const handleSaveEdit = async (id: string) => {
