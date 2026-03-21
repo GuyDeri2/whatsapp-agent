@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -14,6 +14,12 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
     const router = useRouter();
     const supabase = createClient();
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const urlError = params.get("error");
+        if (urlError) setError(decodeURIComponent(urlError));
+    }, []);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
