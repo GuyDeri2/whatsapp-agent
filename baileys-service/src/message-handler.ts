@@ -86,7 +86,7 @@ export async function handleMessage(
 
         const { data: existingConv } = await supabase
             .from("conversations")
-            .select("id, is_paused")
+            .select("id, is_paused, contact_name")
             .eq("tenant_id", tenantId)
             .eq("phone_number", phoneNumber)
             .eq("is_group", false)
@@ -95,10 +95,14 @@ export async function handleMessage(
         if (existingConv) {
             conversationId = existingConv.id;
 
-            // Update timestamp
+            // Update timestamp + fill missing contact name from pushName
+            const updateFields: Record<string, string> = { updated_at: new Date().toISOString() };
+            if (!existingConv.contact_name && msg.pushName) {
+                updateFields.contact_name = msg.pushName;
+            }
             await supabase
                 .from("conversations")
-                .update({ updated_at: new Date().toISOString() })
+                .update(updateFields)
                 .eq("id", conversationId)
                 .eq("tenant_id", tenantId);
 

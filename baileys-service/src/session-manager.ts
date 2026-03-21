@@ -316,6 +316,30 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
         }
     });
 
+    // ── Contact name sync ──
+
+    socket.ev.on("contacts.upsert", async (contacts) => {
+        const supabase = getSupabase();
+        for (const contact of contacts) {
+            const name = contact.notify || contact.name;
+            if (!name || !contact.id) continue;
+
+            // Strip JID suffix to get phone number
+            const phone = contact.id.replace("@s.whatsapp.net", "").replace("@lid", "");
+
+            // Update conversation contact_name if missing
+            await supabase
+                .from("conversations")
+                .update({ contact_name: name })
+                .eq("tenant_id", tenantId)
+                .eq("phone_number", phone)
+                .is("contact_name", null);
+        }
+        if (contacts.length > 0) {
+            console.log(`[${tenantId}] Synced ${contacts.length} contact names`);
+        }
+    });
+
     // ── LID → phone number resolution ──
 
     socket.ev.on("chats.phoneNumberShare", async ({ lid, jid: phoneJid }) => {
