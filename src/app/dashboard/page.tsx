@@ -61,8 +61,7 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
+    window.location.href = "/";
   };
 
   const handleCreate = async (e: React.FormEvent) => {
