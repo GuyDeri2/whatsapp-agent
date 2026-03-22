@@ -74,8 +74,23 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
     }
 
-    const { error } = await getSupabaseAdmin().auth.admin.deleteUser(profileId);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const adminClient = getSupabaseAdmin();
+    const { error } = await adminClient.auth.admin.deleteUser(profileId);
+
+    if (error) {
+        // If user doesn't exist in auth.users, clean up orphaned profile + tenants directly
+        const { error: profileDeleteError } = await adminClient
+            .from("profiles")
+            .delete()
+            .eq("id", profileId);
+
+        // Also clean up any tenants owned by this user (CASCADE will handle child tables)
+        await adminClient.from("tenants").delete().eq("owner_id", profileId);
+
+        if (profileDeleteError) {
+            return NextResponse.json({ error: profileDeleteError.message }, { status: 500 });
+        }
+    }
 
     return NextResponse.json({ success: true });
 }

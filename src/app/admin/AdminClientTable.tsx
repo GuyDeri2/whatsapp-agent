@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, PauseCircle, Eye } from "lucide-react";
 
@@ -27,6 +28,7 @@ interface Props {
 
 export default function AdminClientTable({ clients }: Props) {
     const router = useRouter();
+    const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
     const handleSuspend = async (client: Client) => {
         try {
@@ -58,11 +60,14 @@ export default function AdminClientTable({ clients }: Props) {
                 const data = await res.json();
                 throw new Error(data.error || "Failed to delete user");
             }
+            setDeletedIds(prev => new Set(prev).add(client.id));
             router.refresh();
         } catch (err: any) {
             alert("שגיאה במחיקת המשתמש: " + err.message);
         }
     };
+
+    const visibleClients = clients.filter(c => !deletedIds.has(c.id));
 
     return (
         <div className="bg-neutral-900 border border-white/5 rounded-2xl overflow-hidden">
@@ -80,7 +85,7 @@ export default function AdminClientTable({ clients }: Props) {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                        {clients.map((client) => (
+                        {visibleClients.map((client) => (
                             <tr
                                 key={client.id}
                                 className="hover:bg-white/[0.02] transition-colors"
