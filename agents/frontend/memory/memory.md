@@ -137,3 +137,19 @@
 - Used blue color scheme (bg-blue-500/20, text-blue-400) to differentiate from the emerald business settings section
 - `WebsiteCrawlAnalysis` interface defined locally in SettingsTab — mirrors the API response shape
 - Checkboxes implemented as toggle buttons with CheckSquare/Square icons (no native checkbox styling needed)
+
+## Purchase Flows Admin UI — 2026-03-22
+
+### What Was Built
+- **List page**: `src/app/admin/purchase-flows/page.tsx` — shows all tenants with purchase flow status (enabled/disabled, product count, field count)
+- **Detail page**: `src/app/admin/purchase-flows/[tenantId]/page.tsx` — full config form: enable toggle, products CRUD, required fields CRUD, checkout URL template, agent instructions
+- **Nav link**: Added ShoppingCart icon + "תהליכי רכישה" link to admin sidebar in `src/app/admin/layout.tsx`
+
+### Patterns
+- Admin pages use Tailwind classes directly (no CSS Modules) — matching features/customers pages
+- Orange color scheme (bg-orange-500/10, text-orange-400, border-orange-500/20) to differentiate from existing sections
+- Dynamic list pattern: array state + add/remove/update helpers — each item in a bordered card with trash icon
+- `useParams` from next/navigation for client-side route params (avoids async params in client components)
+- Default required fields pre-filled (name, phone, email, address) to save admin setup time
+- CheckCircle2 toggle button for required/optional field status (same pattern as SettingsTab checkboxes)
+- API shape: GET returns `PurchaseFlowData`, PUT accepts partial update body — filters empty items before save

@@ -302,3 +302,27 @@ A system that crawls a business website, extracts structured knowledge using Dee
 - Website fallback only triggers on specific Hebrew uncertainty phrases, not on every reply
 - `source='website'` in knowledge_base allows clean delete+re-insert on re-crawl
 - Crawl results are NOT auto-applied — user reviews analysis first, then clicks apply
+
+## Purchase Flows API Routes — 2026-03-22
+
+### What was built:
+3 API route files for managing e-commerce purchase flow configuration per tenant.
+
+### Routes:
+1. **`GET /api/admin/purchase-flows`** — list all flows with tenant business_name (admin only, joins tenants table)
+2. **`GET/PUT/DELETE /api/admin/purchase-flows/[tenantId]`** — CRUD for a specific tenant's flow (admin only)
+   - PUT uses Supabase `.upsert()` with `onConflict: "tenant_id"` for create-or-update semantics
+   - GET returns 404 with `PGRST116` error code check (Supabase "no rows" error)
+3. **`GET /api/tenants/[tenantId]/purchase-flow`** — tenant owner reads own flow (ownership verified via `owner_id = user.id`)
+
+### Patterns used:
+- Admin auth: `verifyAdmin()` helper checks `profiles.role === "admin"` via admin client (same as tenant-scans)
+- Tenant auth: `createClient()` SSR + `getUser()` + `.eq("owner_id", user.id)` ownership check
+- Admin routes use `getSupabaseAdmin()` for all DB queries
+- Tenant route verifies ownership with SSR client, then reads purchase_flows with admin client
+- Input validation on PUT: type checks for enabled (bool), products/required_fields (array), strings with length limits
+- `params` is `Promise<{ tenantId: string }>` in Next.js 16 — must `await params`
+
+### Lessons:
+- Supabase `.select("*, tenants!inner(id, business_name)")` works for joining FK relations — flatten in JS for cleaner API response
+- `PGRST116` is Supabase's error code for `.single()` returning no rows — check this for clean 404s instead of generic 500

@@ -57,3 +57,16 @@
 - [2026-03-22] When a column like `tenant_id` exists on both parent and child tables, always filter on the child table directly (avoids unnecessary JOINs).
 - [2026-03-22] Phone number normalization inconsistency prevents DB-level exact matching. Convention exists but enforcement is application-side only.
 - [2026-03-22] UNIQUE constraints create implicit indexes — no need to add explicit indexes on the same column set.
+
+## Purchase Flows Migration — 2026-03-22
+
+### What was done
+- Created `purchase_flows` table with UNIQUE constraint on `tenant_id` (one flow per tenant)
+- JSONB columns for `products` and `required_fields` — flexible schema for e-commerce data
+- RLS: SELECT for tenant owner only, INSERT/UPDATE/DELETE for service_role only (no explicit policy needed)
+- Migration applied successfully via `npx supabase db push`
+
+### Lessons
+- [2026-03-22] The `tenants` table uses `owner_id` (NOT `user_id`) — always check existing migrations for the correct column name before writing RLS policies.
+- [2026-03-22] For tables where only admins write but owners read: use a single SELECT RLS policy. Service role bypasses RLS for write operations.
+- [2026-03-22] JSONB with DEFAULT '[]'::jsonb is good for flexible array-of-objects schemas (products, required fields) — avoids extra junction tables.
