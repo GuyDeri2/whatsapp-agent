@@ -5,6 +5,8 @@
 
 import OpenAI from "openai";
 import { getSupabaseAdmin } from "./supabase/admin";
+import { crawlRelevantPages } from "./website-crawler";
+import { answerFromWebsite } from "./website-analyzer";
 
 // ── Singletons ───────────────────────────────────────────────────────
 
@@ -260,10 +262,73 @@ export async function generateReply(
             ),
         ]);
 
-        return completion.choices[0]?.message?.content ?? null;
+        const reply = completion.choices[0]?.message?.content ?? null;
+
+        // If the AI indicates it doesn't know / wants to check / escalates,
+        // try searching the business website before giving up
+        if (reply && shouldTryWebsiteFallback(reply)) {
+            const lastUserMsg = trimmed.filter(m => m.role === "user").pop();
+            if (lastUserMsg) {
+                const websiteAnswer = await searchBusinessWebsite(tenantId, lastUserMsg.content);
+                if (websiteAnswer) {
+                    console.log(`[${tenantId}] Website fallback found answer`);
+                    return websiteAnswer;
+                }
+            }
+        }
+
+        return reply;
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         console.error(`[${tenantId}] DeepSeek API Error:`, msg);
+        return null;
+    }
+}
+
+/**
+ * Check if the AI reply indicates uncertainty / lack of knowledge,
+ * which means we should try searching the business website.
+ */
+function shouldTryWebsiteFallback(reply: string): boolean {
+    const uncertaintyPatterns = [
+        /אבדוק\s*(ואחזור|ואעדכן)/,     // "I'll check and get back to you"
+        /אין\s*לי\s*מידע/,               // "I don't have information"
+        /לא\s*בטוח/,                      // "I'm not sure"
+        /אני\s*לא\s*יודע/,               // "I don't know"
+        /אצטרך\s*לבדוק/,                 // "I'll need to check"
+        /\[PAUSE\]/,                       // Escalation marker
+    ];
+    return uncertaintyPatterns.some(p => p.test(reply));
+}
+
+// ── Website Search Fallback ──────────────────────────────────────────
+
+/**
+ * Search the business website for an answer to a customer's question.
+ * Used as a fallback when the AI doesn't know the answer from the knowledge base.
+ * Returns the answer string or null if not found.
+ */
+async function searchBusinessWebsite(
+    tenantId: string,
+    question: string
+): Promise<string | null> {
+    try {
+        const supabase = getSupabaseAdmin();
+        const { data: tenant } = await supabase
+            .from("tenants")
+            .select("website_url")
+            .eq("id", tenantId)
+            .single();
+
+        if (!tenant?.website_url) return null;
+
+        const pages = await crawlRelevantPages(tenant.website_url, question);
+        if (pages.length === 0) return null;
+
+        return await answerFromWebsite(pages, question);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        console.error(`[${tenantId}] Website search failed:`, msg);
         return null;
     }
 }

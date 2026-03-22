@@ -31,6 +31,8 @@ interface Tenant {
     lead_webhook_url: string | null;
     whatsapp_connected: boolean;
     whatsapp_phone: string | null;
+    website_url: string | null;
+    website_last_crawled_at: string | null;
     connection_type?: string | null;
     whatsapp_cloud_config?: {
         phone_number_id: string;
@@ -1110,6 +1112,7 @@ export default function TenantPage() {
                             setEditForm={setEditForm}
                             handleSaveSettings={handleSaveSettings}
                             saving={saving}
+                            onTenantUpdate={() => fetchTenant(true)}
                         />
                     </div>
                 )}

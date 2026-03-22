@@ -33,6 +33,7 @@ export async function PATCH(
         "owner_phone",
         "lead_webhook_url",
         "handoff_collect_email",
+        "website_url",
     ];
 
     const updates: Record<string, any> = {};

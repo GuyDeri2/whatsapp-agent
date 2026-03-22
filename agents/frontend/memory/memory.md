@@ -123,3 +123,17 @@
 - ALWAYS use `useRef(createClient())` for Supabase client in client components — never call `createClient()` at component level and use it in dependency arrays
 - Watch for identical ternary branches — they indicate a copy-paste bug where differentiation was intended
 - `dir` HTML attribute only accepts "ltr"/"rtl"/"auto" — never put CSS classes in it
+
+## Website Intelligence Feature — 2026-03-22
+
+### What Was Built
+- Added Website Intelligence section to SettingsTab (URL input + scan button + results preview)
+- New fields on Tenant interface: `website_url`, `website_last_crawled_at`
+- SettingsTab now accepts optional `onTenantUpdate` callback prop for refreshing tenant data after crawl
+- API endpoints used: `POST /api/tenants/[tenantId]/website-crawl` and `POST /api/tenants/[tenantId]/website-crawl/apply`
+
+### Patterns
+- When adding a new section to SettingsTab, keep it inside the `flex-1 order-2 lg:order-1` column div (not outside it) — otherwise JSX nesting breaks
+- Used blue color scheme (bg-blue-500/20, text-blue-400) to differentiate from the emerald business settings section
+- `WebsiteCrawlAnalysis` interface defined locally in SettingsTab — mirrors the API response shape
+- Checkboxes implemented as toggle buttons with CheckSquare/Square icons (no native checkbox styling needed)

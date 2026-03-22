@@ -261,3 +261,44 @@ The unanswered-customer reminder cron in `session-manager/src/server.ts` already
 - Session Manager: cron-based reminders remain as backup layer
 - Both use `sendTextMessage` / `sendCloudMessage` to actually send WhatsApp messages (not just DB inserts)
 - `owner_phone` normalization is consistent across both paths
+
+## Website Intelligence Agent — 2026-03-22
+
+### What was built:
+A system that crawls a business website, extracts structured knowledge using DeepSeek, and feeds it into the AI customer support agent.
+
+### Components:
+1. **DB Migration** (`supabase/migrations/20260322150000_website_intelligence.sql`): Added `website_url` and `website_last_crawled_at` columns to tenants.
+
+2. **Website Crawler** (`src/lib/website-crawler.ts`):
+   - Fetches HTML, extracts text via cheerio, follows internal links (same domain, max 5 pages)
+   - Page priority scoring: about/services/pricing/FAQ/contact get higher scores
+   - SSRF protection: DNS resolution check, blocks private IPs (10.x, 172.16.x, 192.168.x, 127.x, ::1)
+   - Respects robots.txt (basic Disallow rules)
+   - 8s per-page timeout, 45s total, 500KB max per page, 3000 chars extracted per page
+   - `crawlRelevantPages()` — lighter version for AI agent fallback (20s timeout, 3 pages max)
+
+3. **Website Analyzer** (`src/lib/website-analyzer.ts`):
+   - Sends crawled content to DeepSeek with `response_format: { type: 'json_object' }`
+   - Extracts: business_name, description, products, hours, location, contact, 10-20 Q&A pairs
+   - `answerFromWebsite()` — given pages + question, asks DeepSeek if it can answer
+   - Defensive JSON parsing with fallback unwrapping (data, result wrappers)
+
+4. **API Routes**:
+   - `POST /api/tenants/[tenantId]/website-crawl` — crawl + analyze (maxDuration=60)
+   - `POST /api/tenants/[tenantId]/website-crawl/apply` — apply analysis to tenant + knowledge_base (source='website')
+   - Both have auth + tenant ownership checks
+
+5. **AI Agent Website Fallback** (both `src/lib/ai-agent.ts` and `session-manager/src/ai-agent.ts`):
+   - `shouldTryWebsiteFallback()` detects uncertainty patterns in Hebrew AI replies
+   - `searchBusinessWebsite()` fetches tenant's website_url, crawls relevant pages, asks DeepSeek
+   - Cloud API version uses full cheerio-based crawler; session-manager uses lightweight fetch+regex
+   - Fallback runs BEFORE escalation — if website has the answer, customer gets it immediately
+
+6. **Tenant PATCH route** — added `website_url` to allowed fields
+
+### Architecture decisions:
+- Session-manager gets a lightweight inline website fetch (no cheerio dependency) to avoid cross-service imports
+- Website fallback only triggers on specific Hebrew uncertainty phrases, not on every reply
+- `source='website'` in knowledge_base allows clean delete+re-insert on re-crawl
+- Crawl results are NOT auto-applied — user reviews analysis first, then clicks apply
