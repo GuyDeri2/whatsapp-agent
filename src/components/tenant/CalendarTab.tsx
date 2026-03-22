@@ -100,6 +100,11 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
     const [calendlyUrl, setCalendlyUrl] = useState("");
     const [calendlySaving, setCalendlySaving] = useState(false);
 
+    /* ---- Apple Calendar ---- */
+    const [appleId, setAppleId] = useState("");
+    const [appleAppPassword, setAppleAppPassword] = useState("");
+    const [appleSaving, setAppleSaving] = useState(false);
+
     /* ---- Upcoming meetings ---- */
     const [meetings, setMeetings] = useState<Meeting[]>([]);
     const [meetingsLoading, setMeetingsLoading] = useState(true);
@@ -343,6 +348,30 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
             showToast("שגיאה בחיבור Calendly", "error");
         } finally {
             setCalendlySaving(false);
+        }
+    };
+
+    /* ---------------------------------------------------------------- */
+    /* Calendar: connect Apple Calendar (CalDAV)                         */
+    /* ---------------------------------------------------------------- */
+    const handleConnectApple = async () => {
+        if (!appleId.trim() || !appleAppPassword.trim()) return;
+        setAppleSaving(true);
+        try {
+            const res = await fetch(`/api/tenants/${tenant.id}/calendar-integration/apple`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ apple_id: appleId.trim(), app_password: appleAppPassword.trim() }),
+            });
+            if (!res.ok) throw new Error();
+            setCalIntegrations(prev => ({ ...prev, apple: { connected: true, calendar_name: appleId.trim() } }));
+            setAppleId("");
+            setAppleAppPassword("");
+            showToast("Apple Calendar חובר בהצלחה", "success");
+        } catch {
+            showToast("שגיאה בחיבור Apple Calendar — בדוק את הפרטים", "error");
+        } finally {
+            setAppleSaving(false);
         }
     };
 
@@ -836,17 +865,63 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
                         </div>
 
                         {/* Apple */}
-                        <div className="flex items-center gap-4 flex-wrap py-3">
-                            <div className="flex items-center gap-2.5 w-36 shrink-0">
-                                <span className="text-xl leading-none">⬜</span>
+                        <div className="flex items-start gap-4 flex-wrap py-3">
+                            <div className="flex items-center gap-2.5 w-36 shrink-0 pt-1">
+                                <span className="text-xl leading-none">🍎</span>
                                 <span className="text-sm font-medium text-neutral-200">Apple Calendar</span>
                             </div>
-                            <button
-                                disabled
-                                className="inline-flex items-center gap-1.5 text-xs text-neutral-500 border border-white/5 bg-white/[0.02] px-4 py-1.5 rounded-xl cursor-not-allowed"
-                            >
-                                בקרוב
-                            </button>
+                            {calIntegrations.apple?.connected ? (
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl text-xs">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        {calIntegrations.apple.calendar_name ?? "Apple Calendar"}
+                                    </div>
+                                    <button
+                                        onClick={() => handleDisconnectCalendar("apple")}
+                                        className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 px-3 py-1.5 rounded-xl transition-colors"
+                                    >
+                                        <Link2Off className="w-3.5 h-3.5" />
+                                        נתק
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-3 flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <input
+                                            type="email"
+                                            value={appleId}
+                                            onChange={e => setAppleId(e.target.value)}
+                                            placeholder="Apple ID (אימייל)"
+                                            dir="ltr"
+                                            className="flex-1 min-w-48 bg-black/40 border border-white/10 rounded-xl py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-violet-500/50 text-white text-xs placeholder:text-neutral-600"
+                                        />
+                                        <input
+                                            type="password"
+                                            value={appleAppPassword}
+                                            onChange={e => setAppleAppPassword(e.target.value)}
+                                            placeholder="סיסמה ייעודית לאפליקציה"
+                                            dir="ltr"
+                                            className="flex-1 min-w-48 bg-black/40 border border-white/10 rounded-xl py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-violet-500/50 text-white text-xs placeholder:text-neutral-600"
+                                        />
+                                        <button
+                                            onClick={handleConnectApple}
+                                            disabled={appleSaving || !appleId.trim() || !appleAppPassword.trim()}
+                                            className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white px-4 py-1.5 rounded-xl font-medium text-xs transition-colors"
+                                        >
+                                            <Link2 className="w-3.5 h-3.5" />
+                                            {appleSaving ? "מחבר..." : "חבר"}
+                                        </button>
+                                    </div>
+                                    <div className="text-[11px] text-neutral-500 leading-relaxed bg-white/[0.02] border border-white/5 rounded-xl p-3" dir="rtl">
+                                        <p className="font-medium text-neutral-400 mb-1">כדי לחבר את יומן Apple, צריך ליצור סיסמה ייעודית לאפליקציה:</p>
+                                        <ol className="list-decimal list-inside space-y-0.5 mr-1">
+                                            <li>היכנס ל-<span dir="ltr" className="text-violet-400">account.apple.com</span></li>
+                                            <li>{`לחץ על 'כניסה ואבטחה' ← 'סיסמאות ייעודיות לאפליקציות'`}</li>
+                                            <li>צור סיסמה חדשה והעתק אותה לכאן</li>
+                                        </ol>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

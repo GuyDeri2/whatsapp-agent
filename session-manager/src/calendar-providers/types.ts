@@ -64,4 +64,4 @@ export interface CalendarProvider {
     refreshTokenIfNeeded(tenantId: string): Promise<string>; // returns current access_token
 }
 
-export type ProviderName = "google" | "outlook" | "calendly";
+export type ProviderName = "google" | "outlook" | "calendly" | "apple";

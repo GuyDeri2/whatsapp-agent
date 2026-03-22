@@ -9,6 +9,7 @@ import type { CalendarProvider, ProviderName } from "./types";
 import { googleCalendarProvider } from "./google";
 import { calendlyProvider } from "./calendly";
 import { outlookCalendarProvider } from "./outlook";
+import { appleCalendarProvider } from "./apple";
 
 function getSupabase() {
     return createClient(
@@ -43,6 +44,8 @@ export async function getCalendarProvider(
             return { provider: calendlyProvider, name };
         case "outlook":
             return { provider: outlookCalendarProvider, name };
+        case "apple":
+            return { provider: appleCalendarProvider, name };
         default:
             return null;
     }
