@@ -105,6 +105,9 @@ const SettingsTab = React.memo(function SettingsTab({
 
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
+                if (errData.error === "scan_limit_reached") {
+                    throw new Error("scan_limit_reached");
+                }
                 throw new Error(errData.error || "scan_failed");
             }
 
@@ -114,7 +117,9 @@ const SettingsTab = React.memo(function SettingsTab({
             setScanProgress("");
         } catch (err) {
             const msg = err instanceof Error ? err.message : "scan_failed";
-            if (msg.includes("crawl_failed") || msg.includes("fetch")) {
+            if (msg.includes("scan_limit_reached")) {
+                setScanError("הגעת למגבלת הסריקות החודשית. פנה למנהל המערכת לקבלת סריקות נוספות.");
+            } else if (msg.includes("crawl_failed") || msg.includes("fetch")) {
                 setScanError("לא הצלחנו לגשת לאתר. בדוק שהכתובת נכונה.");
             } else if (msg.includes("extract") || msg.includes("empty")) {
                 setScanError("לא הצלחנו לחלץ מידע מספיק מהאתר.");

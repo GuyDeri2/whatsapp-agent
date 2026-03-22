@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Building2, MessageSquare, Wifi, WifiOff } from "lucide-react";
+import { GrantScansButton } from "./GrantScansButton";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,7 @@ export default async function CustomerDetailPage({
                                     <th className="px-6 py-4 whitespace-nowrap">מצב סוכן</th>
                                     <th className="px-6 py-4 whitespace-nowrap">WhatsApp</th>
                                     <th className="px-6 py-4 whitespace-nowrap">הודעות</th>
+                                    <th className="px-6 py-4 whitespace-nowrap">סריקות אתר</th>
                                     <th className="px-6 py-4 whitespace-nowrap">פתח</th>
                                 </tr>
                             </thead>
@@ -182,6 +184,14 @@ export default async function CustomerDetailPage({
                                             </td>
                                             <td className="px-6 py-4 text-neutral-400">
                                                 {messageCountByTenant[tenant.id] ?? 0}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <GrantScansButton
+                                                    tenantId={tenant.id}
+                                                    scansUsed={tenant.website_scans_used ?? 0}
+                                                    scansLimit={10 + (tenant.website_scans_bonus ?? 0)}
+                                                    scansMonth={tenant.website_scans_month ?? ""}
+                                                />
                                             </td>
                                             <td className="px-6 py-4">
                                                 <Link
