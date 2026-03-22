@@ -192,3 +192,35 @@ WHY: Every deploy killed WhatsApp connections because `clearAuthState` wiped cre
 - History: 10 → 20 messages, includes `created_at` for gap detection
 - max_tokens: Cloud API & Baileys = 300, Session-Manager cron = 500
 - Each service remains separate (different imports, different contexts) but identical behavior
+
+## Full Backend Audit — 2026-03-22
+
+### Bugs Fixed:
+1. **Missing tenant_id filter in processStatusUpdate** (`webhooks/whatsapp-cloud/route.ts`): Status update query `.eq("wa_message_id", status.id)` had no `tenant_id` filter — cross-tenant data corruption possible. Added `.eq("tenant_id", config.tenant_id)`.
+
+2. **cloud-signup/callback (global) missing 3 features** (`/api/cloud-signup/callback/route.ts`): This OAuth callback path was missing: (a) long-lived token exchange (stored short-lived ~1h token), (b) Baileys mutual exclusion disconnect, (c) `connection_type: 'cloud'` in tenant update. All 3 fixed to match the other two callback paths.
+
+3. **CORS `origin: "*"` with `credentials: true`** (`session-manager/src/server.ts`): Invalid combination — browsers reject `Access-Control-Allow-Credentials: true` when origin is `*`. Removed `credentials: true` since all auth is via Bearer token header, not cookies.
+
+4. **`_reminderSentAt` Map unbounded growth** (`session-manager/src/server.ts`): Map grew forever — one entry per conversation that got a reminder. Added cleanup interval (every 30 min, evicts entries older than debounce window).
+
+5. **Dead code `phoneWarning`** (`tenants/[tenantId]/route.ts`): Variable declared as `null`, never assigned to, always returned as `null` in response. Removed.
+
+6. **`_userUriCache` unbounded growth** (`calendar-providers/calendly.ts`): Cache keyed by token with no eviction — grows with each token rotation. Added TTL (1 hour) and size-based eviction when cache exceeds 50 entries.
+
+### Audit Coverage (reviewed, no issues found):
+- All 30 API route files in `src/app/api/`
+- All 5 lib files in `src/lib/`
+- All 11 session-manager source files
+- Auth patterns (getUser() used correctly everywhere)
+- Tenant ownership verification (present on all tenant-scoped routes)
+- Input validation (present where needed)
+- Error handling (Supabase errors checked consistently)
+- Multi-tenant isolation (tenant_id filters present on all queries)
+
+### Patterns Confirmed Working:
+- Webhook signature verification uses `timingSafeEqual` correctly
+- OAuth state parameters use HMAC signing + 10-min expiry
+- Rate limiting and deduplication in webhook route with proper cleanup intervals
+- Learning engine correctly validates AI-generated IDs before mutations
+- Calendar providers handle token refresh and error cases properly

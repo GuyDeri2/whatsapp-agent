@@ -37,3 +37,23 @@
 
 ## Improvement Note (2026-03-17)
 [Score: 2/10] For credential persistence investigations, start with direct database queries checking timestamps, registered flags, and backup consistency.
+
+## Full Audit — 2026-03-22
+
+### Findings & Fixes
+1. **CRITICAL: `lid_phone_map` RLS was `USING(true)`** — any authenticated user could read/write all LID mappings. Fixed to service_role only.
+2. **Missing index: `conversations(tenant_id, is_paused, is_group)`** — partial index added for the unanswered-reminder cron query pattern (runs every 5 min).
+3. **Missing index: `agent_learnings(tenant_id)`** — table exists from init but had no index. Added for safety.
+4. **Missing index: `whatsapp_cloud_config(token_expires_at)`** — partial index for token refresh cron query.
+5. **Inefficient query: `learning-engine.ts`** used `conversations.tenant_id` filter via JOIN instead of `messages.tenant_id` directly (which is indexed). Fixed.
+6. **`checkContactFilter` fetches all rules** — intentional due to fuzzy phone matching (local vs international). Not fixable without normalizing all stored phone numbers.
+7. **N+1 in unanswered-reminder cron** — each paused conversation queries `messages` separately. Low impact (cron, not user-facing). Could batch but complexity not worth it.
+8. **`agent_learnings` table is unused** — no code references it. Learning engine writes to `knowledge_base`. Consider dropping in future cleanup.
+9. **`calendar_integrations`, `availability_rules`, `meeting_settings`, `meetings`** — no service_role policy but service_role bypasses RLS anyway. Consistent but implicit.
+
+### Lessons
+- [2026-03-22] Always audit RLS policies with `USING(true)` — they grant access to ALL authenticated users, not just service_role.
+- [2026-03-22] Partial indexes (`WHERE condition`) are excellent for cron queries that filter on boolean flags.
+- [2026-03-22] When a column like `tenant_id` exists on both parent and child tables, always filter on the child table directly (avoids unnecessary JOINs).
+- [2026-03-22] Phone number normalization inconsistency prevents DB-level exact matching. Convention exists but enforcement is application-side only.
+- [2026-03-22] UNIQUE constraints create implicit indexes — no need to add explicit indexes on the same column set.

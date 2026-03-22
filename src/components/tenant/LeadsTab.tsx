@@ -13,7 +13,7 @@ interface Lead {
     conversation_id: string;
 }
 
-const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: any }) {
+const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: { id: string; lead_webhook_url?: string | null } }) {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

@@ -10,18 +10,20 @@ interface Tenant {
     agent_mode: "learning" | "active" | "paused";
 }
 
+type EditForm = {
+    business_name: string;
+    description: string;
+    products: string;
+    target_customers: string;
+    agent_respond_to_saved_contacts: boolean;
+    handoff_collect_email: boolean;
+    owner_phone: string;
+};
+
 interface SettingsTabProps {
     tenant: Tenant;
-    editForm: {
-        business_name: string;
-        description: string;
-        products: string;
-        target_customers: string;
-        agent_respond_to_saved_contacts: boolean;
-        handoff_collect_email: boolean;
-        owner_phone: string;
-    };
-    setEditForm: React.Dispatch<React.SetStateAction<any>>;
+    editForm: EditForm;
+    setEditForm: React.Dispatch<React.SetStateAction<EditForm>>;
     handleSaveSettings: (e: React.FormEvent) => Promise<void>;
     saving: boolean;
 }

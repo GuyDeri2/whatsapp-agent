@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { exchangeForLongLivedToken } from '@/lib/whatsapp-cloud';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -176,8 +177,33 @@ export async function GET(req: Request) {
       return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_waba_setup&detail=${detail}`);
     }
 
-    // Use the user access token for API calls
-    const systemUserAccessToken = userAccessToken;
+    // Mutual exclusion: disconnect Baileys if active
+    const BAILEYS_SERVICE_URL = process.env.BAILEYS_SERVICE_URL;
+    const SESSION_MANAGER_SECRET = process.env.SESSION_MANAGER_SECRET;
+    if (BAILEYS_SERVICE_URL && SESSION_MANAGER_SECRET) {
+      try {
+        await fetch(`${BAILEYS_SERVICE_URL}/sessions/${tenantId}/stop`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SESSION_MANAGER_SECRET}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ clearData: true }),
+        });
+      } catch { /* non-fatal */ }
+    }
+
+    // Exchange for long-lived token (~60 days instead of ~1 hour)
+    let finalToken = userAccessToken;
+    let tokenExpiresAt: string | null = null;
+    const longLived = await exchangeForLongLivedToken(userAccessToken);
+    if (longLived) {
+      finalToken = longLived.token;
+      tokenExpiresAt = longLived.expiresAt.toISOString();
+      console.log(`[${tenantId}] Exchanged for long-lived token, expires: ${tokenExpiresAt}`);
+    } else {
+      console.warn(`[${tenantId}] Could not exchange for long-lived token — using short-lived token`);
+    }
 
     // Generate a webhook verification token
     const webhookVerifyToken = crypto.randomBytes(32).toString('hex');
@@ -187,10 +213,11 @@ export async function GET(req: Request) {
     const { error: upsertError } = await admin.from('whatsapp_cloud_config').upsert(
       {
         tenant_id: tenantId,
-        access_token: systemUserAccessToken,
+        access_token: finalToken,
         phone_number_id: phoneNumberId,
         waba_id: wabaId,
         webhook_verify_token: webhookVerifyToken,
+        token_expires_at: tokenExpiresAt,
       },
       { onConflict: 'tenant_id' }
     );
@@ -204,7 +231,7 @@ export async function GET(req: Request) {
     let displayPhone: string | null = null;
     try {
       const phoneInfoRes = await fetch(
-        `https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name&access_token=${systemUserAccessToken}`
+        `https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name&access_token=${finalToken}`
       );
       if (phoneInfoRes.ok) {
         const phoneInfo = await phoneInfoRes.json();
@@ -218,6 +245,7 @@ export async function GET(req: Request) {
     await admin.from('tenants').update({
       whatsapp_connected: true,
       whatsapp_phone: displayPhone,
+      connection_type: 'cloud',
     }).eq('id', tenantId);
 
     // Subscribe WABA to our webhook
@@ -229,7 +257,7 @@ export async function GET(req: Request) {
           {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${systemUserAccessToken}`,
+              'Authorization': `Bearer ${finalToken}`,
               'Content-Type': 'application/json',
             },
           }

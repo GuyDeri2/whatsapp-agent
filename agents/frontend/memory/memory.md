@@ -99,3 +99,27 @@
 - All 3 AI agents now share the same 14 Hebrew rules and behavior
 - Frontend doesn't call AI directly, but should know: max_tokens is 300 for real-time replies, 20-message history with 40-min gap detection
 - No frontend changes needed for this unification
+
+## Frontend Audit — 2026-03-22
+
+### Bugs Fixed
+- **`createClient()` instability**: `createClient()` returns a new instance per render. Using it as a useEffect dependency causes infinite re-renders. Fix: use `useRef(createClient())` for stable references. Found in CapabilitiesTab (causing re-fetches), login page (re-loading Google SDK script).
+- **`dir="ltr text-right"`** in ContactsTab: `dir` attribute contained a CSS class by mistake. Split into `dir="ltr"` + `className="text-right"`.
+- **Identical ternary branches** in CapabilitiesTab: `learning.source === "manual" ? "bg-emerald-500/50" : "bg-emerald-500/50"` — both branches identical, so learned vs manual items looked the same. Fixed learned items to use blue color.
+- **`(data as any).owner_phone` and `agent_respond_to_saved_contacts`**: `owner_phone` and `lead_webhook_url` were missing from Tenant interface, forcing unsafe `as any` casts. Added to interface.
+- **`getSession()` deprecation**: Landing page used `getSession()` instead of `getUser()` per security hardening requirements.
+- **Missing error handling**: Dashboard `handleCreate` had no error feedback on failure.
+
+### Dead Code Removed
+- `qrPollingRef` — leftover from Baileys QR polling era, never used.
+
+### Type Safety Improvements
+- CapabilitiesTab: `tenant: any` -> `{ id: string }`
+- LeadsTab: `tenant: any` -> `{ id: string; lead_webhook_url?: string | null }`
+- CalendarTab: `tenant: any` -> `{ id: string }`
+- SettingsTab: `setEditForm: React.Dispatch<React.SetStateAction<any>>` -> properly typed EditForm
+
+### Lessons Learned
+- ALWAYS use `useRef(createClient())` for Supabase client in client components — never call `createClient()` at component level and use it in dependency arrays
+- Watch for identical ternary branches — they indicate a copy-paste bug where differentiation was intended
+- `dir` HTML attribute only accepts "ltr"/"rtl"/"auto" — never put CSS classes in it

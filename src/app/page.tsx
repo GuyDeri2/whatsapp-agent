@@ -9,16 +9,16 @@ import { BrainCircuit, Zap, ShieldCheck, Bell, Bot, ArrowRight, Sparkles } from 
 
 export default function LandingPage() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const supabase = createClient();
     const { scrollY } = useScroll();
     const y1 = useTransform(scrollY, [0, 1000], [0, 200]);
     const y2 = useTransform(scrollY, [0, 1000], [0, -200]);
 
     useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setIsLoggedIn(!!session);
+        const supabase = createClient();
+        supabase.auth.getUser().then(({ data: { user } }) => {
+            setIsLoggedIn(!!user);
         });
-    }, [supabase.auth]);
+    }, []);
 
     return (
         <div className="min-h-screen bg-transparent text-white selection:bg-accent/30 selection:text-white overflow-hidden" dir="rtl">

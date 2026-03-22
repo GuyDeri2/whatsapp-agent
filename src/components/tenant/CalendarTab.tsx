@@ -73,7 +73,7 @@ function uid() {
 /* CalendarTab                                                         */
 /* ------------------------------------------------------------------ */
 
-const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: any }) {
+const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: string } }) {
     /* ---- Meeting settings ---- */
     const [settings, setSettings] = useState<MeetingSettings>(DEFAULT_SETTINGS);
     const [settingsLoading, setSettingsLoading] = useState(true);

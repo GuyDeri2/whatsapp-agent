@@ -27,6 +27,8 @@ interface Tenant {
     agent_filter_mode: "all" | "whitelist" | "blacklist";
     agent_respond_to_saved_contacts: boolean;
     handoff_collect_email: boolean;
+    owner_phone: string | null;
+    lead_webhook_url: string | null;
     whatsapp_connected: boolean;
     whatsapp_phone: string | null;
     connection_type?: string | null;
@@ -181,8 +183,6 @@ export default function TenantPage() {
     const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     // Track selected conversation id in a ref so realtime callbacks always see current value
     const selectedConvIdRef = useRef<string | null>(null);
-    // QR polling interval ref — allows cleanup on unmount
-    const qrPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const showToast = (message: string, type: "success" | "error") => {
         setToast({ message, type });
     };
@@ -195,10 +195,10 @@ export default function TenantPage() {
             description: data.description || "",
             products: data.products || "",
             target_customers: data.target_customers || "",
-            agent_respond_to_saved_contacts: (data as any).agent_respond_to_saved_contacts ?? true,
+            agent_respond_to_saved_contacts: data.agent_respond_to_saved_contacts ?? true,
             handoff_collect_email: data.handoff_collect_email ?? false,
             owner_phone: (() => {
-                const p = (data as any).owner_phone || "";
+                const p = data.owner_phone || "";
                 if (p.startsWith("972") && p.length === 12) return "0" + p.substring(3);
                 return p;
             })(),
@@ -459,11 +459,6 @@ export default function TenantPage() {
             if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
             document.removeEventListener("visibilitychange", handleVisibilityChange);
             clearInterval(pollingInterval);
-            // Clean up QR polling interval on unmount
-            if (qrPollingRef.current) {
-                clearInterval(qrPollingRef.current);
-                qrPollingRef.current = null;
-            }
         };
     }, [supabase, tenantId, fetchTenant, fetchConversations, fetchContactRules]);
 

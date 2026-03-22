@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -26,10 +26,10 @@ export default function LoginPage() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const router = useRouter();
-    const supabase = createClient();
+    const supabaseRef = useRef(createClient());
 
     const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
-        const { error: signInError } = await supabase.auth.signInWithIdToken({
+        const { error: signInError } = await supabaseRef.current.auth.signInWithIdToken({
             provider: 'google',
             token: response.credential,
         });
@@ -38,7 +38,7 @@ export default function LoginPage() {
         } else {
             window.location.href = "/dashboard";
         }
-    }, [supabase]);
+    }, []);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -77,7 +77,7 @@ export default function LoginPage() {
         setLoading(true);
         setError(null);
 
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+        const { error: signInError } = await supabaseRef.current.auth.signInWithPassword({
             email,
             password,
         });

@@ -43,7 +43,6 @@ export async function PATCH(
     }
 
     // Normalize owner_phone before saving
-    let phoneWarning: string | null = null;
     if (updates.owner_phone !== undefined && updates.owner_phone !== "") {
         let digits = String(updates.owner_phone).replace(/[^\d]/g, "");
         if (digits.startsWith("0") && digits.length === 10) {
@@ -66,7 +65,7 @@ export async function PATCH(
     if (!tenant)
         return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    return NextResponse.json({ tenant, phoneWarning });
+    return NextResponse.json({ tenant });
 }
 
 // DELETE /api/tenants/[tenantId] — delete tenant

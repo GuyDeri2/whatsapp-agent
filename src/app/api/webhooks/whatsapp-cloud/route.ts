@@ -420,7 +420,8 @@ async function processStatusUpdate(
     const { error } = await supabase
         .from("messages")
         .update({ status: status.status })
-        .eq("wa_message_id", status.id);
+        .eq("wa_message_id", status.id)
+        .eq("tenant_id", config.tenant_id);
 
     if (error) {
         // Not critical — message might not exist yet (race condition)

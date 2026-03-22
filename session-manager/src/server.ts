@@ -112,7 +112,7 @@ async function sendCloudMessage(tenantId: string, to: string, text: string): Pro
 }
 
 // ─── Middleware ────────────────────────────────────────────────────────
-app.use(cors({ origin: "*", credentials: true }));
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 function authMiddleware(
@@ -254,6 +254,14 @@ cron.schedule("*/2 * * * *", async () => {
 // sent > 10 minutes ago, then send the owner a WhatsApp reminder.
 const _reminderSentAt = new Map<string, number>();
 const REMINDER_DEBOUNCE_MS = 30 * 60 * 1000;
+
+// Clean up stale reminder entries every 30 minutes to prevent unbounded Map growth
+setInterval(() => {
+    const cutoff = Date.now() - REMINDER_DEBOUNCE_MS;
+    for (const [id, ts] of _reminderSentAt) {
+        if (ts < cutoff) _reminderSentAt.delete(id);
+    }
+}, 30 * 60 * 1000);
 
 cron.schedule("*/5 * * * *", async () => {
     try {

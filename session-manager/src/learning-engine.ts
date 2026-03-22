@@ -51,10 +51,11 @@ export async function runBatchLearning(tenantId: string, hoursBack: number = 24)
     const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString();
 
     // We only want conversations where the owner actually participated
+    // Use messages.tenant_id directly (indexed) instead of joining through conversations.tenant_id
     const { data: recentMessages, error: msgError } = await supabase
         .from("messages")
         .select("conversation_id, role, content, created_at, conversations!inner(phone_number, contact_name)")
-        .eq("conversations.tenant_id", tenantId)
+        .eq("tenant_id", tenantId)
         .gte("created_at", since)
         .order("conversation_id", { ascending: true })
         .order("created_at", { ascending: true });

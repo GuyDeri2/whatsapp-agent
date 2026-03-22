@@ -234,7 +234,7 @@ const ContactsTab = React.memo(function ContactsTab({
                                                         {isAllow ? <ShieldCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <div className="font-medium text-neutral-200 truncate" dir="ltr text-right">
+                                                        <div className="font-medium text-neutral-200 truncate text-right" dir="ltr">
                                                             {formatPhone(rule.phone_number)}
                                                         </div>
                                                         {rule.contact_name && (

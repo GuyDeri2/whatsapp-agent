@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2 } from "lucide-react";
 
@@ -12,8 +12,15 @@ interface AgentLearning {
     created_at: string;
 }
 
-const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant: any }) {
-    const supabase = createClient();
+interface UnansweredQuestion {
+    id: string;
+    user_question: string;
+    contact: string;
+    date: string;
+}
+
+const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant: { id: string } }) {
+    const supabaseRef = useRef(createClient());
     const [learnings, setLearnings] = useState<AgentLearning[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -24,13 +31,13 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
     const [isSaving, setIsSaving] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
 
-    const [unanswered, setUnanswered] = useState<any[]>([]);
+    const [unanswered, setUnanswered] = useState<UnansweredQuestion[]>([]);
     const [dismissedIds, setDismissedIds] = useState<string[]>([]);
 
-    const fetchLearnings = async () => {
+    const fetchLearnings = useCallback(async () => {
         if (!tenant?.id) return;
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await supabaseRef.current
             .from("knowledge_base")
             .select("*")
             .eq("tenant_id", tenant.id)
@@ -41,7 +48,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
             setLearnings(data as AgentLearning[]);
         }
         setLoading(false);
-    };
+    }, [tenant?.id]);
 
     useEffect(() => {
         const fetchAll = async () => {
@@ -57,12 +64,12 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
             await Promise.all(promises);
         };
         fetchAll();
-    }, [tenant?.id, supabase]);
+    }, [tenant?.id, fetchLearnings]);
 
     const handleSaveEdit = async (id: string) => {
         setIsUpdating(true);
         try {
-            const { error } = await supabase.from("knowledge_base").update({
+            const { error } = await supabaseRef.current.from("knowledge_base").update({
                 question: editForm.question,
                 answer: editForm.answer,
                 category: editForm.category,
@@ -83,7 +90,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
     const handleDelete = async (id: string) => {
         if (!confirm("האם למחוק יכולת זו? הסוכן לא ישתמש בה יותר.")) return;
         setLearnings(prev => prev.filter(l => l.id !== id)); // Instant
-        const { error } = await supabase.from("knowledge_base").delete().eq("id", id);
+        const { error } = await supabaseRef.current.from("knowledge_base").delete().eq("id", id);
         if (error) {
             fetchLearnings(); // Revert
             alert("שגיאה במחיקה");
@@ -105,7 +112,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
         setIsAdding(false);
         setEditForm({ question: "", answer: "", category: "general" });
 
-        const { error } = await supabase.from("knowledge_base").insert({
+        const { error } = await supabaseRef.current.from("knowledge_base").insert({
             tenant_id: tenant.id,
             question: tempItem.question,
             answer: tempItem.answer,
@@ -345,7 +352,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                                                 <div key={learning.id} className="relative group bg-black/40 border border-white/5 hover:border-white/10 rounded-2xl p-5 transition-all duration-300 overflow-hidden">
 
                                                     {/* Accent border left */}
-                                                    <div className={`absolute right-0 top-0 bottom-0 w-1 ${learning.source === "manual" ? "bg-emerald-500/50" : "bg-emerald-500/50"}`}></div>
+                                                    <div className={`absolute right-0 top-0 bottom-0 w-1 ${learning.source === "manual" ? "bg-emerald-500/50" : "bg-blue-500/50"}`}></div>
 
                                                     {editingId === learning.id ? (
                                                         <div className="space-y-3 animate-in fade-in pr-3 flex flex-col items-stretch">
@@ -398,7 +405,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                                                                     <Calendar className="w-3 h-3 opacity-70" />
                                                                     {new Date(learning.created_at).toLocaleDateString("he-IL")}
                                                                 </div>
-                                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/5 ${learning.source === "manual" ? "text-emerald-400" : "text-emerald-400"}`}>
+                                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/5 ${learning.source === "manual" ? "text-emerald-400" : "text-blue-400"}`}>
                                                                     {learning.source === "manual" ? (
                                                                         <><UserCheck className="w-3 h-3" /> נוסף ידנית</>
                                                                     ) : (

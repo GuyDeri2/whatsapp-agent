@@ -67,12 +67,23 @@ async function calendlyPost(path: string, body: unknown, token: string) {
  * Get the current user's URI (needed for most Calendly API calls).
  * Cached per token to avoid repeated calls.
  */
-const _userUriCache = new Map<string, string>();
+const _userUriCache = new Map<string, { uri: string; cachedAt: number }>();
+const USER_URI_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 async function getUserUri(token: string): Promise<string> {
-    if (_userUriCache.has(token)) return _userUriCache.get(token)!;
+    const cached = _userUriCache.get(token);
+    if (cached && Date.now() - cached.cachedAt < USER_URI_CACHE_TTL_MS) return cached.uri;
     const data = await calendlyGet("/users/me", token) as { resource: { uri: string } };
     const uri = data.resource.uri;
-    _userUriCache.set(token, uri);
+    _userUriCache.set(token, { uri, cachedAt: Date.now() });
+
+    // Evict expired entries to prevent unbounded growth
+    if (_userUriCache.size > 50) {
+        for (const [key, val] of _userUriCache) {
+            if (Date.now() - val.cachedAt >= USER_URI_CACHE_TTL_MS) _userUriCache.delete(key);
+        }
+    }
+
     return uri;
 }
 

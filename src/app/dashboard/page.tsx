@@ -68,15 +68,22 @@ export default function Dashboard() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
-    const res = await fetch("/api/tenants", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(formData),
-    });
-    if (res.ok) {
-      setShowForm(false);
-      setFormData({ business_name: "", description: "", products: "", target_customers: "" });
-      await fetchTenants();
+    try {
+      const res = await fetch("/api/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      if (res.ok) {
+        setShowForm(false);
+        setFormData({ business_name: "", description: "", products: "", target_customers: "" });
+        await fetchTenants();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "שגיאה ביצירת עסק");
+      }
+    } catch {
+      alert("שגיאה ביצירת עסק");
     }
     setCreating(false);
   };
