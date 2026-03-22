@@ -74,8 +74,14 @@ export default function Dashboard() {
         body: JSON.stringify(formData),
       });
       if (res.ok) {
+        const data = await res.json();
         setShowForm(false);
         setFormData({ business_name: "", description: "", products: "", target_customers: "" });
+        // Navigate directly to the new tenant — the onboarding wizard will show automatically
+        if (data.tenant?.id) {
+          router.push(`/tenant/${data.tenant.id}`);
+          return;
+        }
         await fetchTenants();
       } else {
         const data = await res.json().catch(() => ({}));

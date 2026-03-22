@@ -12,6 +12,7 @@ import { ContactsTab } from "@/components/tenant/ContactsTab";
 import { CapabilitiesTab } from "@/components/tenant/CapabilitiesTab";
 import { LeadsTab } from "@/components/tenant/LeadsTab";
 import { CalendarTab } from "@/components/tenant/CalendarTab";
+import { OnboardingWizard } from "@/components/tenant/OnboardingWizard";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -33,6 +34,8 @@ interface Tenant {
     whatsapp_phone: string | null;
     website_url: string | null;
     website_last_crawled_at: string | null;
+    agent_prompt: string | null;
+    setup_completed: boolean;
     connection_type?: string | null;
     whatsapp_cloud_config?: {
         phone_number_id: string;
@@ -899,6 +902,40 @@ export default function TenantPage() {
                         <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
                         <span className="text-sm">טוען נתוני עסק...</span>
                     </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Onboarding wizard for new tenants ──
+    if (tenant.setup_completed === false) {
+        return (
+            <div className="min-h-screen text-neutral-200 font-sans selection:bg-emerald-500/30 relative overflow-x-hidden" style={{ background: "#080810" }}>
+                {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+                    <div className="absolute top-[-15%] right-[-10%] w-[500px] h-[500px] rounded-full opacity-15" style={{ background: "radial-gradient(circle, #10b981 0%, transparent 70%)", filter: "blur(80px)" }} />
+                    <div className="absolute bottom-[-15%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-8" style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)", filter: "blur(100px)" }} />
+                </div>
+                <div className="relative z-10">
+                    <OnboardingWizard
+                        tenant={{
+                            id: tenant.id,
+                            business_name: tenant.business_name,
+                            description: tenant.description,
+                            products: tenant.products,
+                            target_customers: tenant.target_customers,
+                            website_url: tenant.website_url,
+                            agent_prompt: tenant.agent_prompt,
+                        }}
+                        onComplete={async () => {
+                            await fetch(`/api/tenants/${tenantId}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ setup_completed: true }),
+                            });
+                            fetchTenant(true);
+                        }}
+                    />
                 </div>
             </div>
         );

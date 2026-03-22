@@ -34,6 +34,7 @@ export async function PATCH(
         "lead_webhook_url",
         "handoff_collect_email",
         "website_url",
+        "setup_completed",
     ];
 
     const updates: Record<string, any> = {};
