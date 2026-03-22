@@ -224,3 +224,40 @@ WHY: Every deploy killed WhatsApp connections because `clearAuthState` wiped cre
 - Rate limiting and deduplication in webhook route with proper cleanup intervals
 - Learning engine correctly validates AI-generated IDs before mutations
 - Calendar providers handle token refresh and error cases properly
+
+## Escalation to Human (Owner Notification) — 2026-03-22
+
+### Problem Found:
+When the AI bot decided to hand off to a human (responding with `[PAUSE]`), the system only paused the conversation in DB (`is_paused: true`). The business owner was NOT notified immediately via WhatsApp. The only notification was a cron-based "unanswered customer" reminder that ran every 5 minutes with a 10-minute delay — meaning the owner could wait 10+ minutes before knowing a customer needs help.
+
+### Fix Implemented:
+Added immediate WhatsApp notification to the business owner when `[PAUSE]` is detected in Cloud API webhook route:
+
+1. **`notifyOwnerOfEscalation()`** in `src/app/api/webhooks/whatsapp-cloud/route.ts`:
+   - Fetches `owner_phone` from `tenants` table (with tenant_id filter)
+   - Normalizes phone number (handles `0xx` local Israeli → `972xx` international)
+   - Validates owner_phone exists and is valid; logs warning and skips if empty/invalid
+   - Guards against sending notification to the owner if they ARE the customer
+   - Generates AI summary via `summarizeConversationForHandoff()` (best-effort, non-blocking)
+   - Sends formatted notification with customer name, phone, and conversation summary
+   - Entire function is wrapped in try/catch — fails silently (best-effort, never breaks main flow)
+
+2. **`summarizeConversationForHandoff()`** added to `src/lib/ai-agent.ts`:
+   - Mirrors the session-manager version but uses the Cloud API's Supabase admin client
+   - Fetches last 20 messages from conversation (filtered by tenant_id)
+   - Asks DeepSeek to summarize in Hebrew (3 bullet points max)
+   - 15-second timeout to avoid blocking the webhook response
+   - Returns empty string on failure (non-fatal)
+
+3. **`normalizeOwnerPhone()`** helper:
+   - Strips non-digit characters, converts Israeli local (10-digit starting with 0) to 972 prefix
+   - Returns null for empty or too-short numbers
+
+### Session Manager (Cron) — Already Working:
+The unanswered-customer reminder cron in `session-manager/src/server.ts` already sends reminders to owners for paused conversations. This remains as a **second layer** — if the immediate notification fails or the owner doesn't respond within 10 minutes, the cron sends a follow-up reminder.
+
+### Architecture Note:
+- Cloud API: immediate notification happens in the webhook after() callback
+- Session Manager: cron-based reminders remain as backup layer
+- Both use `sendTextMessage` / `sendCloudMessage` to actually send WhatsApp messages (not just DB inserts)
+- `owner_phone` normalization is consistent across both paths

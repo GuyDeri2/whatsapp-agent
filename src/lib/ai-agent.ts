@@ -267,3 +267,64 @@ export async function generateReply(
         return null;
     }
 }
+
+// ── Summarize conversation for owner handoff notification ────────────
+
+/**
+ * Summarize a conversation for the owner when the bot escalates to a human.
+ * Returns a short Hebrew summary (3 bullet points max), or empty string on failure.
+ */
+export async function summarizeConversationForHandoff(
+    tenantId: string,
+    conversationId: string
+): Promise<string> {
+    const supabase = getSupabaseAdmin();
+
+    const { data: messages } = await supabase
+        .from("messages")
+        .select("role, content")
+        .eq("conversation_id", conversationId)
+        .eq("tenant_id", tenantId)
+        .in("role", ["user", "assistant"])
+        .order("created_at", { ascending: true })
+        .limit(20);
+
+    if (!messages || messages.length === 0) return "";
+
+    const transcript = messages
+        .map((m) => {
+            const label = m.role === "user" ? "לקוח" : "בוט";
+            return `${label}: ${m.content}`;
+        })
+        .join("\n");
+
+    const AI_TIMEOUT_MS = 15_000;
+    try {
+        const completion = await Promise.race([
+            getOpenAI().chat.completions.create({
+                model: "deepseek-chat",
+                messages: [
+                    {
+                        role: "system",
+                        content:
+                            "אתה עוזר שמסכם שיחות WhatsApp לבעל עסק. סכם את השיחה הבאה בעברית בצורה קצרה ועניינית. כלול: מה הלקוח ביקש, מה כבר נענה, ולמה הועבר לנציג. עד 3 נקודות קצרות עם •.",
+                    },
+                    {
+                        role: "user",
+                        content: `סכם את השיחה הבאה:\n\n${transcript}`,
+                    },
+                ],
+                max_tokens: 200,
+                temperature: 0.3,
+            }),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("AI summarize timeout")), AI_TIMEOUT_MS)
+            ),
+        ]);
+        return completion.choices[0]?.message?.content?.trim() ?? "";
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        console.error(`[${tenantId}] Failed to summarize conversation:`, msg);
+        return "";
+    }
+}

@@ -11,7 +11,7 @@
 
 import { NextResponse, after } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { generateReply } from "@/lib/ai-agent";
+import { generateReply, summarizeConversationForHandoff } from "@/lib/ai-agent";
 import {
     verifyWebhookSignature,
     getCloudConfigByPhoneId,
@@ -364,6 +364,9 @@ async function generateAndSendAiReply(
                 .update({ is_paused: true })
                 .eq("id", conversationId);
             console.log(`[${tenantId}] Conversation paused — handed off to human`);
+
+            // Notify the business owner immediately via WhatsApp
+            await notifyOwnerOfEscalation(config, supabase, tenantId, conversationId, phoneNumber);
         }
     } catch (err) {
         console.error(`[${tenantId}] AI reply generation failed:`, err);
@@ -400,6 +403,127 @@ async function checkContactFilter(
     }
     // blacklist
     return !matchingRule || matchingRule.rule_type !== "block";
+}
+
+// ── Owner Escalation Notification ────────────────────────────────────
+
+/**
+ * Normalize a phone number to international format (digits only, 972 prefix).
+ * Handles: "0501234567" → "972501234567", "+972501234567" → "972501234567",
+ * "972501234567" → "972501234567", and other formats.
+ */
+function normalizeOwnerPhone(phone: string): string | null {
+    const digits = phone.replace(/\D/g, "");
+    if (!digits) return null;
+
+    // Israeli local format: 05x, 07x, etc.
+    if (digits.startsWith("0") && digits.length === 10) {
+        return "972" + digits.substring(1);
+    }
+
+    // Already international with 972
+    if (digits.startsWith("972") && digits.length >= 11) {
+        return digits;
+    }
+
+    // Some other international format — return as-is if it looks valid (8+ digits)
+    if (digits.length >= 8) {
+        return digits;
+    }
+
+    return null;
+}
+
+/**
+ * Send an immediate WhatsApp notification to the business owner when
+ * the AI bot escalates a conversation to a human ([PAUSE]).
+ *
+ * Includes: customer name/phone, wait time, and AI-generated summary.
+ * Fails silently — escalation notification is best-effort, must not
+ * break the main message flow.
+ */
+async function notifyOwnerOfEscalation(
+    config: CloudConfig,
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    tenantId: string,
+    conversationId: string,
+    customerPhone: string
+): Promise<void> {
+    try {
+        // 1. Fetch owner_phone from tenant
+        const { data: tenant } = await supabase
+            .from("tenants")
+            .select("owner_phone")
+            .eq("id", tenantId)
+            .single();
+
+        if (!tenant?.owner_phone) {
+            console.warn(`[${tenantId}] Escalation: no owner_phone configured — skipping notification`);
+            return;
+        }
+
+        const ownerPhoneNormalized = normalizeOwnerPhone(tenant.owner_phone);
+        if (!ownerPhoneNormalized) {
+            console.warn(`[${tenantId}] Escalation: invalid owner_phone "${tenant.owner_phone}" — skipping`);
+            return;
+        }
+
+        // Don't send escalation to the customer themselves (owner is the one chatting)
+        if (ownerPhoneNormalized === customerPhone) {
+            console.log(`[${tenantId}] Escalation: owner is the customer — skipping notification`);
+            return;
+        }
+
+        // 2. Get conversation details (contact name)
+        const { data: conv } = await supabase
+            .from("conversations")
+            .select("contact_name")
+            .eq("id", conversationId)
+            .eq("tenant_id", tenantId)
+            .single();
+
+        const contactName = conv?.contact_name || null;
+
+        // 3. Format the customer phone for display (0xx local format for Israeli numbers)
+        const displayPhone = customerPhone.startsWith("972") && customerPhone.length >= 11
+            ? "0" + customerPhone.substring(3)
+            : customerPhone;
+
+        // 4. Generate AI summary (best-effort, non-blocking timeout)
+        let summary = "";
+        try {
+            summary = await summarizeConversationForHandoff(tenantId, conversationId);
+        } catch {
+            // Non-fatal — send notification without summary
+        }
+
+        // 5. Build the notification message
+        const summaryLine = summary ? `\n\n${summary}` : "";
+        const notificationMsg = [
+            `🔔 העברה לנציג`,
+            ``,
+            `👤 ${contactName || "לקוח"}`,
+            `📞 ${displayPhone}`,
+            summaryLine.trim() || null,
+            ``,
+            `הלקוח מחכה לתשובה שלך בוואטסאפ.`,
+        ]
+            .filter((line) => line !== null)
+            .join("\n");
+
+        // 6. Send via Cloud API
+        const result = await sendTextMessage(config, ownerPhoneNormalized, notificationMsg);
+
+        if (result.success) {
+            console.log(`[${tenantId}] Escalation notification sent to owner (${ownerPhoneNormalized})`);
+        } else {
+            console.error(`[${tenantId}] Escalation notification failed:`, result.error);
+        }
+    } catch (err) {
+        // Fail silently — this is a best-effort notification
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        console.error(`[${tenantId}] Escalation notification error:`, msg);
+    }
 }
 
 // ── Status Update Processing ────────────────────────────────────────
