@@ -1,11 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Rocket, Mail, Lock, ArrowRight, Loader2, CheckCircle2, User } from "lucide-react";
 import { motion } from "framer-motion";
+
+declare global {
+    interface Window {
+        google?: {
+            accounts: {
+                id: {
+                    initialize: (config: Record<string, unknown>) => void;
+                    renderButton: (element: HTMLElement, config: Record<string, unknown>) => void;
+                };
+            };
+        };
+    }
+}
 
 export default function RegisterPage() {
     const [firstName, setFirstName] = useState("");
@@ -44,15 +57,43 @@ export default function RegisterPage() {
         }
     };
 
-    const handleGoogleLogin = async () => {
-        const { error: googleError } = await supabase.auth.signInWithOAuth({
+    const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
+        const { error: signInError } = await supabase.auth.signInWithIdToken({
             provider: 'google',
-            options: {
-                redirectTo: `${window.location.origin}/api/auth/callback`,
-            }
+            token: response.credential,
         });
-        if (googleError) setError(googleError.message);
-    };
+        if (signInError) {
+            setError(signInError.message);
+        } else {
+            window.location.href = "/dashboard";
+        }
+    }, [supabase]);
+
+    useEffect(() => {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.defer = true;
+        script.onload = () => {
+            window.google?.accounts.id.initialize({
+                client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+                callback: handleGoogleCredential,
+            });
+            const btnEl = document.getElementById("google-signup-btn");
+            if (btnEl) {
+                window.google?.accounts.id.renderButton(btnEl, {
+                    type: "standard",
+                    theme: "filled_black",
+                    size: "large",
+                    text: "signup_with",
+                    width: "400",
+                    locale: "he",
+                });
+            }
+        };
+        document.head.appendChild(script);
+        return () => { script.remove(); };
+    }, [handleGoogleCredential]);
 
     if (emailSent) {
         return (
@@ -249,31 +290,8 @@ export default function RegisterPage() {
                             </div>
                         </div>
 
-                        <div className="mt-6">
-                            <button
-                                onClick={handleGoogleLogin}
-                                className="w-full inline-flex justify-center items-center py-3 px-4 border borders-neutral-700 rounded-xl shadow-sm bg-white/5 hover:bg-white/10 text-sm font-medium text-white transition-all"
-                            >
-                                <svg className="h-5 w-5 ml-2" aria-hidden="true" viewBox="0 0 24 24">
-                                    <path
-                                        d="M12.0003 4.75C13.7703 4.75 15.3553 5.36002 16.6053 6.54998L20.0303 3.125C17.9502 1.19 15.2353 0 12.0003 0C7.31028 0 3.25527 2.69 1.28027 6.60998L5.27028 9.70498C6.21525 6.86002 8.87028 4.75 12.0003 4.75Z"
-                                        fill="#EA4335"
-                                    />
-                                    <path
-                                        d="M23.49 12.275C23.49 11.49 23.415 10.73 23.3 10H12V14.51H18.47C18.18 15.99 17.34 17.25 16.08 18.1L19.945 21.1C22.2 19.01 23.49 15.92 23.49 12.275Z"
-                                        fill="#4285F4"
-                                    />
-                                    <path
-                                        d="M5.26498 14.2949C5.02498 13.5699 4.88501 12.7999 4.88501 11.9999C4.88501 11.1999 5.01998 10.4299 5.26498 9.7049L1.275 6.60986C0.46 8.22986 0 10.0599 0 11.9999C0 13.9399 0.46 15.7699 1.28 17.3899L5.26498 14.2949Z"
-                                        fill="#FBBC05"
-                                    />
-                                    <path
-                                        d="M12.0004 24.0001C15.2404 24.0001 17.9654 22.935 19.9454 21.095L16.0804 18.095C15.0054 18.82 13.6204 19.245 12.0004 19.245C8.8704 19.245 6.21537 17.135 5.26538 14.29L1.27539 17.385C3.25539 21.31 7.3104 24.0001 12.0004 24.0001Z"
-                                        fill="#34A853"
-                                    />
-                                </svg>
-                                המשך עם Google
-                            </button>
+                        <div className="mt-6 flex justify-center">
+                            <div id="google-signup-btn" />
                         </div>
                     </div>
                 </div>
