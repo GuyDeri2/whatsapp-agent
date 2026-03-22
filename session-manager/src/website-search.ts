@@ -1,7 +1,15 @@
 /**
  * Website Search — crawl business websites to answer customer questions.
- * Mirrors the logic in src/lib/website-crawler.ts + website-analyzer.ts
- * but runs inside the session-manager service.
+ * Mirrors the logic in src/lib/website-crawler.ts but optimized for
+ * real-time question answering inside the session-manager service.
+ *
+ * Features:
+ * - JSON-LD / schema.org structured data extraction
+ * - Contact info extraction from header/footer before stripping
+ * - Table-aware content extraction (preserves price tables)
+ * - Concurrent page fetching
+ * - Smart URL normalization (www, trailing slashes, query params)
+ * - SSRF protection
  */
 
 import * as cheerio from "cheerio";
@@ -12,23 +20,28 @@ import OpenAI from "openai";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const MAX_CONTENT_PER_PAGE = 3000;
-const MAX_RESPONSE_BYTES = 500 * 1024;
-const PAGE_TIMEOUT_MS = 6_000;
-const MAX_TOTAL_CHARS = 15_000;
+const MAX_CONTENT_PER_PAGE = 5000;
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const PAGE_TIMEOUT_MS = 8_000;
+const MAX_TOTAL_CHARS = 25_000;
 
 const PRIORITY_KEYWORDS: { pattern: RegExp; score: number }[] = [
+    { pattern: /products|מוצרים|חנות|shop|store|catalog|קטלוג/i, score: 11 },
+    { pattern: /pricing|price|מחירים|מחירון|תעריפים/i, score: 11 },
     { pattern: /about|אודות|מי\s*אנחנו/i, score: 10 },
     { pattern: /services|שירותים|מה\s*אנחנו\s*מציעים/i, score: 9 },
-    { pattern: /pricing|price|מחירים|מחירון|תעריפים/i, score: 9 },
     { pattern: /faq|שאלות\s*נפוצות|שאלות\s*ותשובות/i, score: 8 },
     { pattern: /contact|צור\s*קשר|יצירת\s*קשר/i, score: 7 },
     { pattern: /menu|תפריט/i, score: 7 },
     { pattern: /hours|שעות\s*פעילות|זמני\s*פתיחה/i, score: 6 },
-    { pattern: /products|מוצרים|חנות|shop|store|catalog|קטלוג/i, score: 9 },
+    { pattern: /category|קטגוריה|מחלקה|department/i, score: 9 },
+    { pattern: /delivery|משלוח|שילוח/i, score: 7 },
+    { pattern: /returns|החזרות|מדיניות/i, score: 6 },
+    { pattern: /policy|תקנון|תנאי/i, score: 5 },
     { pattern: /gallery|גלריה/i, score: 3 },
     { pattern: /team|צוות/i, score: 4 },
     { pattern: /location|מיקום|הגעה|כתובת/i, score: 5 },
+    { pattern: /blog|בלוג|מאמרים/i, score: 2 },
 ];
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -73,9 +86,96 @@ async function resolveAndValidateHost(hostname: string): Promise<void> {
     }
 }
 
+// ── URL Normalization ───────────────────────────────────────────────
+
+function normalizeUrl(urlStr: string, baseHostname: string): string | null {
+    try {
+        const u = new URL(urlStr);
+        const hostname = u.hostname.replace(/^www\./, "");
+        const baseNorm = baseHostname.replace(/^www\./, "");
+        if (hostname !== baseNorm) return null;
+
+        const path = u.pathname.replace(/\/+$/, "") || "/";
+        u.searchParams.delete("utm_source");
+        u.searchParams.delete("utm_medium");
+        u.searchParams.delete("utm_campaign");
+        u.searchParams.delete("utm_content");
+        u.searchParams.delete("utm_term");
+        u.searchParams.delete("fbclid");
+        u.searchParams.delete("gclid");
+
+        const search = u.searchParams.toString();
+        return `${u.protocol}//${u.hostname}${path}${search ? "?" + search : ""}`;
+    } catch {
+        return null;
+    }
+}
+
+// ── JSON-LD / Schema.org Extraction ──────────────────────────────────
+
+function extractStructuredData($: cheerio.CheerioAPI): string {
+    const parts: string[] = [];
+
+    $('script[type="application/ld+json"]').each((_, el) => {
+        try {
+            const raw = $(el).html();
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            const items = Array.isArray(data) ? data : [data];
+
+            for (const item of items) {
+                if (!item || typeof item !== "object") continue;
+                const type = item["@type"];
+
+                if (type === "LocalBusiness" || type === "Store" || type === "Organization" || type === "Restaurant") {
+                    if (item.name) parts.push(`עסק: ${item.name}`);
+                    if (item.description) parts.push(`תיאור: ${item.description}`);
+                    if (item.telephone) parts.push(`טלפון: ${item.telephone}`);
+                    if (item.email) parts.push(`אימייל: ${item.email}`);
+                    if (item.address) {
+                        const a = item.address;
+                        const addr = [a.streetAddress, a.addressLocality, a.postalCode].filter(Boolean).join(", ");
+                        if (addr) parts.push(`כתובת: ${addr}`);
+                    }
+                    if (item.openingHoursSpecification) {
+                        const specs = Array.isArray(item.openingHoursSpecification) ? item.openingHoursSpecification : [item.openingHoursSpecification];
+                        const hours = specs.map((s: Record<string, string>) => {
+                            const days = s.dayOfWeek ? (Array.isArray(s.dayOfWeek) ? s.dayOfWeek.join(", ") : s.dayOfWeek) : "";
+                            return `${days}: ${s.opens || ""}-${s.closes || ""}`;
+                        }).join(" | ");
+                        if (hours) parts.push(`שעות פתיחה: ${hours}`);
+                    }
+                    if (item.openingHours) {
+                        const oh = Array.isArray(item.openingHours) ? item.openingHours.join(" | ") : item.openingHours;
+                        parts.push(`שעות פתיחה: ${oh}`);
+                    }
+                }
+
+                if (type === "Product" || type === "Offer") {
+                    const name = item.name || "";
+                    const price = item.offers?.price || item.price || "";
+                    const currency = item.offers?.priceCurrency || item.priceCurrency || "₪";
+                    if (name && price) parts.push(`מוצר: ${name} — ${price} ${currency}`);
+                    else if (name) parts.push(`מוצר: ${name}`);
+                }
+
+                if (type === "FAQPage" && item.mainEntity) {
+                    const faqs = Array.isArray(item.mainEntity) ? item.mainEntity : [item.mainEntity];
+                    for (const faq of faqs) {
+                        if (faq.name && faq.acceptedAnswer?.text) {
+                            parts.push(`שאלה: ${faq.name} — תשובה: ${faq.acceptedAnswer.text}`);
+                        }
+                    }
+                }
+            }
+        } catch { /* invalid JSON-LD — skip */ }
+    });
+
+    return parts.length > 0 ? `[מידע מובנה מהאתר]\n${parts.join("\n")}\n\n` : "";
+}
+
 // ── Contact Info Extraction ──────────────────────────────────────────
 
-/** Extract structured contact info from full HTML before stripping nav/header/footer */
 function extractContactInfo($: cheerio.CheerioAPI): string {
     const info: string[] = [];
     const contactZones = $("header, footer, nav, [class*='contact'], [id*='contact'], [class*='footer'], [class*='header'], address").text();
@@ -117,29 +217,81 @@ function extractContactInfo($: cheerio.CheerioAPI): string {
     return info.length > 0 ? `[פרטי קשר מהאתר]\n${info.join("\n")}\n\n` : "";
 }
 
-// ── HTML helpers ─────────────────────────────────────────────────────
+// ── Table Extraction ────────────────────────────────────────────────
+
+function extractTables($: cheerio.CheerioAPI): string {
+    const tables: string[] = [];
+
+    $("table").each((_, table) => {
+        const rows: string[] = [];
+        $(table).find("tr").each((_, tr) => {
+            const cells: string[] = [];
+            $(tr).find("th, td").each((_, cell) => {
+                const text = $(cell).text().trim().replace(/\s+/g, " ");
+                if (text) cells.push(text);
+            });
+            if (cells.length > 0) rows.push(cells.join(" | "));
+        });
+        if (rows.length > 1) {
+            tables.push(rows.join("\n"));
+        }
+    });
+
+    return tables.length > 0 ? `[טבלאות]\n${tables.join("\n\n")}\n\n` : "";
+}
+
+// ── HTML Extraction ─────────────────────────────────────────────────
 
 function extractContent($: cheerio.CheerioAPI): string {
+    // Extract structured data, contact info, and tables BEFORE stripping
+    const structuredData = extractStructuredData($);
     const contactInfo = extractContactInfo($);
-    $("script, style, nav, header, footer, iframe, noscript, svg, form").remove();
+    const tables = extractTables($);
+
+    // Remove non-content elements
+    $("script, style, iframe, noscript, svg").remove();
     $("[aria-hidden='true']").remove();
     $(".cookie-banner, .popup, .modal, #cookie-consent").remove();
-    const text = $("body").text().replace(/\s+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-    return (contactInfo + text).substring(0, MAX_CONTENT_PER_PAGE);
+
+    // Extract headings separately to preserve structure
+    const headings: string[] = [];
+    $("h1, h2, h3").each((_, el) => {
+        const text = $(el).text().trim();
+        if (text && text.length > 2) headings.push(text);
+    });
+
+    // Now remove nav/header/footer for main content
+    $("nav, header, footer").remove();
+
+    const text = $("body").text()
+        .replace(/\s+/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
+    // Combine: structured data + contact info + headings + tables + body text
+    let combined = structuredData + contactInfo;
+    if (headings.length > 0) {
+        combined += `[כותרות בעמוד] ${headings.join(" | ")}\n\n`;
+    }
+    combined += tables + text;
+
+    return combined.substring(0, MAX_CONTENT_PER_PAGE);
 }
 
 function extractInternalLinks($: cheerio.CheerioAPI, baseUrl: URL): string[] {
     const links: string[] = [];
+    const baseHostname = baseUrl.hostname;
+
     $("a[href]").each((_, el) => {
         const href = $(el).attr("href");
         if (!href) return;
         try {
             const resolved = new URL(href, baseUrl.origin);
-            if (resolved.hostname !== baseUrl.hostname) return;
             if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return;
-            if (/\.(pdf|zip|doc|docx|xls|xlsx|ppt|jpg|jpeg|png|gif|svg|mp3|mp4|avi)$/i.test(resolved.pathname)) return;
-            resolved.hash = "";
-            links.push(resolved.href);
+            if (/\.(pdf|zip|doc|docx|xls|xlsx|ppt|jpg|jpeg|png|gif|svg|mp3|mp4|avi|webp)$/i.test(resolved.pathname)) return;
+
+            const normalized = normalizeUrl(resolved.href, baseHostname);
+            if (normalized) links.push(normalized);
         } catch { /* skip */ }
     });
     return [...new Set(links)];
@@ -154,6 +306,8 @@ function scorePage(url: string): number {
     try {
         const parsed = new URL(url);
         if (parsed.pathname === "/" || parsed.pathname === "") score = Math.max(score, 8);
+        const depth = parsed.pathname.split("/").filter(Boolean).length;
+        if (depth <= 1) score += 1;
     } catch { /* ignore */ }
     return score;
 }
@@ -167,7 +321,10 @@ function classifyPage(url: string, title: string): string {
     if (/contact|צור\s*קשר/.test(text)) return "contact";
     if (/menu|תפריט/.test(text)) return "menu";
     if (/hours|שעות/.test(text)) return "hours";
-    if (/products|מוצרים/.test(text)) return "products";
+    if (/products|מוצרים|shop|store|catalog|קטלוג|category|קטגוריה/.test(text)) return "products";
+    if (/delivery|shipping|משלוח|שילוח/.test(text)) return "shipping";
+    if (/returns|refund|החזרות|החזר/.test(text)) return "returns";
+    if (/policy|תקנון|תנאי/.test(text)) return "policy";
     return "general";
 }
 
@@ -180,9 +337,9 @@ async function fetchPage(url: string): Promise<{ html: string; finalUrl: string 
         const res = await fetch(url, {
             signal: controller.signal,
             headers: {
-                "User-Agent": "Mozilla/5.0 (compatible; WhatsAppAgentBot/1.0)",
-                Accept: "text/html,application/xhtml+xml",
-                "Accept-Language": "he,en;q=0.9",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
             },
             redirect: "follow",
         });
@@ -220,7 +377,7 @@ async function crawlRelevantPages(websiteUrl: string, question: string): Promise
 
     const pages: CrawledPage[] = [];
     const visited = new Set<string>();
-    const deadline = Date.now() + 20_000;
+    const deadline = Date.now() + 25_000;
 
     try {
         const { html, finalUrl } = await fetchPage(baseUrl.href);
@@ -236,6 +393,7 @@ async function crawlRelevantPages(websiteUrl: string, question: string): Promise
 
         const links = extractInternalLinks($, baseUrl);
         const questionLower = question.toLowerCase();
+
         const scored = links
             .filter(l => !visited.has(l))
             .map(l => {
@@ -247,22 +405,27 @@ async function crawlRelevantPages(websiteUrl: string, question: string): Promise
                 return { url: l, score };
             })
             .sort((a, b) => b.score - a.score)
-            .slice(0, 3);
+            .slice(0, 5);
 
-        for (const candidate of scored) {
-            if (pages.length >= 3 || Date.now() >= deadline) break;
-            if (visited.has(candidate.url)) continue;
+        // Fetch up to 4 additional pages concurrently
+        const fetchBatch = scored.slice(0, 4).filter(c => !visited.has(c.url));
+        const promises = fetchBatch.map(async (candidate) => {
+            if (Date.now() >= deadline) return null;
             visited.add(candidate.url);
             try {
-                const parsed = new URL(candidate.url);
-                await resolveAndValidateHost(parsed.hostname);
                 const { html: h, finalUrl: fu } = await fetchPage(candidate.url);
                 visited.add(fu);
                 const $p = cheerio.load(h);
-                const t = $p("title").text().trim() || parsed.pathname;
+                const t = $p("title").text().trim() || new URL(candidate.url).pathname;
                 const c = extractContent($p);
-                if (c.length > 50) pages.push({ url: fu, title: t, content: c, pageType: classifyPage(fu, t) });
+                if (c.length > 50) return { url: fu, title: t, content: c, pageType: classifyPage(fu, t) };
             } catch { /* skip */ }
+            return null;
+        });
+
+        const results = await Promise.all(promises);
+        for (const r of results) {
+            if (r && pages.length < 5) pages.push(r);
         }
     } catch { /* homepage failed */ }
 
