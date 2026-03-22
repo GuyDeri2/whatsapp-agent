@@ -31,7 +31,7 @@ const PRIORITY_KEYWORDS: { pattern: RegExp; score: number }[] = [
     { pattern: /contact|צור\s*קשר|יצירת\s*קשר/i, score: 7 },
     { pattern: /menu|תפריט/i, score: 7 },
     { pattern: /hours|שעות\s*פעילות|זמני\s*פתיחה/i, score: 6 },
-    { pattern: /products|מוצרים/i, score: 6 },
+    { pattern: /products|מוצרים|חנות|shop|store|catalog|קטלוג/i, score: 9 },
     { pattern: /gallery|גלריה/i, score: 3 },
     { pattern: /team|צוות/i, score: 4 },
     { pattern: /location|מיקום|הגעה|כתובת/i, score: 5 },

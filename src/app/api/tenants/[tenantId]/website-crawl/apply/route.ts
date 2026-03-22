@@ -82,16 +82,45 @@ export async function POST(
     }
 
     // 3. Insert new knowledge entries from analysis
-    let insertedCount = 0;
-    if (analysis.knowledge_entries && analysis.knowledge_entries.length > 0) {
-        const rows = analysis.knowledge_entries.map((entry) => ({
-            tenant_id: tenantId,
-            category: entry.category || "general",
-            question: entry.question,
-            answer: entry.answer,
-            source: "website",
-        }));
+    const rows: Array<{
+        tenant_id: string;
+        category: string;
+        question: string;
+        answer: string;
+        source: string;
+    }> = [];
 
+    // Add Q&A knowledge entries
+    if (analysis.knowledge_entries && analysis.knowledge_entries.length > 0) {
+        for (const entry of analysis.knowledge_entries) {
+            rows.push({
+                tenant_id: tenantId,
+                category: entry.category || "general",
+                question: entry.question,
+                answer: entry.answer,
+                source: "website",
+            });
+        }
+    }
+
+    // Add product+price entries as knowledge
+    if (analysis.products_with_prices && analysis.products_with_prices.length > 0) {
+        for (const product of analysis.products_with_prices) {
+            const answer = product.description
+                ? `${product.price} — ${product.description}`
+                : product.price;
+            rows.push({
+                tenant_id: tenantId,
+                category: "pricing",
+                question: `כמה עולה ${product.name}?`,
+                answer,
+                source: "website",
+            });
+        }
+    }
+
+    let insertedCount = 0;
+    if (rows.length > 0) {
         const { error: insertError } = await supabase
             .from("knowledge_base")
             .insert(rows);

@@ -28,6 +28,7 @@ interface WebsiteCrawlAnalysis {
     products?: string;
     target_customers?: string;
     knowledge_entries: Array<{ question: string; answer: string; category: string }>;
+    products_with_prices?: Array<{ name: string; price: string; description?: string }>;
     operating_hours?: string;
     location?: string;
     contact_info?: string;
@@ -488,6 +489,21 @@ const SettingsTab = React.memo(function SettingsTab({
                                     </div>
                                 )}
                             </div>
+
+                            {/* Products with prices */}
+                            {analysis.products_with_prices && analysis.products_with_prices.length > 0 && (
+                                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+                                    <span className="text-xs text-amber-400 font-medium block mb-2">מוצרים ומחירים ({analysis.products_with_prices.length})</span>
+                                    <div className="space-y-1.5">
+                                        {analysis.products_with_prices.map((p, i) => (
+                                            <div key={i} className="flex items-center justify-between text-sm">
+                                                <span className="text-neutral-300">{p.name}</span>
+                                                <span className="text-amber-300 font-medium mr-2">{p.price}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Knowledge entries count */}
                             {analysis.knowledge_entries.length > 0 && (

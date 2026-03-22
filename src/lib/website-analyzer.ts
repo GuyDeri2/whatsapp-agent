@@ -31,6 +31,12 @@ export interface KnowledgeEntryResult {
     answer: string;
 }
 
+export interface ProductPriceResult {
+    name: string;
+    price: string;
+    description?: string;
+}
+
 export interface WebsiteAnalysis {
     business_name: string | null;
     description: string | null;
@@ -41,6 +47,7 @@ export interface WebsiteAnalysis {
     contact_phone: string | null;
     contact_email: string | null;
     knowledge_entries: KnowledgeEntryResult[];
+    products_with_prices: ProductPriceResult[];
     suggested_agent_prompt: string | null;
 }
 
@@ -79,6 +86,7 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
             contact_phone: null,
             contact_email: null,
             knowledge_entries: [],
+            products_with_prices: [],
             suggested_agent_prompt: null,
         };
     }
@@ -95,6 +103,7 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
 - contact_phone: string or null
 - contact_email: string or null
 - knowledge_entries: array of 5-10 objects, each with category (string), question (Hebrew), answer (Hebrew, 1 sentence)
+- products_with_prices: array of objects with name (Hebrew), price (string with currency, e.g. "₪50" or "₪120-180"), description (Hebrew, optional short text). Extract ALL products/services with prices found on the site. Empty array if no prices found.
 - suggested_agent_prompt: string in Hebrew (1-2 sentences for WhatsApp bot) or null
 
 Rules: Only use info from the content. Hebrew for all text except business_name. Null if not found.`;
@@ -162,6 +171,23 @@ function parseAnalysis(raw: string): WebsiteAnalysis {
             }));
     }
 
+    // Extract products with prices
+    let productsWithPrices: ProductPriceResult[] = [];
+    const rawProducts = parsed.products_with_prices;
+    if (Array.isArray(rawProducts)) {
+        productsWithPrices = rawProducts
+            .filter((p: unknown): p is Record<string, unknown> =>
+                typeof p === "object" && p !== null &&
+                typeof (p as Record<string, unknown>).name === "string" &&
+                typeof (p as Record<string, unknown>).price === "string"
+            )
+            .map((p) => ({
+                name: p.name as string,
+                price: p.price as string,
+                ...(typeof p.description === "string" ? { description: p.description } : {}),
+            }));
+    }
+
     return {
         business_name: typeof parsed.business_name === "string" ? parsed.business_name : null,
         description: typeof parsed.description === "string" ? parsed.description : null,
@@ -172,6 +198,7 @@ function parseAnalysis(raw: string): WebsiteAnalysis {
         contact_phone: typeof parsed.contact_phone === "string" ? parsed.contact_phone : null,
         contact_email: typeof parsed.contact_email === "string" ? parsed.contact_email : null,
         knowledge_entries: knowledgeEntries,
+        products_with_prices: productsWithPrices,
         suggested_agent_prompt: typeof parsed.suggested_agent_prompt === "string" ? parsed.suggested_agent_prompt : null,
     };
 }
