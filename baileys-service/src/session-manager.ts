@@ -41,6 +41,12 @@ const presencePauser = new PresencePauseScheduler();
 const lastReconnectAt = new Map<string, number>();
 const RECONNECT_COOLDOWN_MS = 30_000;
 
+// Track pairing state — sessions that never reached "open" are in pairing mode
+const pairingSessions = new Set<string>();
+
+// Persist retry count across reconnects (session object gets recreated)
+const retryCounters = new Map<string, number>();
+
 // Browser fingerprints — deterministic per tenant
 const BROWSERS: [string, string, string][] = [
     ["Chrome", "Windows", "10"],
@@ -128,6 +134,8 @@ export async function stopSession(tenantId: string, clearData = false): Promise<
 
     healthStates.delete(tenantId);
     reconnecting.delete(tenantId);
+    pairingSessions.delete(tenantId);
+    retryCounters.delete(tenantId);
 
     if (clearData) {
         const supabase = getSupabase();
@@ -203,6 +211,7 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
 
         // QR code — broadcast to frontend via Supabase Realtime
         if (qr) {
+            pairingSessions.add(tenantId);
             await broadcastQR(tenantId, qr);
         }
 
@@ -212,6 +221,8 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
             session.retryCount = 0;
             session.reconnecting = false;
             reconnecting.delete(tenantId);
+            pairingSessions.delete(tenantId);
+            retryCounters.delete(tenantId);
 
             // Clear QR code
             await clearQR(tenantId);
@@ -376,6 +387,21 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
     const session = sessions.get(tenantId);
     if (!session) return;
 
+    const wasPairing = pairingSessions.has(tenantId);
+
+    // If we were in pairing mode (QR shown, never connected), do NOT auto-retry.
+    // This prevents flooding WhatsApp with rapid pairing attempts which triggers
+    // "cannot link new devices" rate-limiting.
+    if (wasPairing) {
+        console.log(`[${tenantId}] Pairing failed (${statusCode}: ${reason}) — stopping. User must click Connect again.`);
+        pairingSessions.delete(tenantId);
+        retryCounters.delete(tenantId);
+        await stopSession(tenantId, false);
+        // Clear QR code from frontend
+        await clearQR(tenantId);
+        return;
+    }
+
     switch (statusCode) {
         case DisconnectReason.connectionLost: // 408
         case DisconnectReason.timedOut: // 408
@@ -440,10 +466,13 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
             break;
 
         default:
-            // Unknown — exponential backoff
-            session.retryCount++;
-            if (session.retryCount > 5) {
-                console.error(`[${tenantId}] Max retries reached — stopping`);
+            // Unknown — exponential backoff with persistent retry counter
+            const currentRetry = (retryCounters.get(tenantId) ?? 0) + 1;
+            retryCounters.set(tenantId, currentRetry);
+
+            if (currentRetry > 5) {
+                console.error(`[${tenantId}] Max retries reached (${currentRetry}) — stopping`);
+                retryCounters.delete(tenantId);
                 await stopSession(tenantId, false);
                 await getSupabase()
                     .from("tenants")
@@ -453,8 +482,8 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
             }
 
             const delays = [5000, 15000, 30000, 60000, 120000];
-            const delay = delays[Math.min(session.retryCount - 1, delays.length - 1)];
-            console.log(`[${tenantId}] Unknown disconnect (${statusCode}) — retry ${session.retryCount}/5 in ${delay / 1000}s`);
+            const delay = delays[Math.min(currentRetry - 1, delays.length - 1)];
+            console.log(`[${tenantId}] Unknown disconnect (${statusCode}) — retry ${currentRetry}/5 in ${delay / 1000}s`);
             await _flushAndCleanup(tenantId);
             setTimeout(() => _reconnectWithCooldown(tenantId), delay);
             break;
