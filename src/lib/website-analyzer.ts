@@ -53,7 +53,7 @@ export interface WebsiteAnalysis {
 
 // ── Content Preparation ──────────────────────────────────────────────
 
-const MAX_TOTAL_CHARS = 15_000;
+const MAX_TOTAL_CHARS = 25_000;
 
 function prepareContent(pages: CrawledPage[]): string {
     let content = "";
@@ -103,10 +103,10 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
 - contact_phone: string or null
 - contact_email: string or null
 - knowledge_entries: array of 5-10 objects, each with category (string), question (Hebrew), answer (Hebrew, 1 sentence)
-- products_with_prices: array of objects with name (Hebrew), price (string with currency, e.g. "₪50" or "₪120-180"), description (Hebrew, optional short text). Extract ALL products/services with prices found on the site. Empty array if no prices found.
+- products_with_prices: array of objects with name (Hebrew), price (string with currency, e.g. "₪50" or "₪120-180"), description (Hebrew, optional short text). IMPORTANT: Extract EVERY product/service that has a price on the site — do not skip any. Include all variations (sizes, packages, tiers). Empty array only if truly no prices found.
 - suggested_agent_prompt: string in Hebrew (1-2 sentences for WhatsApp bot) or null
 
-Rules: Only use info from the content. Hebrew for all text except business_name. Null if not found.`;
+Rules: Only use info from the content. Hebrew for all text except business_name. Null if not found. For products_with_prices — be exhaustive, list every priced item.`;
 
     const AI_TIMEOUT_MS = 50_000;
     try {
@@ -117,7 +117,7 @@ Rules: Only use info from the content. Hebrew for all text except business_name.
                     { role: "system", content: systemPrompt },
                     { role: "user", content: content },
                 ],
-                max_tokens: 2000,
+                max_tokens: 4000,
                 temperature: 0.1,
                 response_format: { type: "json_object" },
             }),

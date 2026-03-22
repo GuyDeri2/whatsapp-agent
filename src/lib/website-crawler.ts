@@ -16,11 +16,11 @@ import net from "net";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const MAX_PAGES = 5;
-const MAX_CONTENT_PER_PAGE = 3000;
+const MAX_PAGES = 8;
+const MAX_CONTENT_PER_PAGE = 4000;
 const MAX_RESPONSE_BYTES = 500 * 1024; // 500KB
 const PAGE_TIMEOUT_MS = 6_000;
-const TOTAL_TIMEOUT_MS = 25_000;
+const TOTAL_TIMEOUT_MS = 30_000;
 
 // Priority keywords for page ranking (Hebrew + English)
 const PRIORITY_KEYWORDS: { pattern: RegExp; score: number }[] = [
