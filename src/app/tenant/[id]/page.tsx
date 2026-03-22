@@ -153,6 +153,7 @@ export default function TenantPage() {
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads" | "calendar">("chat");
+    const [enabledTabs, setEnabledTabs] = useState<string[]>([]);
     // QR code and connection status removed — WhatsApp Cloud API uses OAuth, not QR scanning
     const [saving, setSaving] = useState(false);
     const [editForm, setEditForm] = useState({
@@ -301,7 +302,12 @@ export default function TenantPage() {
         // Prefetch dashboard so back-navigation is instant
         router.prefetch("/dashboard");
 
-        Promise.all([fetchTenant(), fetchConversations(), fetchContactRules()]);
+        Promise.all([
+            fetchTenant(),
+            fetchConversations(),
+            fetchContactRules(),
+            fetch("/api/feature-flags").then(r => r.json()).then(d => setEnabledTabs(d.enabledTabs || [])).catch(() => {}),
+        ]);
 
         // Connection status is now determined from whatsapp_cloud_config (loaded with tenant)
         // No need to poll session-manager
@@ -972,14 +978,14 @@ export default function TenantPage() {
             {/* Tab Navigation */}
             <nav className="relative z-10 flex overflow-x-auto border-b border-white/[0.06] px-2 sm:px-6 hide-scrollbar bg-black/30">
                 {[
-                    { id: "chat",         icon: "💬", label: "שיחות" },
-                    { id: "contacts",     icon: "👥", label: "אנשי קשר", action: fetchContactRules },
-                    { id: "connect",      icon: "📱", label: "ווטסאפ" },
-                    { id: "capabilities", icon: "🧠", label: "יכולות" },
-                    { id: "leads",        icon: "🎯", label: "לידים" },
-                    { id: "calendar",     icon: "📅", label: "יומן" },
-                    { id: "settings",     icon: "⚙️", label: "הגדרות" }
-                ].map((tab) => (
+                    { id: "chat",         icon: "💬", label: "שיחות",       flag: "tab_chat" },
+                    { id: "contacts",     icon: "👥", label: "אנשי קשר",   flag: "tab_contacts", action: fetchContactRules },
+                    { id: "connect",      icon: "📱", label: "ווטסאפ",     flag: "tab_connect" },
+                    { id: "capabilities", icon: "🧠", label: "יכולות",     flag: "tab_capabilities" },
+                    { id: "leads",        icon: "🎯", label: "לידים",      flag: "tab_leads" },
+                    { id: "calendar",     icon: "📅", label: "יומן",       flag: "tab_calendar" },
+                    { id: "settings",     icon: "⚙️", label: "הגדרות",     flag: "tab_settings" }
+                ].filter((tab) => enabledTabs.length === 0 || enabledTabs.includes(tab.flag)).map((tab) => (
                     <button
                         key={tab.id}
                         onClick={() => { setActiveTab(tab.id as any); if (tab.action) tab.action(); }}

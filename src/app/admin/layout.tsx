@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import Link from "next/link";
-import { ShieldCheck, Users, LayoutDashboard, LogOut, BarChart2 } from "lucide-react";
+import { ShieldCheck, Users, LayoutDashboard, LogOut, BarChart2, ToggleRight } from "lucide-react";
 
 export default async function AdminLayout({
     children,
@@ -60,6 +60,13 @@ export default async function AdminLayout({
                     >
                         <BarChart2 className="w-4 h-4" />
                         אנליטיקה
+                    </Link>
+                    <Link
+                        href="/admin/features"
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-neutral-300 hover:bg-white/5 hover:text-white transition-all"
+                    >
+                        <ToggleRight className="w-4 h-4" />
+                        ניהול קומפוננטות
                     </Link>
                     <Link
                         href="/admin/approvals"
