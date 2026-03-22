@@ -54,6 +54,7 @@ export default function LoginPage() {
             window.google?.accounts.id.initialize({
                 client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
                 callback: handleGoogleCredential,
+                use_fedcm_for_prompt: false,
             });
             const btnEl = document.getElementById("google-signin-btn");
             if (btnEl) {
