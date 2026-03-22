@@ -53,7 +53,7 @@ export interface WebsiteAnalysis {
 
 // ── Content Preparation ──────────────────────────────────────────────
 
-const MAX_TOTAL_CHARS = 25_000;
+const MAX_TOTAL_CHARS = 60_000;
 
 function prepareContent(pages: CrawledPage[]): string {
     let content = "";
@@ -108,7 +108,7 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
 
 Rules: Only use info from the content. Hebrew for all text except business_name. Null if not found. For products_with_prices — be exhaustive, list every priced item.`;
 
-    const AI_TIMEOUT_MS = 50_000;
+    const AI_TIMEOUT_MS = 120_000;
     try {
         const completion = await Promise.race([
             getOpenAI().chat.completions.create({
@@ -117,7 +117,7 @@ Rules: Only use info from the content. Hebrew for all text except business_name.
                     { role: "system", content: systemPrompt },
                     { role: "user", content: content },
                 ],
-                max_tokens: 4000,
+                max_tokens: 8000,
                 temperature: 0.1,
                 response_format: { type: "json_object" },
             }),
