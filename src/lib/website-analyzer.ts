@@ -46,7 +46,7 @@ export interface WebsiteAnalysis {
 
 // ── Content Preparation ──────────────────────────────────────────────
 
-const MAX_TOTAL_CHARS = 40_000;
+const MAX_TOTAL_CHARS = 15_000;
 
 function prepareContent(pages: CrawledPage[]): string {
     let content = "";
@@ -85,47 +85,35 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
 
     const content = prepareContent(pages);
 
-    const systemPrompt = `אתה מנתח אתרי עסקים. מטרתך לנתח את תוכן האתר ולחלץ מידע עסקי מובנה.
+    const systemPrompt = `Analyze this business website and extract structured data. Return JSON with these fields:
+- business_name: string (as shown on site)
+- description: string in Hebrew (1-2 sentences)
+- products_services: string in Hebrew (comma-separated list)
+- target_customers: string in Hebrew (one sentence) or null
+- operating_hours: string or null
+- location: string or null
+- contact_phone: string or null
+- contact_email: string or null
+- knowledge_entries: array of 5-10 objects, each with category (string), question (Hebrew), answer (Hebrew, 1 sentence)
+- suggested_agent_prompt: string in Hebrew (1-2 sentences for WhatsApp bot) or null
 
-חלץ את המידע הבא מתוכן האתר:
+Rules: Only use info from the content. Hebrew for all text except business_name. Null if not found.`;
 
-1. **business_name** — שם העסק (כפי שמופיע באתר)
-2. **description** — תיאור קצר של העסק בעברית (2-3 משפטים)
-3. **products_services** — רשימת שירותים/מוצרים עיקריים בעברית, מופרדים בפסיקים
-4. **target_customers** — קהל יעד בעברית (משפט אחד)
-5. **operating_hours** — שעות פעילות (אם נמצא)
-6. **location** — כתובת/מיקום (אם נמצא)
-7. **contact_phone** — טלפון ליצירת קשר (אם נמצא)
-8. **contact_email** — מייל ליצירת קשר (אם נמצא)
-9. **knowledge_entries** — מערך של 10-20 זוגות שאלה-תשובה בעברית שלקוח עשוי לשאול. כל פריט כולל:
-   - category: קטגוריה (general, pricing, hours, services, policy, products, location)
-   - question: שאלה שלקוח עשוי לשאול
-   - answer: תשובה מדויקת על סמך תוכן האתר
-10. **suggested_agent_prompt** — הוראות מותאמות לבוט WhatsApp בעברית (2-4 משפטים), שמתארות את אופי העסק וסגנון השירות
-
-**חוקים:**
-- הכל בעברית חוץ מ-business_name שיכול להיות באנגלית
-- אל תמציא מידע — רק מה שמופיע בתוכן האתר
-- אם שדה לא נמצא — null
-- knowledge_entries: לפחות 10, מקסימום 20. תשובות קצרות ולעניין.
-
-החזר JSON תקין בלבד.`;
-
-    const AI_TIMEOUT_MS = 30_000;
+    const AI_TIMEOUT_MS = 50_000;
     try {
         const completion = await Promise.race([
             getOpenAI().chat.completions.create({
                 model: "deepseek-chat",
                 messages: [
                     { role: "system", content: systemPrompt },
-                    { role: "user", content: `נתח את תוכן האתר הבא:\n\n${content}` },
+                    { role: "user", content: content },
                 ],
-                max_tokens: 3000,
+                max_tokens: 2000,
                 temperature: 0.1,
                 response_format: { type: "json_object" },
             }),
             new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("Website analysis timeout after 45s")), AI_TIMEOUT_MS)
+                setTimeout(() => reject(new Error("Website analysis timeout")), AI_TIMEOUT_MS)
             ),
         ]);
 
