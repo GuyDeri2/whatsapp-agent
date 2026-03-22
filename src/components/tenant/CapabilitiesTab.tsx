@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2 } from "lucide-react";
+import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2, Globe } from "lucide-react";
 
 interface AgentLearning {
     id: string;
@@ -41,7 +41,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
             .from("knowledge_base")
             .select("*")
             .eq("tenant_id", tenant.id)
-            .in("source", ["learned", "manual"])
+            .in("source", ["learned", "manual", "website"])
             .order("created_at", { ascending: false });
 
         if (!error && data) {
@@ -352,7 +352,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                                                 <div key={learning.id} className="relative group bg-black/40 border border-white/5 hover:border-white/10 rounded-2xl p-5 transition-all duration-300 overflow-hidden">
 
                                                     {/* Accent border left */}
-                                                    <div className={`absolute right-0 top-0 bottom-0 w-1 ${learning.source === "manual" ? "bg-emerald-500/50" : "bg-blue-500/50"}`}></div>
+                                                    <div className={`absolute right-0 top-0 bottom-0 w-1 ${learning.source === "manual" ? "bg-emerald-500/50" : learning.source === "website" ? "bg-amber-500/50" : "bg-blue-500/50"}`}></div>
 
                                                     {editingId === learning.id ? (
                                                         <div className="space-y-3 animate-in fade-in pr-3 flex flex-col items-stretch">
@@ -405,9 +405,11 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                                                                     <Calendar className="w-3 h-3 opacity-70" />
                                                                     {new Date(learning.created_at).toLocaleDateString("he-IL")}
                                                                 </div>
-                                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/5 ${learning.source === "manual" ? "text-emerald-400" : "text-blue-400"}`}>
+                                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/5 ${learning.source === "manual" ? "text-emerald-400" : learning.source === "website" ? "text-amber-400" : "text-blue-400"}`}>
                                                                     {learning.source === "manual" ? (
                                                                         <><UserCheck className="w-3 h-3" /> נוסף ידנית</>
+                                                                    ) : learning.source === "website" ? (
+                                                                        <><Globe className="w-3 h-3" /> מהאתר</>
                                                                     ) : (
                                                                         <><Bot className="w-3 h-3" /> נלמד מהשיחות</>
                                                                     )}

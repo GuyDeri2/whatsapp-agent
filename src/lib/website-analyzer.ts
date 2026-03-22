@@ -104,7 +104,7 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
 - contact_email: string or null
 - knowledge_entries: array of 5-10 objects, each with category (string), question (Hebrew), answer (Hebrew, 1 sentence)
 - products_with_prices: array of objects with name (Hebrew), price (string with currency, e.g. "₪50" or "₪120-180"), description (Hebrew, optional short text). IMPORTANT: Extract EVERY product/service that has a price on the site — do not skip any. Include all variations (sizes, packages, tiers). Empty array only if truly no prices found.
-- suggested_agent_prompt: string in Hebrew (1-2 sentences for WhatsApp bot) or null
+- suggested_agent_prompt: string in Hebrew — comprehensive instructions for a WhatsApp customer service bot. Include: what the business does, key services/products, opening hours, location, return/cancellation policy if found, delivery info if found, payment methods if found, and any important notes a customer service agent should know. Write as clear bullet points. This will be the bot's operational guide — be thorough, not brief.
 
 Rules: Only use info from the content. Hebrew for all text except business_name. Null if not found. For products_with_prices — be exhaustive, list every priced item.`;
 

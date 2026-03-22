@@ -2,8 +2,9 @@
  * Website Crawler — fetches and extracts text from business websites.
  *
  * Features:
- * - Follows internal links (same domain), up to MAX_PAGES
- * - Prioritizes about/services/pricing/FAQ/contact pages
+ * - BFS crawl: discovers links on every page (not just homepage)
+ * - Follows pagination links (next page, page numbers)
+ * - Prioritizes product/pricing/services pages
  * - SSRF protection: blocks private IPs
  * - Respects robots.txt (basic rules)
  * - Per-page and total timeouts
@@ -16,26 +17,30 @@ import net from "net";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const MAX_PAGES = 8;
-const MAX_CONTENT_PER_PAGE = 4000;
+const MAX_PAGES = 15;
+const MAX_CONTENT_PER_PAGE = 5000;
 const MAX_RESPONSE_BYTES = 500 * 1024; // 500KB
 const PAGE_TIMEOUT_MS = 6_000;
-const TOTAL_TIMEOUT_MS = 30_000;
+const TOTAL_TIMEOUT_MS = 45_000;
 
 // Priority keywords for page ranking (Hebrew + English)
 const PRIORITY_KEYWORDS: { pattern: RegExp; score: number }[] = [
+    { pattern: /products|מוצרים|חנות|shop|store|catalog|קטלוג/i, score: 11 },
+    { pattern: /pricing|price|מחירים|מחירון|תעריפים/i, score: 11 },
     { pattern: /about|אודות|מי\s*אנחנו/i, score: 10 },
     { pattern: /services|שירותים|מה\s*אנחנו\s*מציעים/i, score: 9 },
-    { pattern: /pricing|price|מחירים|מחירון|תעריפים/i, score: 9 },
     { pattern: /faq|שאלות\s*נפוצות|שאלות\s*ותשובות/i, score: 8 },
     { pattern: /contact|צור\s*קשר|יצירת\s*קשר/i, score: 7 },
     { pattern: /menu|תפריט/i, score: 7 },
     { pattern: /hours|שעות\s*פעילות|זמני\s*פתיחה/i, score: 6 },
-    { pattern: /products|מוצרים|חנות|shop|store|catalog|קטלוג/i, score: 9 },
+    { pattern: /category|קטגוריה|מחלקה|department/i, score: 9 },
     { pattern: /gallery|גלריה/i, score: 3 },
     { pattern: /team|צוות/i, score: 4 },
     { pattern: /location|מיקום|הגעה|כתובת/i, score: 5 },
 ];
+
+// Pagination link patterns
+const PAGINATION_PATTERNS = /page[=\/]\d|עמוד|next|הבא|pagination|paged|load.?more/i;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -157,6 +162,8 @@ function scorePage(url: string): number {
         const parsed = new URL(url);
         if (parsed.pathname === "/" || parsed.pathname === "") score = Math.max(score, 8);
     } catch { /* ignore */ }
+    // Pagination pages get a boost (they likely have more products)
+    if (PAGINATION_PATTERNS.test(lower)) score = Math.max(score, 10);
     return score;
 }
 
@@ -169,7 +176,7 @@ function classifyPage(url: string, title: string): string {
     if (/contact|צור\s*קשר/.test(text)) return "contact";
     if (/menu|תפריט/.test(text)) return "menu";
     if (/hours|שעות/.test(text)) return "hours";
-    if (/products|מוצרים/.test(text)) return "products";
+    if (/products|מוצרים|shop|store|catalog|קטלוג|category|קטגוריה/.test(text)) return "products";
     return "general";
 }
 
@@ -272,7 +279,7 @@ async function fetchPage(url: string): Promise<{ html: string; finalUrl: string 
     }
 }
 
-// ── Main Crawl Function ──────────────────────────────────────────────
+// ── Main Crawl Function (BFS with priority queue) ────────────────────
 
 export async function crawlWebsite(startUrl: string): Promise<CrawlResult> {
     const errors: string[] = [];
@@ -304,20 +311,36 @@ export async function crawlWebsite(startUrl: string): Promise<CrawlResult> {
     // Total timeout guard
     const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
 
-    // Collect candidate URLs (start with homepage)
-    const candidateUrls: { url: string; score: number }[] = [
-        { url: baseUrl.href, score: scorePage(baseUrl.href) },
-    ];
+    // BFS priority queue — candidates discovered from ALL pages, not just homepage
+    const candidateUrls = new Map<string, number>(); // url → score
+    candidateUrls.set(baseUrl.href, scorePage(baseUrl.href));
 
-    // Phase 1: Fetch homepage to discover links
-    if (Date.now() < totalDeadline) {
+    // Process pages in priority order, discovering new links from each page
+    while (pages.length < MAX_PAGES && Date.now() < totalDeadline) {
+        // Pick the highest-scoring unvisited candidate
+        let bestUrl: string | null = null;
+        let bestScore = -1;
+        for (const [url, score] of candidateUrls) {
+            if (!visited.has(url) && score > bestScore) {
+                bestUrl = url;
+                bestScore = score;
+            }
+        }
+
+        if (!bestUrl) break; // No more candidates
+
+        visited.add(bestUrl);
+
         try {
-            const { html, finalUrl } = await fetchPage(baseUrl.href);
+            const parsed = new URL(bestUrl);
+            if (isDisallowed(parsed.pathname, disallowed)) continue;
+            await resolveAndValidateHost(parsed.hostname);
+
+            const { html, finalUrl } = await fetchPage(bestUrl);
             visited.add(finalUrl);
-            visited.add(baseUrl.href);
 
             const $ = cheerio.load(html);
-            const title = $("title").text().trim() || baseUrl.hostname;
+            const title = $("title").text().trim() || parsed.pathname || baseUrl.hostname;
             const content = extractContent($);
 
             if (content.length > 50) {
@@ -329,59 +352,24 @@ export async function crawlWebsite(startUrl: string): Promise<CrawlResult> {
                 });
             }
 
-            // Discover internal links
-            const internalLinks = extractInternalLinks($, baseUrl);
-            for (const link of internalLinks) {
-                if (!visited.has(link)) {
-                    const parsed = new URL(link);
-                    if (!isDisallowed(parsed.pathname, disallowed)) {
-                        candidateUrls.push({ url: link, score: scorePage(link) });
+            // Discover new links from THIS page (BFS — not just homepage)
+            const newLinks = extractInternalLinks($, baseUrl);
+            for (const link of newLinks) {
+                if (!visited.has(link) && !candidateUrls.has(link)) {
+                    const linkParsed = new URL(link);
+                    if (!isDisallowed(linkParsed.pathname, disallowed)) {
+                        candidateUrls.set(link, scorePage(link));
                     }
                 }
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Unknown error";
-            errors.push(`Homepage fetch failed: ${msg}`);
+            errors.push(`${bestUrl}: ${msg}`);
         }
     }
 
-    // Phase 2: Crawl remaining pages in priority order
-    // Sort by score descending, take top candidates
-    candidateUrls.sort((a, b) => b.score - a.score);
-
-    for (const candidate of candidateUrls) {
-        if (pages.length >= MAX_PAGES) break;
-        if (Date.now() >= totalDeadline) {
-            errors.push("Total crawl timeout reached");
-            break;
-        }
-        if (visited.has(candidate.url)) continue;
-        visited.add(candidate.url);
-
-        try {
-            // SSRF check for each new URL (in case of redirects to different hosts)
-            const parsed = new URL(candidate.url);
-            await resolveAndValidateHost(parsed.hostname);
-
-            const { html, finalUrl } = await fetchPage(candidate.url);
-            visited.add(finalUrl);
-
-            const $ = cheerio.load(html);
-            const title = $("title").text().trim() || parsed.pathname;
-            const content = extractContent($);
-
-            if (content.length > 50) {
-                pages.push({
-                    url: finalUrl,
-                    title,
-                    content,
-                    pageType: classifyPage(finalUrl, title),
-                });
-            }
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : "Unknown error";
-            errors.push(`${candidate.url}: ${msg}`);
-        }
+    if (Date.now() >= totalDeadline && pages.length < MAX_PAGES) {
+        errors.push("Total crawl timeout reached");
     }
 
     return { pages, errors };

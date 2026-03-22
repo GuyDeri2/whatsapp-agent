@@ -58,6 +58,7 @@ export async function POST(
     if (analysis.description) tenantUpdates.description = analysis.description;
     if (analysis.products_services) tenantUpdates.products = analysis.products_services;
     if (analysis.target_customers) tenantUpdates.target_customers = analysis.target_customers;
+    if (analysis.suggested_agent_prompt) tenantUpdates.agent_prompt = analysis.suggested_agent_prompt;
 
     const { error: updateError } = await supabase
         .from("tenants")
