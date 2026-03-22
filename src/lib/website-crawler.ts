@@ -21,7 +21,7 @@ const MAX_PAGES = 15;
 const MAX_CONTENT_PER_PAGE = 5000;
 const MAX_RESPONSE_BYTES = 500 * 1024; // 500KB
 const PAGE_TIMEOUT_MS = 6_000;
-const TOTAL_TIMEOUT_MS = 45_000;
+const TOTAL_TIMEOUT_MS = 35_000;
 
 // Priority keywords for page ranking (Hebrew + English)
 const PRIORITY_KEYWORDS: { pattern: RegExp; score: number }[] = [

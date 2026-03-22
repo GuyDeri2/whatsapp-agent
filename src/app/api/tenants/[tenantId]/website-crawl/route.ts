@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { crawlWebsite } from "@/lib/website-crawler";
 import { analyzeWebsiteContent } from "@/lib/website-analyzer";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(
     req: NextRequest,
