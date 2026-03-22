@@ -70,26 +70,31 @@ export async function POST(
         return NextResponse.json({ error: "URL too long" }, { status: 400 });
     }
 
+    // 1. Crawl the website
+    let crawlResult;
     try {
-        // 1. Crawl the website
-        console.log(`[${tenantId}] Starting website crawl: ${url}`);
-        const crawlResult = await crawlWebsite(url);
-        console.log(`[${tenantId}] Crawl done: ${crawlResult.pages.length} pages, ${crawlResult.errors.length} errors`);
+        crawlResult = await crawlWebsite(url);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        return NextResponse.json(
+            { error: `crawl_failed: ${msg}`, step: "crawl" },
+            { status: 500 }
+        );
+    }
 
-        if (crawlResult.pages.length === 0) {
-            return NextResponse.json(
-                {
-                    error: "Could not extract content from the website",
-                    errors: crawlResult.errors,
-                },
-                { status: 422 }
-            );
-        }
+    if (crawlResult.pages.length === 0) {
+        return NextResponse.json(
+            {
+                error: "Could not extract content from the website",
+                errors: crawlResult.errors,
+            },
+            { status: 422 }
+        );
+    }
 
-        // 2. Analyze with AI
-        console.log(`[${tenantId}] Starting AI analysis...`);
+    // 2. Analyze with AI
+    try {
         const analysis = await analyzeWebsiteContent(crawlResult.pages);
-        console.log(`[${tenantId}] Analysis done: ${analysis.knowledge_entries.length} entries`);
 
         return NextResponse.json({
             analysis,
@@ -98,7 +103,9 @@ export async function POST(
         });
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
-        console.error(`[${tenantId}] Website crawl/analysis failed:`, msg);
-        return NextResponse.json({ error: msg }, { status: 500 });
+        return NextResponse.json(
+            { error: `analysis_failed: ${msg}`, step: "analysis" },
+            { status: 500 }
+        );
     }
 }

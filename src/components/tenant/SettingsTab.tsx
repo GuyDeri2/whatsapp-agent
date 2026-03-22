@@ -113,12 +113,14 @@ const SettingsTab = React.memo(function SettingsTab({
             setScanProgress("");
         } catch (err) {
             const msg = err instanceof Error ? err.message : "scan_failed";
-            if (msg.includes("access") || msg.includes("fetch")) {
+            if (msg.includes("crawl_failed") || msg.includes("fetch")) {
                 setScanError("לא הצלחנו לגשת לאתר. בדוק שהכתובת נכונה.");
-            } else if (msg.includes("insufficient") || msg.includes("empty")) {
+            } else if (msg.includes("extract") || msg.includes("empty")) {
                 setScanError("לא הצלחנו לחלץ מידע מספיק מהאתר.");
+            } else if (msg.includes("timeout")) {
+                setScanError("ניתוח האתר נמשך יותר מדי זמן. נסה שוב.");
             } else {
-                setScanError("שגיאה בניתוח התוכן. נסה שוב.");
+                setScanError(`שגיאה: ${msg}`);
             }
             setScanProgress("");
         } finally {
