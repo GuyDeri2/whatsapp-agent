@@ -111,7 +111,7 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
 
 החזר JSON תקין בלבד.`;
 
-    const AI_TIMEOUT_MS = 45_000;
+    const AI_TIMEOUT_MS = 30_000;
     try {
         const completion = await Promise.race([
             getOpenAI().chat.completions.create({

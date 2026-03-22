@@ -72,7 +72,9 @@ export async function POST(
 
     try {
         // 1. Crawl the website
+        console.log(`[${tenantId}] Starting website crawl: ${url}`);
         const crawlResult = await crawlWebsite(url);
+        console.log(`[${tenantId}] Crawl done: ${crawlResult.pages.length} pages, ${crawlResult.errors.length} errors`);
 
         if (crawlResult.pages.length === 0) {
             return NextResponse.json(
@@ -85,7 +87,9 @@ export async function POST(
         }
 
         // 2. Analyze with AI
+        console.log(`[${tenantId}] Starting AI analysis...`);
         const analysis = await analyzeWebsiteContent(crawlResult.pages);
+        console.log(`[${tenantId}] Analysis done: ${analysis.knowledge_entries.length} entries`);
 
         return NextResponse.json({
             analysis,
@@ -94,7 +98,7 @@ export async function POST(
         });
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
-        console.error(`[${tenantId}] Website crawl failed:`, msg);
+        console.error(`[${tenantId}] Website crawl/analysis failed:`, msg);
         return NextResponse.json({ error: msg }, { status: 500 });
     }
 }
