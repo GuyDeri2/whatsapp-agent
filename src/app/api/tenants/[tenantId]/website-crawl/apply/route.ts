@@ -104,6 +104,20 @@ export async function POST(
         }
     }
 
+    // Add structured fields as knowledge entries too
+    if (analysis.operating_hours) {
+        rows.push({ tenant_id: tenantId, category: "hours", question: "מה שעות הפתיחה?", answer: analysis.operating_hours, source: "website" });
+    }
+    if (analysis.location) {
+        rows.push({ tenant_id: tenantId, category: "location", question: "איפה אתם נמצאים?", answer: analysis.location, source: "website" });
+    }
+    if (analysis.contact_phone) {
+        rows.push({ tenant_id: tenantId, category: "contact", question: "מה מספר הטלפון שלכם?", answer: analysis.contact_phone, source: "website" });
+    }
+    if (analysis.contact_email) {
+        rows.push({ tenant_id: tenantId, category: "contact", question: "מה המייל שלכם?", answer: analysis.contact_email, source: "website" });
+    }
+
     // Add product+price entries as knowledge
     if (analysis.products_with_prices && analysis.products_with_prices.length > 0) {
         for (const product of analysis.products_with_prices) {

@@ -93,20 +93,52 @@ export async function analyzeWebsiteContent(pages: CrawledPage[]): Promise<Websi
 
     const content = prepareContent(pages);
 
-    const systemPrompt = `Analyze this business website and extract structured data. Return JSON with these fields:
-- business_name: string (as shown on site)
-- description: string in Hebrew (1-2 sentences)
-- products_services: string in Hebrew (comma-separated list)
-- target_customers: string in Hebrew (one sentence) or null
-- operating_hours: string or null
-- location: string or null
-- contact_phone: string or null
-- contact_email: string or null
-- knowledge_entries: array of 5-10 objects, each with category (string), question (Hebrew), answer (Hebrew, 1 sentence)
-- products_with_prices: array of objects with name (Hebrew), price (string with currency, e.g. "₪50" or "₪120-180"), description (Hebrew, optional short text). IMPORTANT: Extract EVERY product/service that has a price on the site — do not skip any. Include all variations (sizes, packages, tiers). Empty array only if truly no prices found.
-- suggested_agent_prompt: string in Hebrew — comprehensive instructions for a WhatsApp customer service bot. Include: what the business does, key services/products, opening hours, location, return/cancellation policy if found, delivery info if found, payment methods if found, and any important notes a customer service agent should know. Write as clear bullet points. This will be the bot's operational guide — be thorough, not brief.
+    const systemPrompt = `You are a business intelligence analyst. Extract ALL useful information from this business website. A business owner needs this data to set up a WhatsApp customer service bot. Be EXHAUSTIVE — extract everything you can find.
 
-Rules: Only use info from the content. Hebrew for all text except business_name. Null if not found. For products_with_prices — be exhaustive, list every priced item.`;
+Return JSON with these fields:
+
+- business_name: string (exact name as shown on site)
+- description: string in Hebrew (2-3 sentences describing what the business does, its specialty, and unique value)
+- products_services: string in Hebrew (detailed comma-separated list of ALL products/services/categories found)
+- target_customers: string in Hebrew (who are the customers) or null
+- operating_hours: string in Hebrew (full schedule, e.g. "ראשון-חמישי 08:00-17:00, שישי 08:00-13:00") or null
+- location: string (full address + any directions/landmarks mentioned) or null
+- contact_phone: string (all phone numbers found, comma-separated) or null
+- contact_email: string (all emails found, comma-separated) or null
+
+- knowledge_entries: array of objects with category, question (Hebrew), answer (Hebrew).
+  Extract AS MANY as possible. Cover ALL these categories if info exists:
+  * "about" — what the business does, history, specialties, certifications, team
+  * "hours" — opening hours, holiday hours, emergency hours
+  * "location" — address, directions, parking, branches
+  * "contact" — phone, email, WhatsApp, social media links
+  * "shipping" — delivery options, shipping costs, delivery times, delivery areas
+  * "returns" — return policy, warranty, exchange policy, refund policy
+  * "payment" — payment methods, credit cards, installments, bank transfer
+  * "products" — product categories, brands carried, special features, materials
+  * "services" — service descriptions, service areas, response times
+  * "promotions" — current deals, discounts, loyalty programs, gift cards
+  * "faq" — any FAQ content found on the site
+  * "general" — anything else useful (minimum order, ordering process, custom orders, etc.)
+
+  For each piece of info found, create a Q&A entry. Write questions as a customer would ask them.
+  Example: category "shipping", question "מה זמני המשלוח?", answer "משלוח תוך 3-5 ימי עסקים לכל הארץ."
+  NO LIMIT on number of entries — extract everything.
+
+- products_with_prices: array of objects with name (Hebrew), price (string with ₪), description (Hebrew, optional).
+  Extract EVERY product/service that has a price. Include all variations (sizes, packages, tiers).
+  Empty array only if truly no prices found anywhere on the site.
+
+- suggested_agent_prompt: string in Hebrew — comprehensive operational guide for a WhatsApp bot.
+  Write as bullet points covering: business identity, what we sell/do, hours, location, shipping/delivery, returns, payment, special notes, tone of voice. Be thorough — this is the bot's complete business knowledge.
+
+Rules:
+- Only use information actually found in the website content
+- Hebrew for all text fields except business_name
+- null if information truly not found (don't guess)
+- Be exhaustive — more data is better. Extract EVERYTHING.
+- For knowledge_entries: aim for 20-50+ entries covering all categories
+- For products_with_prices: list every single priced item found`;
 
     const AI_TIMEOUT_MS = 120_000;
     try {
