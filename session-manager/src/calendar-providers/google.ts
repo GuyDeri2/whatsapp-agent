@@ -47,6 +47,13 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
 
     if (!needsRefresh) return integration.access_token;
 
+    if (!integration.refresh_token) {
+        throw new Error(
+            `Google Calendar refresh_token is missing for tenant ${tenantId}. ` +
+            `The user must re-authorize the Google Calendar integration.`
+        );
+    }
+
     // Refresh using refresh_token
     const resp = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",

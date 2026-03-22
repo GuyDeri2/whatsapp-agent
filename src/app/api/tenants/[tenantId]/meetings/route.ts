@@ -54,6 +54,20 @@ export async function POST(req: Request, { params }: Params) {
     return NextResponse.json({ error: 'customer_phone, start_time, end_time are required' }, { status: 400 });
   }
 
+  // Check for overlapping confirmed meetings to prevent double-booking
+  const { data: conflicts } = await supabase
+    .from('meetings')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'confirmed')
+    .lt('start_time', end_time)
+    .gt('end_time', start_time)
+    .limit(1);
+
+  if (conflicts && conflicts.length > 0) {
+    return NextResponse.json({ error: 'Time slot already booked' }, { status: 409 });
+  }
+
   const { data, error } = await supabase
     .from('meetings')
     .insert({
@@ -70,6 +84,12 @@ export async function POST(req: Request, { params }: Params) {
     .select('id, customer_name, customer_phone, start_time, end_time, status, meeting_type')
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Handle unique constraint violation (race condition — another request booked it between check and insert)
+  if (error) {
+    if (error.code === '23505') {
+      return NextResponse.json({ error: 'Time slot already booked' }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json(data, { status: 201 });
 }

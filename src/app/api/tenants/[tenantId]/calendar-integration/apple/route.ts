@@ -1,6 +1,24 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { createCipheriv, randomBytes } from 'crypto';
+
+/**
+ * Encrypt a string using AES-256-GCM with SESSION_ENCRYPTION_KEY.
+ * Returns "iv:authTag:ciphertext" (all hex-encoded).
+ */
+function encryptSecret(plaintext: string): string {
+  const key = process.env.SESSION_ENCRYPTION_KEY;
+  if (!key) throw new Error('SESSION_ENCRYPTION_KEY is not configured');
+  // Key must be 32 bytes for AES-256. Accept hex (64 chars) or raw (32 chars).
+  const keyBuf = key.length === 64 ? Buffer.from(key, 'hex') : Buffer.from(key.padEnd(32, '0').slice(0, 32));
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', keyBuf, iv);
+  let encrypted = cipher.update(plaintext, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+}
 
 type Params = { params: Promise<{ tenantId: string }> };
 
@@ -43,13 +61,22 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: 'apple_id must be a valid email address' }, { status: 400 });
   }
 
+  // Encrypt the app-specific password before storing
+  let encryptedPassword: string;
+  try {
+    encryptedPassword = encryptSecret(app_password.trim());
+  } catch (err) {
+    console.error('Failed to encrypt Apple credentials:', err);
+    return NextResponse.json({ error: 'Encryption configuration error' }, { status: 500 });
+  }
+
   const admin = getSupabaseAdmin();
   const { error } = await admin.from('calendar_integrations').upsert(
     {
       tenant_id: tenantId,
       provider: 'apple',
       calendar_id: apple_id.trim(),
-      access_token: app_password.trim(),
+      access_token: encryptedPassword,
       calendar_name: 'Apple Calendar',
       is_active: true,
     },

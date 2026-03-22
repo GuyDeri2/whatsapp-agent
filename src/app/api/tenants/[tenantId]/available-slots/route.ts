@@ -26,8 +26,17 @@ export async function GET(req: Request, { params }: Params) {
     return NextResponse.json({ error: 'date parameter required (YYYY-MM-DD)' }, { status: 400 });
   }
 
-  const date = new Date(dateStr);
-  const dayOfWeek = date.getDay(); // 0=Sun, 6=Sat
+  // Validate timezone from query or tenant settings — default to Asia/Jerusalem
+  let tz = url.searchParams.get('timezone') ?? 'Asia/Jerusalem';
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+  } catch {
+    tz = 'Asia/Jerusalem';
+  }
+
+  // Use noon UTC to get stable day-of-week regardless of server timezone
+  const date = new Date(dateStr + 'T12:00:00Z');
+  const dayOfWeek = date.getUTCDay(); // 0=Sun, 6=Sat
 
   // Get availability rules for this day
   const { data: rules } = await supabase

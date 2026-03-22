@@ -12,6 +12,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { createDecipheriv } from "crypto";
 import { DAVClient } from "tsdav";
 import type { BusyBlock, CalendarProvider, CreatedEvent, CreateEventParams } from "./types";
 
@@ -22,8 +23,32 @@ function getSupabase() {
     );
 }
 
+/**
+ * Decrypt an AES-256-GCM encrypted string (format: "iv:authTag:ciphertext", all hex).
+ * Falls back to returning the raw value if it doesn't match encrypted format
+ * (backwards compatibility with previously stored plain-text passwords).
+ */
+function decryptSecret(encrypted: string): string {
+    const parts = encrypted.split(":");
+    if (parts.length !== 3) return encrypted; // not encrypted (legacy)
+
+    const key = process.env.SESSION_ENCRYPTION_KEY;
+    if (!key) throw new Error("SESSION_ENCRYPTION_KEY is not configured — cannot decrypt Apple credentials");
+
+    const keyBuf = key.length === 64 ? Buffer.from(key, "hex") : Buffer.from(key.padEnd(32, "0").slice(0, 32));
+    const iv = Buffer.from(parts[0], "hex");
+    const authTag = Buffer.from(parts[1], "hex");
+    const ciphertext = parts[2];
+
+    const decipher = createDecipheriv("aes-256-gcm", keyBuf, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(ciphertext, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+}
+
 interface AppleIntegration {
-    access_token: string; // app-specific password
+    access_token: string; // encrypted app-specific password
     calendar_id: string;  // Apple ID email
 }
 
@@ -43,11 +68,12 @@ async function getIntegration(tenantId: string): Promise<AppleIntegration | null
  * Create a connected DAVClient for iCloud CalDAV.
  */
 async function createDavClient(integration: AppleIntegration): Promise<DAVClient> {
+    const password = decryptSecret(integration.access_token);
     const client = new DAVClient({
         serverUrl: "https://caldav.icloud.com",
         credentials: {
             username: integration.calendar_id,
-            password: integration.access_token,
+            password,
         },
         authMethod: "Basic",
         defaultAccountType: "caldav",
@@ -109,12 +135,22 @@ function parseICalDate(value: string): Date | null {
     if (!value) return null;
     // Remove TZID parameter if present (e.g., "TZID=Asia/Jerusalem:20260323T100000")
     const clean = value.includes(":") ? value.split(":").pop()! : value;
-    // Format: YYYYMMDDTHHmmss or YYYYMMDDTHHmmssZ
-    const match = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/);
-    if (!match) return null;
-    const [, y, m, d, h, min, s] = match;
-    // If ends with Z, it's UTC; otherwise treat as UTC (best guess)
-    return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`);
+
+    // Try DATETIME format first: YYYYMMDDTHHmmss or YYYYMMDDTHHmmssZ
+    const dtMatch = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/);
+    if (dtMatch) {
+        const [, y, m, d, h, min, s] = dtMatch;
+        return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`);
+    }
+
+    // Handle DATE-only format (all-day events): YYYYMMDD — treat as midnight UTC
+    const dateMatch = clean.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (dateMatch) {
+        const [, y, m, d] = dateMatch;
+        return new Date(`${y}-${m}-${d}T00:00:00Z`);
+    }
+
+    return null;
 }
 
 /**

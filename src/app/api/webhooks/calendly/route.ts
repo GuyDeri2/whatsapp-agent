@@ -33,34 +33,22 @@ function verifySignature(rawBody: string, signature: string | null): boolean {
     return timingSafeEqual(expectedBuf, signatureBuf);
 }
 
-/** Resolve tenant_id from a Calendly user URI */
+/** Resolve tenant_id from a Calendly user URI — strict match only */
 async function resolveTenant(calendlyUserUri: string): Promise<string | null> {
+    if (!calendlyUserUri) return null;
+
     const supabase = getSupabase();
-    // The calendar_integrations.access_token belongs to this user — we match
-    // by finding the integration whose user matches the webhook event's organizer URI.
-    // Since we store the token per-tenant, we check which tenant has a Calendly integration.
-    // Best match: the calendar_id or access_token owner — for now use a broad lookup
-    // and let the caller narrow by event_type URI if needed.
+    // Strict lookup: match by calendar_id (organizer URI) stored during integration setup.
+    // Never fall back to "only one tenant" — that's a security risk in multi-tenant.
     const { data } = await supabase
         .from("calendar_integrations")
-        .select("tenant_id, calendar_id")
+        .select("tenant_id")
         .eq("provider", "calendly")
         .eq("is_active", true)
-        .limit(20);
+        .eq("calendar_id", calendlyUserUri)
+        .single();
 
-    if (!data || data.length === 0) return null;
-
-    // Try to match by stored organizer URI (calendar_id may contain it)
-    if (calendlyUserUri) {
-        const match = data.find((d) => d.calendar_id === calendlyUserUri);
-        if (match) return match.tenant_id;
-    }
-
-    // Fallback: if there's only one Calendly tenant, return it
-    if (data.length === 1) return data[0].tenant_id;
-
-    // Multiple tenants, no URI match — can't determine
-    return null;
+    return data?.tenant_id ?? null;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -112,7 +100,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 calendar_event_id: eventId,
                 calendar_provider: "calendly",
                 customer_name:     inviteeName,
-                customer_phone:    inviteeEmail, // best we have from Calendly webhook
+                customer_email:    inviteeEmail, // Calendly provides email, not phone
+                customer_phone:    null,
                 start_time:        startTime,
                 end_time:          endTime,
                 status:            "confirmed",

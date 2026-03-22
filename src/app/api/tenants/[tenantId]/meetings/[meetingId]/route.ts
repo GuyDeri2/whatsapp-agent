@@ -20,6 +20,16 @@ export async function PATCH(req: Request, { params }: Params) {
   if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json();
+
+  // Validate status against allowed enum values
+  const VALID_STATUSES = ['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'];
+  if (body.status !== undefined && !VALID_STATUSES.includes(body.status)) {
+    return NextResponse.json(
+      { error: `Invalid status. Allowed values: ${VALID_STATUSES.join(', ')}` },
+      { status: 400 }
+    );
+  }
+
   const allowed = ['status', 'start_time', 'end_time', 'notes'];
   const update: Record<string, unknown> = {};
   for (const key of allowed) {
