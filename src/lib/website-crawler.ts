@@ -180,9 +180,80 @@ function classifyPage(url: string, title: string): string {
     return "general";
 }
 
+// ── Contact Info Extraction ──────────────────────────────────────────
+
+/** Extract structured contact info from full HTML before stripping nav/header/footer */
+function extractContactInfo($: cheerio.CheerioAPI): string {
+    const info: string[] = [];
+
+    // Get text from header, footer, nav, and contact-like sections BEFORE they're removed
+    const contactZones = $("header, footer, nav, [class*='contact'], [id*='contact'], [class*='footer'], [class*='header'], address").text();
+
+    // Extract phone numbers (Israeli formats: 0x-xxxxxxx, +972-x-xxxxxxx, 972xxxxxxxxx, *xxxx)
+    const phones = contactZones.match(/(?:\+?972[-\s]?|0)(?:[2-9][-\s]?\d{7}|\d[-\s]?\d{3}[-\s]?\d{4})|(?:\*\d{4})/g);
+    if (phones) {
+        const unique = [...new Set(phones.map(p => p.replace(/\s/g, "")))];
+        info.push(`טלפון: ${unique.join(", ")}`);
+    }
+
+    // Extract emails
+    const fullText = $("body").text();
+    const emails = fullText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+    if (emails) {
+        const unique = [...new Set(emails)];
+        info.push(`אימייל: ${unique.join(", ")}`);
+    }
+
+    // Extract hours — look for common patterns near "שעות" or "hours"
+    const hoursPatterns = [
+        /שעות\s*(?:פתיחה|פעילות|עבודה)[^.]*?(?:\d{1,2}[:.]\d{2}[^.]*){1,}/gi,
+        /(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|sunday|monday|tuesday|wednesday|thursday|friday|saturday)[\s:|-]*\d{1,2}[:.]\d{2}\s*[-–]\s*\d{1,2}[:.]\d{2}/gi,
+    ];
+
+    const hoursSet = new Set<string>();
+    for (const pattern of hoursPatterns) {
+        const matches = contactZones.match(pattern);
+        if (matches) matches.forEach(m => hoursSet.add(m.trim().replace(/\s+/g, " ")));
+        // Also search full body text
+        const bodyMatches = fullText.match(pattern);
+        if (bodyMatches) bodyMatches.forEach(m => hoursSet.add(m.trim().replace(/\s+/g, " ")));
+    }
+
+    // Also look for structured hours blocks (day: time-time patterns near each other)
+    const dayTimePattern = /(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|א['׳]|ב['׳]|ג['׳]|ד['׳]|ה['׳]|ו['׳]|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s*[-–:]\s*\d{1,2}[:.]\d{2}\s*[-–]\s*\d{1,2}[:.]\d{2}/gi;
+    const dayMatches = fullText.match(dayTimePattern);
+    if (dayMatches) dayMatches.forEach(m => hoursSet.add(m.trim().replace(/\s+/g, " ")));
+
+    if (hoursSet.size > 0) {
+        info.push(`שעות פתיחה: ${[...hoursSet].join(" | ")}`);
+    }
+
+    // Extract address — look for "כתובת", "address", or street patterns
+    const addressPatterns = [
+        /כתובת[:\s]*[^,\n]{5,80}/gi,
+        /(?:רחוב|רח['׳]|שד['׳]|שדרות)\s+[^\n,]{3,60}/gi,
+        /address[:\s]*[^,\n]{5,80}/gi,
+    ];
+    const addresses = new Set<string>();
+    for (const pattern of addressPatterns) {
+        const matches = contactZones.match(pattern);
+        if (matches) matches.forEach(m => addresses.add(m.trim().replace(/\s+/g, " ")));
+        const bodyMatches = fullText.match(pattern);
+        if (bodyMatches) bodyMatches.forEach(m => addresses.add(m.trim().replace(/\s+/g, " ")));
+    }
+    if (addresses.size > 0) {
+        info.push(`כתובת: ${[...addresses].join(" | ")}`);
+    }
+
+    return info.length > 0 ? `[פרטי קשר מהאתר]\n${info.join("\n")}\n\n` : "";
+}
+
 // ── HTML Extraction ──────────────────────────────────────────────────
 
 function extractContent($: cheerio.CheerioAPI): string {
+    // Extract contact info BEFORE removing nav/header/footer
+    const contactInfo = extractContactInfo($);
+
     // Remove non-content elements
     $("script, style, nav, header, footer, iframe, noscript, svg, form").remove();
     $("[aria-hidden='true']").remove();
@@ -194,7 +265,9 @@ function extractContent($: cheerio.CheerioAPI): string {
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 
-    return text.substring(0, MAX_CONTENT_PER_PAGE);
+    // Prepend contact info so it's always included in the content
+    const combined = contactInfo + text;
+    return combined.substring(0, MAX_CONTENT_PER_PAGE);
 }
 
 function extractInternalLinks($: cheerio.CheerioAPI, baseUrl: URL): string[] {

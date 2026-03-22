@@ -73,13 +73,59 @@ async function resolveAndValidateHost(hostname: string): Promise<void> {
     }
 }
 
+// ── Contact Info Extraction ──────────────────────────────────────────
+
+/** Extract structured contact info from full HTML before stripping nav/header/footer */
+function extractContactInfo($: cheerio.CheerioAPI): string {
+    const info: string[] = [];
+    const contactZones = $("header, footer, nav, [class*='contact'], [id*='contact'], [class*='footer'], [class*='header'], address").text();
+    const fullText = $("body").text();
+
+    // Phone numbers (Israeli formats)
+    const phones = contactZones.match(/(?:\+?972[-\s]?|0)(?:[2-9][-\s]?\d{7}|\d[-\s]?\d{3}[-\s]?\d{4})|(?:\*\d{4})/g);
+    if (phones) {
+        info.push(`טלפון: ${[...new Set(phones.map(p => p.replace(/\s/g, "")))].join(", ")}`);
+    }
+
+    // Emails
+    const emails = fullText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+    if (emails) info.push(`אימייל: ${[...new Set(emails)].join(", ")}`);
+
+    // Hours
+    const hoursSet = new Set<string>();
+    const hoursPatterns = [
+        /שעות\s*(?:פתיחה|פעילות|עבודה)[^.]*?(?:\d{1,2}[:.]\d{2}[^.]*){1,}/gi,
+        /(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|sunday|monday|tuesday|wednesday|thursday|friday|saturday)[\s:|-]*\d{1,2}[:.]\d{2}\s*[-–]\s*\d{1,2}[:.]\d{2}/gi,
+    ];
+    for (const pattern of hoursPatterns) {
+        (contactZones.match(pattern) || []).forEach(m => hoursSet.add(m.trim().replace(/\s+/g, " ")));
+        (fullText.match(pattern) || []).forEach(m => hoursSet.add(m.trim().replace(/\s+/g, " ")));
+    }
+    const dayTimePattern = /(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|א['׳]|ב['׳]|ג['׳]|ד['׳]|ה['׳]|ו['׳]|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s*[-–:]\s*\d{1,2}[:.]\d{2}\s*[-–]\s*\d{1,2}[:.]\d{2}/gi;
+    (fullText.match(dayTimePattern) || []).forEach(m => hoursSet.add(m.trim().replace(/\s+/g, " ")));
+    if (hoursSet.size > 0) info.push(`שעות פתיחה: ${[...hoursSet].join(" | ")}`);
+
+    // Address
+    const addresses = new Set<string>();
+    const addrPatterns = [/כתובת[:\s]*[^,\n]{5,80}/gi, /(?:רחוב|רח['׳]|שד['׳]|שדרות)\s+[^\n,]{3,60}/gi, /address[:\s]*[^,\n]{5,80}/gi];
+    for (const pattern of addrPatterns) {
+        (contactZones.match(pattern) || []).forEach(m => addresses.add(m.trim().replace(/\s+/g, " ")));
+        (fullText.match(pattern) || []).forEach(m => addresses.add(m.trim().replace(/\s+/g, " ")));
+    }
+    if (addresses.size > 0) info.push(`כתובת: ${[...addresses].join(" | ")}`);
+
+    return info.length > 0 ? `[פרטי קשר מהאתר]\n${info.join("\n")}\n\n` : "";
+}
+
 // ── HTML helpers ─────────────────────────────────────────────────────
 
 function extractContent($: cheerio.CheerioAPI): string {
+    const contactInfo = extractContactInfo($);
     $("script, style, nav, header, footer, iframe, noscript, svg, form").remove();
     $("[aria-hidden='true']").remove();
     $(".cookie-banner, .popup, .modal, #cookie-consent").remove();
-    return $("body").text().replace(/\s+/g, " ").replace(/\n{3,}/g, "\n\n").trim().substring(0, MAX_CONTENT_PER_PAGE);
+    const text = $("body").text().replace(/\s+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    return (contactInfo + text).substring(0, MAX_CONTENT_PER_PAGE);
 }
 
 function extractInternalLinks($: cheerio.CheerioAPI, baseUrl: URL): string[] {
