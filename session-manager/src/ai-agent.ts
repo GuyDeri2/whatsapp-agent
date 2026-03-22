@@ -7,6 +7,7 @@
 import OpenAI from "openai";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { getSchedulingContext } from "./scheduling";
+import { searchWebsiteForAnswer } from "./website-search";
 
 // ─── Singletons ───────────────────────────────────────────────────────
 let _openai: OpenAI | null = null;
@@ -172,12 +173,7 @@ ${t.handoff_collect_email ? `לפני העברה — בקש מייל אם לא �
 
 /**
  * Search the business website for an answer to a customer's question.
- * Used as a fallback when the AI doesn't know the answer from the knowledge base.
- * Returns the answer string or null if not found.
- *
- * NOTE: This makes HTTP calls to the Next.js website-crawler library via a local
- * inline implementation (same logic). The session-manager runs separately, so we
- * duplicate the minimal logic needed here to avoid cross-service dependencies.
+ * Uses the full cheerio-based crawler (same quality as Cloud API path).
  */
 async function searchBusinessWebsite(
     tenantId: string,
@@ -193,68 +189,7 @@ async function searchBusinessWebsite(
 
         if (!tenant?.website_url) return null;
 
-        // Fetch the website homepage and extract text
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10_000);
-
-        let html: string;
-        try {
-            const res = await fetch(tenant.website_url, {
-                signal: controller.signal,
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (compatible; WhatsAppAgentBot/1.0)",
-                    "Accept": "text/html",
-                },
-            });
-            clearTimeout(timeout);
-            if (!res.ok) return null;
-            html = await res.text();
-            // Rough size limit
-            if (html.length > 500_000) html = html.substring(0, 500_000);
-        } catch {
-            clearTimeout(timeout);
-            return null;
-        }
-
-        // Very basic text extraction (strip tags)
-        const text = html
-            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .substring(0, 8000);
-
-        if (text.length < 50) return null;
-
-        // Ask DeepSeek if the answer is in the website content
-        const completion = await Promise.race([
-            getOpenAI().chat.completions.create({
-                model: "deepseek-chat",
-                messages: [
-                    {
-                        role: "system",
-                        content: `אתה עוזר שירות לקוחות. קיבלת שאלה מלקוח ותוכן מאתר העסק.
-אם התשובה לשאלה נמצאת בתוכן האתר — ענה בעברית בקצרה (1-2 משפטים), בסגנון WhatsApp טבעי ונעים.
-אם התשובה לא נמצאת בתוכן — ענה בדיוק: [NOT_FOUND]
-אל תמציא מידע שלא מופיע בתוכן.`,
-                    },
-                    {
-                        role: "user",
-                        content: `שאלת הלקוח: ${question}\n\nתוכן האתר:\n${text}`,
-                    },
-                ],
-                max_tokens: 200,
-                temperature: 0.2,
-            }),
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("Website search timeout")), 15_000)
-            ),
-        ]);
-
-        const reply = completion.choices[0]?.message?.content?.trim() ?? "";
-        if (!reply || reply.includes("[NOT_FOUND]")) return null;
-        return reply;
+        return await searchWebsiteForAnswer(tenant.website_url, question);
     } catch (err: any) {
         console.error(`[${tenantId}] Website search failed:`, err.message);
         return null;
