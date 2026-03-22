@@ -18,6 +18,9 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: "סוכן ווטסאפ — דשבורד עסקי",
   description: "דשבורד עסקי לניהול סוכן AI לשירות לקוחות בוואטסאפ. המערכת המקצועית ביותר בישראל.",
+  verification: {
+    google: "F7DkVaiDUCKSy9pX0Ub4vbZOlPIj-tllv4_XVR5T9FE",
+  },
 };
 
 export default function RootLayout({

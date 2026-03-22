@@ -40,8 +40,9 @@ export async function GET(req: Request) {
     if (Date.now() - decoded.ts > STATE_MAX_AGE_MS) {
       throw new Error('state expired');
     }
-  } catch {
-    return NextResponse.redirect(`${appUrl}/?error=invalid_oauth_state`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'unknown';
+    return NextResponse.redirect(`${appUrl}/?error=invalid_oauth_state&debug=${encodeURIComponent(msg)}`);
   }
 
   const REDIRECT_URI = `${appUrl}/api/oauth/google/callback`;
@@ -61,11 +62,13 @@ export async function GET(req: Request) {
 
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
-    console.error('Google token exchange failed:', errText);
-    return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=calendar&error=token_exchange`);
+    console.error('[Google OAuth] Token exchange FAILED:', tokenRes.status, errText);
+    const debugInfo = encodeURIComponent(`status=${tokenRes.status},uri=${REDIRECT_URI},hasSecret=${!!process.env.GOOGLE_CLIENT_SECRET},resp=${errText.substring(0, 200)}`);
+    return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=calendar&error=token_exchange&debug=${debugInfo}`);
   }
 
   const tokens = await tokenRes.json();
+  console.log('[Google OAuth] Token exchange successful, has refresh_token:', !!tokens.refresh_token);
 
   // Get calendar list to find primary calendar
   const calRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
@@ -103,10 +106,11 @@ export async function GET(req: Request) {
   );
 
   if (upsertError) {
-    console.error('Failed to save calendar integration:', upsertError);
+    console.error('[Google OAuth] Failed to save calendar integration:', JSON.stringify(upsertError));
     return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=calendar&error=save_failed`);
   }
 
+  console.log('[Google OAuth] Saved successfully for tenant', tenantId, 'calendar:', calendarName);
   // Redirect back to the tenant calendar tab with success indicator
   return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=calendar&connected=google`);
 }
