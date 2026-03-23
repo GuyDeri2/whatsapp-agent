@@ -131,7 +131,7 @@ export async function POST(req: Request) {
 
 /**
  * DB-based rate limiting: check if the last AI reply in this conversation
- * was sent less than 2 seconds ago. Prevents runaway AI replies.
+ * was sent less than 5 seconds ago. Prevents runaway AI replies.
  */
 async function isRateLimited(
     supabase: ReturnType<typeof getSupabaseAdmin>,
@@ -152,7 +152,29 @@ async function isRateLimited(
     if (!data) return false;
 
     const lastReplyTime = new Date(data.created_at).getTime();
-    return Date.now() - lastReplyTime < 2000;
+    return Date.now() - lastReplyTime < 5000;
+}
+
+/**
+ * In-memory lock to prevent concurrent AI generation for the same conversation.
+ * Maps conversation ID → timestamp when generation started.
+ * Entries auto-expire after 30 seconds.
+ */
+const activeGenerations = new Map<string, number>();
+
+function tryAcquireGenerationLock(conversationId: string): boolean {
+    const now = Date.now();
+    const existing = activeGenerations.get(conversationId);
+    // If there's an active generation that's less than 30 seconds old, reject
+    if (existing && now - existing < 30_000) {
+        return false;
+    }
+    activeGenerations.set(conversationId, now);
+    return true;
+}
+
+function releaseGenerationLock(conversationId: string): void {
+    activeGenerations.delete(conversationId);
 }
 
 async function processIncomingMessage(
@@ -280,6 +302,12 @@ async function processIncomingMessage(
         }
     }
 
+    // Acquire per-conversation lock to prevent duplicate AI responses
+    if (!tryAcquireGenerationLock(conversation.id)) {
+        console.log(`[${tenantId}] Skipping AI reply — generation already in progress for conversation ${conversation.id}`);
+        return;
+    }
+
     // Generate and send AI reply (message already saved above)
     await generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText);
 }
@@ -364,6 +392,8 @@ async function generateAndSendAiReply(
         }
     } catch (err) {
         console.error(`[${tenantId}] AI reply generation failed:`, err);
+    } finally {
+        releaseGenerationLock(conversationId);
     }
 }
 
