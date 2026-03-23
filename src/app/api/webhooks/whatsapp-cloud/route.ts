@@ -323,13 +323,15 @@ async function generateAndSendAiReply(
     latestMessage: string
 ): Promise<void> {
     try {
-        // Fetch conversation history (user + assistant only, skip owner messages)
+        // Fetch conversation history — last 60 minutes only (user + assistant, skip owner)
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const { data: messages } = await supabase
             .from("messages")
             .select("role, content, created_at")
             .eq("conversation_id", conversationId)
             .eq("tenant_id", tenantId)
             .in("role", ["user", "assistant"])
+            .gte("created_at", oneHourAgo)
             .order("created_at", { ascending: false })
             .limit(20);
 

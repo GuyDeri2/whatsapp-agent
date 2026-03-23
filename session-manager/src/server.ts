@@ -550,14 +550,14 @@ cron.schedule("0 2 * * *", async () => {
         const { data: tenants, error } = await supabase
             .from("tenants")
             .select("id")
-            .in("agent_mode", ["learning", "active"]);
+            .eq("agent_mode", "learning");
 
         if (error || !tenants) {
             console.error("Failed to query tenants for daily learning:", error);
             return;
         }
 
-        console.log(`Found ${tenants.length} tenants in learning/active mode.`);
+        console.log(`Found ${tenants.length} tenants in learning mode.`);
         for (const t of tenants) {
             try {
                 await runBatchLearning(t.id, 24);

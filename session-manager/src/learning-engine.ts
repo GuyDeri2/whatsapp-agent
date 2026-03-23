@@ -36,12 +36,6 @@ interface ChatMessage {
     created_at: string;
 }
 
-interface KnowledgeEntry {
-    question: string;
-    answer: string;
-    category: string;
-}
-
 export async function runBatchLearning(tenantId: string, hoursBack: number = 24): Promise<any> {
     const supabase = getSupabase();
     console.log(`[${tenantId}] 🧠 Starting batch learning for the last ${hoursBack} hours...`);
@@ -107,19 +101,18 @@ export async function runBatchLearning(tenantId: string, hoursBack: number = 24)
         return { success: true, learned_items: 0 };
     }
 
-    // 3. Get existing knowledge
-    const { data: knowledge } = await supabase
-        .from("knowledge_base")
-        .select("id, question, answer, category, source")
-        .eq("tenant_id", tenantId);
+    // 3. Get current agent_prompt (capabilities) to avoid duplicates
+    const { data: tenantFull } = await supabase
+        .from("tenants")
+        .select("agent_prompt")
+        .eq("id", tenantId)
+        .single();
 
-    const existingKnowledgeStr = (knowledge || [])
-        .map(k => `- ID: ${k.id} | [${k.category || 'general'}] ${k.question || 'Fact'}: ${k.answer} (Source: ${k.source})`)
-        .join("\n");
+    const currentCapabilities = tenantFull?.agent_prompt || "";
 
-    // 4. Ask DeepSeek to extract new facts and correct mistakes
-    const systemPrompt = `You are an expert business analyst and AI knowledge manager for a business named "${tenant.business_name}".
-Your task is to review recent WhatsApp conversations and extract ONLY knowledge that will help an AI customer support agent answer future customer questions about this business.
+    // 4. Ask DeepSeek to extract new business facts from owner conversations
+    const systemPrompt = `You are an expert business analyst for a business named "${tenant.business_name}".
+Your task is to review recent WhatsApp conversations where the business OWNER replied manually, and extract ONLY business knowledge that will help an AI customer support agent.
 
 ━━━ PHASE 1 — UNDERSTAND THE CONVERSATION ━━━
 Before extracting anything, read each conversation fully and ask yourself:
@@ -146,144 +139,99 @@ Examples of what FAILS the universal test (skip these):
 ❌ "Your name is beautiful" — personal remark
 ❌ Customer's phone number or personal details — private info
 
-━━━ PHASE 3 — KNOWLEDGE MANAGEMENT ━━━
-Review the EXISTING KNOWLEDGE BASE before deciding to add:
-- If a new fact CONTRADICTS existing knowledge → UPDATE the existing record.
-- If an existing fact is WRONG or OBSOLETE based on recent chats → UPDATE or DELETE it.
-- If the knowledge ALREADY COVERS this fact → DO NOT add a duplicate.
+━━━ PHASE 3 — CHECK EXISTING CAPABILITIES ━━━
+The agent already has these capabilities/knowledge. DO NOT add duplicates:
+
+${currentCapabilities || "(Empty — no capabilities yet)"}
 
 ━━━ OUTPUT FORMAT ━━━
-Output a strict JSON array. Each object is one action:
-- "action": MUST be "add", "update", or "delete"
-- "id": Required ONLY for "update" or "delete" — use the EXACT ID from EXISTING KNOWLEDGE BASE
-- "question": (add/update) A generic customer question that this fact answers
-- "answer": (add/update) The factual answer, as the business would state it
-- "category": (add/update) e.g., "pricing", "hours", "policy", "products", "general"
+Output ONLY the NEW facts to add, as a plain text list in Hebrew. Each line is one fact.
+Write them as clear, concise statements that an AI agent can use to answer customers.
+Format: one fact per line, starting with "- ".
 
-Example:
-[
-  { "action": "add", "question": "What are your opening hours?", "answer": "Sunday–Thursday 9:00–19:00, closed Friday–Saturday.", "category": "hours" },
-  { "action": "update", "id": "123e4567-e89b-12d3...", "question": "What is the delivery fee?", "answer": "₪25 for orders under ₪150, free above.", "category": "pricing" },
-  { "action": "delete", "id": "987fcdeb-51a2-43d7..." }
-]
+Example output:
+- דמי משלוח: ₪25 להזמנות מתחת ל-₪150, חינם מעל
+- שעות פעילות: א-ה 9:00-19:00, סגור בשישי-שבת
+- אין החזרים על הזמנות מותאמות אישית
 
-Output ONLY valid JSON starting with [ and ending with ]. No markdown. Return [] if nothing should change.
+If there are no new facts to add, output exactly: NONE
 
---- EXISTING KNOWLEDGE BASE ---
-${existingKnowledgeStr || "(Empty)"}
-`;
+Output ONLY the list or NONE. No explanations, no markdown, no JSON.`;
 
     const messages = [
         { role: "system", content: systemPrompt },
         { role: "user", content: `--- RECENT CONVERSATIONS ---\n${chatsToProcess}` }
     ];
 
-    const AI_TIMEOUT_MS = 60_000; // Learning extraction can be longer due to larger payloads
+    const AI_TIMEOUT_MS = 60_000;
     try {
         const completion = await Promise.race([
             getOpenAI().chat.completions.create({
                 model: "deepseek-chat",
                 messages: messages as any,
                 max_tokens: 1500,
-                temperature: 0.1, // Keep it deterministic
-                // Note: no response_format here — json_object mode forces a {} wrapper
-                // which conflicts with our [] array instruction. We parse raw text instead.
+                temperature: 0.1,
             }),
             new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error("AI learning timeout after 60s")), AI_TIMEOUT_MS)
             ),
         ]);
 
-        const reply = completion.choices[0]?.message?.content?.trim() || "[]";
+        const reply = completion.choices[0]?.message?.content?.trim() || "NONE";
 
-        let extractedActions: any[] = [];
-        try {
-            const parsed = JSON.parse(reply);
-            if (Array.isArray(parsed)) {
-                extractedActions = parsed;
-            } else if (parsed && Array.isArray(parsed.actions)) {
-                extractedActions = parsed.actions;
-            } else if (parsed && Array.isArray(parsed.facts)) {
-                extractedActions = parsed.facts;
-            } else if (parsed && Array.isArray(parsed.knowledge)) {
-                extractedActions = parsed.knowledge;
-            }
-        } catch (e) {
-            console.error(`[${tenantId}] Failed to parse DeepSeek JSON response:`, reply);
-            return { success: false, error: "Invalid JSON from AI" };
-        }
-
-        if (extractedActions.length === 0) {
-            console.log(`[${tenantId}] 🧠 DeepSeek found no changes needed.`);
+        if (reply === "NONE" || reply.length < 5) {
+            console.log(`[${tenantId}] 🧠 No new capabilities to add.`);
             return { success: true, learned_items: 0 };
         }
 
-        // 5. Execute Actions against Knowledge Base
-        let processedCount = 0;
+        // Parse the lines — each line starting with "- " is a fact
+        const newFacts = reply
+            .split("\n")
+            .map(line => line.trim())
+            .filter(line => line.startsWith("- "))
+            .map(line => line.substring(2).trim())
+            .filter(line => line.length > 0);
 
-        // Collect all "add" actions and batch-insert in a single query
-        const addRows = extractedActions
-            .filter((a) => a.action === "add" && a.question && a.answer)
-            .map((a) => ({
-                tenant_id: tenantId,
-                category: a.category || "learned",
-                question: a.question,
-                answer: a.answer,
-                source: "learned",
-            }));
-
-        if (addRows.length > 0) {
-            const { error } = await supabase.from("knowledge_base").insert(addRows);
-            if (!error) {
-                processedCount += addRows.length;
-                for (const r of addRows) {
-                    console.log(`[${tenantId}] 💡 Learned: "${r.question}" → "${r.answer?.substring(0, 60)}"`);
-                }
-            } else {
-                console.error(`[${tenantId}] Batch add error:`, error);
-            }
+        if (newFacts.length === 0) {
+            console.log(`[${tenantId}] 🧠 No new capabilities extracted.`);
+            return { success: true, learned_items: 0 };
         }
 
-        // Fetch valid IDs for this tenant to verify AI-generated IDs before mutation
-        const { data: validFacts } = await supabase
-            .from("knowledge_base")
-            .select("id")
-            .eq("tenant_id", tenantId);
-        const validIds = new Set((validFacts ?? []).map((f: any) => f.id));
+        // Append new facts to agent_prompt
+        const separator = "\n\n--- נלמד אוטומטית ---\n";
+        const newFactsText = newFacts.map(f => `- ${f}`).join("\n");
 
-        // Updates and deletes target specific IDs — keep them individual
-        for (const actionRow of extractedActions) {
-            if (actionRow.action === "update" && actionRow.id && actionRow.question && actionRow.answer) {
-                if (!validIds.has(actionRow.id)) {
-                    console.warn(`[${tenantId}] ⚠️ Update skipped — ID ${actionRow.id} not found in knowledge base`);
-                    continue;
-                }
-                const { error } = await supabase.from("knowledge_base").update({
-                    category: actionRow.category,
-                    question: actionRow.question,
-                    answer: actionRow.answer,
-                    updated_at: new Date().toISOString()
-                }).eq("id", actionRow.id).eq("tenant_id", tenantId);
-                if (!error) {
-                    processedCount++;
-                    console.log(`[${tenantId}] ✏️ Updated: "${actionRow.question}" → "${actionRow.answer?.substring(0, 60)}"`);
-                } else console.error(`[${tenantId}] Update error:`, error);
-            }
-            else if (actionRow.action === "delete" && actionRow.id) {
-                if (!validIds.has(actionRow.id)) {
-                    console.warn(`[${tenantId}] ⚠️ Delete skipped — ID ${actionRow.id} not found in knowledge base`);
-                    continue;
-                }
-                const { error } = await supabase.from("knowledge_base").delete()
-                    .eq("id", actionRow.id).eq("tenant_id", tenantId);
-                if (!error) {
-                    processedCount++;
-                    console.log(`[${tenantId}] 🗑️ Deleted fact ID: ${actionRow.id}`);
-                } else console.error(`[${tenantId}] Delete error:`, error);
-            }
+        // Check if there's already a learned section
+        let updatedPrompt: string;
+        if (currentCapabilities.includes("--- נלמד אוטומטית ---")) {
+            // Append to existing learned section
+            updatedPrompt = currentCapabilities + "\n" + newFactsText;
+        } else {
+            // Create new learned section
+            updatedPrompt = currentCapabilities + separator + newFactsText;
         }
 
-        return { success: true, learned_items: processedCount, actions: extractedActions };
+        // Safety: cap at 8000 chars to prevent prompt bloat
+        if (updatedPrompt.length > 8000) {
+            console.warn(`[${tenantId}] ⚠️ agent_prompt would exceed 8000 chars — skipping learning update`);
+            return { success: false, error: "agent_prompt too long" };
+        }
+
+        const { error: updateError } = await supabase
+            .from("tenants")
+            .update({ agent_prompt: updatedPrompt })
+            .eq("id", tenantId);
+
+        if (updateError) {
+            console.error(`[${tenantId}] Failed to update agent_prompt:`, updateError);
+            return { success: false, error: updateError.message };
+        }
+
+        for (const fact of newFacts) {
+            console.log(`[${tenantId}] 💡 Learned: "${fact.substring(0, 80)}"`);
+        }
+
+        return { success: true, learned_items: newFacts.length, facts: newFacts };
     } catch (err: any) {
         console.error(`[${tenantId}] AI extraction failed:`, err);
         return { success: false, error: err.message };
