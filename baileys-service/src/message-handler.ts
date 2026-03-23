@@ -221,8 +221,8 @@ export async function handleMessage(
 
         if (!tenant) return;
 
-        // Skip if agent is paused
-        if (tenant.agent_mode === "paused") return;
+        // Only respond when agent is active (parity with Cloud API)
+        if (tenant.agent_mode !== "active") return;
 
         // Check whitelist/blacklist
         if (tenant.agent_filter_mode !== "all") {
