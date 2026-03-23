@@ -180,6 +180,18 @@ export default function LandingPage() {
                     </div>
                 </div>
             </main>
+
+            {/* Footer */}
+            <footer className="relative z-10 border-t border-white/10 py-8 px-8 lg:px-16">
+                <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-neutral-400">
+                    <div className="font-semibold text-white text-base">סוכן ווטסאפ</div>
+                    <div className="flex items-center gap-6">
+                        <Link href="/privacy" className="hover:text-white transition-colors">מדיניות פרטיות</Link>
+                        <Link href="/terms" className="hover:text-white transition-colors">תנאי שימוש</Link>
+                    </div>
+                    <div>© {new Date().getFullYear()} סוכן ווטסאפ. כל הזכויות שמורות.</div>
+                </div>
+            </footer>
         </div>
     );
 }
