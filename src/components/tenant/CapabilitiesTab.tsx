@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2, Globe } from "lucide-react";
+import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2, Globe, Check, CheckCheck, XCircle } from "lucide-react";
 
 interface AgentLearning {
     id: string;
@@ -10,6 +10,11 @@ interface AgentLearning {
     confidence: number;
     source: string;
     created_at: string;
+}
+
+interface PendingFact {
+    fact: string;
+    learned_at: string;
 }
 
 interface UnansweredQuestion {
@@ -34,6 +39,12 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
     const [unanswered, setUnanswered] = useState<UnansweredQuestion[]>([]);
     const [dismissedIds, setDismissedIds] = useState<string[]>([]);
 
+    // Pending learned facts
+    const [pendingFacts, setPendingFacts] = useState<PendingFact[]>([]);
+    const [pendingLoading, setPendingLoading] = useState(false);
+    const [editingPendingIndex, setEditingPendingIndex] = useState<number | null>(null);
+    const [editedPendingFact, setEditedPendingFact] = useState("");
+
     const fetchLearnings = useCallback(async () => {
         if (!tenant?.id) return;
         setLoading(true);
@@ -50,9 +61,20 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
         setLoading(false);
     }, [tenant?.id]);
 
+    const fetchPendingFacts = useCallback(async () => {
+        if (!tenant?.id) return;
+        try {
+            const res = await fetch(`/api/tenants/${tenant.id}/pending-facts`);
+            const data = await res.json();
+            if (data.facts) setPendingFacts(data.facts);
+        } catch (err) {
+            console.error("Failed to fetch pending facts:", err);
+        }
+    }, [tenant?.id]);
+
     useEffect(() => {
         const fetchAll = async () => {
-            const promises: Promise<void>[] = [fetchLearnings()];
+            const promises: Promise<void>[] = [fetchLearnings(), fetchPendingFacts()];
             if (tenant?.id) {
                 promises.push(
                     fetch(`/api/tenants/${tenant.id}/unanswered-questions`)
@@ -64,7 +86,35 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
             await Promise.all(promises);
         };
         fetchAll();
-    }, [tenant?.id, fetchLearnings]);
+    }, [tenant?.id, fetchLearnings, fetchPendingFacts]);
+
+    const handlePendingAction = async (action: "approve" | "reject" | "approve_all" | "reject_all", index?: number) => {
+        setPendingLoading(true);
+        try {
+            const body: Record<string, unknown> = { action };
+            if (index !== undefined) body.index = index;
+            if (action === "approve" && editingPendingIndex === index && editedPendingFact) {
+                body.edited_fact = editedPendingFact;
+            }
+
+            const res = await fetch(`/api/tenants/${tenant.id}/pending-facts`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+
+            if (res.ok) {
+                setEditingPendingIndex(null);
+                setEditedPendingFact("");
+                await fetchPendingFacts();
+            } else {
+                const data = await res.json();
+                alert(data.error || "שגיאה");
+            }
+        } finally {
+            setPendingLoading(false);
+        }
+    };
 
     const handleSaveEdit = async (id: string) => {
         setIsUpdating(true);
@@ -211,6 +261,100 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                                         className="inline-flex items-center justify-center w-10 h-10 bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 rounded-xl transition-all"
                                         onClick={() => setDismissedIds(prev => [...prev, q.id])}
                                         title="התעלם"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Pending Learned Facts — Awaiting Owner Approval */}
+            {pendingFacts.length > 0 && (
+                <div className="bg-purple-500/5 border border-purple-500/20 rounded-3xl p-6 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-[60px] pointer-events-none -z-10"></div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-purple-500/10 pb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 border border-purple-500/30">
+                                <Bot className="w-5 h-5 text-purple-400" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-purple-400">עובדות שנלמדו</h3>
+                                <p className="text-sm text-neutral-400">הסוכן למד עובדות חדשות מהשיחות — נדרש אישור</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="bg-purple-500/10 text-purple-400 text-xs font-bold px-3 py-1 rounded-full border border-purple-500/20">
+                                {pendingFacts.length} ממתינות
+                            </span>
+                            <button
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/80 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+                                onClick={() => handlePendingAction("approve_all")}
+                                disabled={pendingLoading}
+                            >
+                                <CheckCheck className="w-3.5 h-3.5" />
+                                אשר הכל
+                            </button>
+                            <button
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 rounded-lg text-xs font-medium transition-all border border-white/10 disabled:opacity-50"
+                                onClick={() => handlePendingAction("reject_all")}
+                                disabled={pendingLoading}
+                            >
+                                <XCircle className="w-3.5 h-3.5" />
+                                דחה הכל
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                        {pendingFacts.map((pf, idx) => (
+                            <div key={idx} className="bg-black/40 border border-purple-500/10 hover:border-purple-500/30 rounded-2xl p-4 sm:p-5 transition-all group flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden">
+                                <div className="absolute right-0 top-0 bottom-0 w-1 bg-purple-500/50 group-hover:bg-purple-400 transition-colors"></div>
+
+                                <div className="flex-1 min-w-0 pr-3">
+                                    <div className="flex items-center gap-2 text-xs text-neutral-500 mb-2">
+                                        <span className="flex items-center gap-1">
+                                            <Calendar className="w-3.5 h-3.5" />
+                                            {new Date(pf.learned_at).toLocaleDateString("he-IL")}
+                                        </span>
+                                    </div>
+
+                                    {editingPendingIndex === idx ? (
+                                        <input
+                                            type="text"
+                                            value={editedPendingFact}
+                                            onChange={e => setEditedPendingFact(e.target.value)}
+                                            className="w-full bg-black/60 border border-purple-500/30 rounded-xl py-2.5 px-4 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                                            autoFocus
+                                        />
+                                    ) : (
+                                        <div
+                                            className="bg-white/5 border border-white/5 rounded-xl px-4 py-3 inline-block cursor-pointer hover:border-purple-500/20 transition-colors"
+                                            onClick={() => { setEditingPendingIndex(idx); setEditedPendingFact(pf.fact); }}
+                                            title="לחץ לעריכה"
+                                        >
+                                            <p className="text-[15px] font-medium text-white leading-relaxed">{pf.fact}</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0 pr-3 md:pr-0">
+                                    <button
+                                        className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl font-medium text-sm transition-all border border-emerald-500/20 disabled:opacity-50"
+                                        onClick={() => handlePendingAction("approve", idx)}
+                                        disabled={pendingLoading}
+                                    >
+                                        <Check className="w-4 h-4" />
+                                        אשר
+                                    </button>
+                                    <button
+                                        className="inline-flex items-center justify-center w-10 h-10 bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 rounded-xl transition-all disabled:opacity-50"
+                                        onClick={() => handlePendingAction("reject", idx)}
+                                        disabled={pendingLoading}
+                                        title="דחה"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>

@@ -101,66 +101,74 @@ export async function runBatchLearning(tenantId: string, hoursBack: number = 24)
         return { success: true, learned_items: 0 };
     }
 
-    // 3. Get current agent_prompt (capabilities) to avoid duplicates
+    // 3. Get current capabilities + pending facts to avoid duplicates
     const { data: tenantFull } = await supabase
         .from("tenants")
-        .select("agent_prompt")
+        .select("agent_prompt, pending_learned_facts")
         .eq("id", tenantId)
         .single();
 
     const currentCapabilities = tenantFull?.agent_prompt || "";
+    const existingPending: { fact: string; learned_at: string }[] = tenantFull?.pending_learned_facts || [];
 
-    // 4. Ask DeepSeek to extract new business facts from owner conversations
-    const systemPrompt = `You are an expert business analyst for a business named "${tenant.business_name}".
-Your task is to review recent WhatsApp conversations where the business OWNER replied manually, and extract ONLY business knowledge that will help an AI customer support agent.
+    // Build context of what the agent already knows (capabilities + pending)
+    const alreadyKnown = currentCapabilities
+        + (existingPending.length > 0
+            ? "\n\nממתין לאישור:\n" + existingPending.map(p => `- ${p.fact}`).join("\n")
+            : "");
 
-━━━ PHASE 1 — UNDERSTAND THE CONVERSATION ━━━
-Before extracting anything, read each conversation fully and ask yourself:
-- What is the customer actually asking about?
-- Is this a question about the BUSINESS (its services, prices, hours, policies, products)?
-  OR is it a personal/situational exchange (scheduling a one-time meeting, small talk, a personal favor)?
-- Did the OWNER's reply teach something that ANY future customer could benefit from?
+    // 4. Ask DeepSeek to extract ONLY business-relevant facts
+    const businessContext = [
+        tenant.business_name ? `שם: ${tenant.business_name}` : "",
+        tenant.description ? `תיאור: ${tenant.description}` : "",
+        tenant.products ? `מוצרים/שירותים: ${tenant.products}` : "",
+        tenant.target_customers ? `קהל יעד: ${tenant.target_customers}` : "",
+    ].filter(Boolean).join("\n");
 
-━━━ PHASE 2 — THE UNIVERSAL TEST (apply to every candidate fact) ━━━
-Ask: "If a different customer asked the same question tomorrow, would this OWNER answer be correct and applicable?"
-- YES → this is a business fact. Extract it.
-- NO (it was personal, situational, or a one-time exception) → SKIP IT ENTIRELY.
+    const systemPrompt = `אתה אנליסט עסקי מומחה. המשימה שלך: לקרוא שיחות WhatsApp בין בעל העסק ללקוחות ולחלץ **אך ורק עובדות עסקיות** שיעזרו לסוכן AI לענות ללקוחות עתידיים.
 
-Examples of what PASSES the universal test:
-✅ "Our delivery fee is ₪25 for orders under ₪150"
-✅ "We are open Sunday–Thursday 9:00–19:00, closed Friday–Saturday"
-✅ "We don't offer refunds on custom orders"
-✅ "The small pizza costs ₪49"
+━━━ על העסק ━━━
+${businessContext}
 
-Examples of what FAILS the universal test (skip these):
-❌ "OK I'll meet you at 14:00 on Thursday" — one-time appointment
-❌ "Sure, I can give you a discount this time" — personal exception
-❌ "תודה רבה 😊" — small talk / greeting
-❌ "Your name is beautiful" — personal remark
-❌ Customer's phone number or personal details — private info
+━━━ המבחן הקריטי — חייב לעבור על כל עובדה ━━━
+שאל את עצמך: "אם לקוח אחר לגמרי ישאל את אותה שאלה מחר — האם התשובה הזו תהיה נכונה ורלוונטית?"
+- כן → חלץ את העובדה
+- לא → דלג לחלוטין
 
-━━━ PHASE 3 — CHECK EXISTING CAPABILITIES ━━━
-The agent already has these capabilities/knowledge. DO NOT add duplicates:
+━━━ מה לחלץ (רק את הקטגוריות האלה) ━━━
+- מחירים ותעריפים (משלוח, מוצרים, שירותים)
+- שעות פעילות ואזורי שירות
+- מדיניות (החזרות, ביטולים, אחריות)
+- מוצרים ושירותים (מה יש, מה אין, מפרט)
+- תהליכי הזמנה ותשלום
+- מידע שימושי חוזר (חנייה, כתובת, זמני המתנה)
 
-${currentCapabilities || "(Empty — no capabilities yet)"}
+━━━ מה לא לחלץ (דלג לחלוטין) ━━━
+- פגישות חד-פעמיות, תיאומי לוחות זמנים אישיים
+- הנחות מיוחדות שניתנו ללקוח ספציפי
+- שיחות חולין, ברכות, תודות, מחמאות
+- פרטים אישיים של לקוחות (טלפון, כתובת, מייל)
+- תשובות של הבוט (AI/ASSISTANT) — למד רק מתשובות הבעלים (OWNER)
+- מידע שכבר קיים ביכולות הנוכחיות (ראה למטה)
 
-━━━ OUTPUT FORMAT ━━━
-Output ONLY the NEW facts to add, as a plain text list in Hebrew. Each line is one fact.
-Write them as clear, concise statements that an AI agent can use to answer customers.
-Format: one fact per line, starting with "- ".
+━━━ יכולות קיימות (אל תכפיל!) ━━━
+${alreadyKnown || "(ריק — אין יכולות עדיין)"}
 
-Example output:
-- דמי משלוח: ₪25 להזמנות מתחת ל-₪150, חינם מעל
+━━━ פורמט פלט ━━━
+כתוב רק עובדות חדשות, שורה אחת לכל עובדה, בעברית.
+כל שורה מתחילה ב-"- ".
+כתוב את העובדה כמשפט ברור וקצר שסוכן AI יכול להשתמש בו.
+
+דוגמה:
+- דמי משלוח: ₪25 להזמנות מתחת ל-₪150, חינם מעל ₪150
 - שעות פעילות: א-ה 9:00-19:00, סגור בשישי-שבת
-- אין החזרים על הזמנות מותאמות אישית
+- אין החזרים על הזמנות בהתאמה אישית
 
-If there are no new facts to add, output exactly: NONE
-
-Output ONLY the list or NONE. No explanations, no markdown, no JSON.`;
+אם אין עובדות חדשות — כתוב בדיוק: NONE`;
 
     const messages = [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `--- RECENT CONVERSATIONS ---\n${chatsToProcess}` }
+        { role: "user", content: `--- שיחות אחרונות ---\n${chatsToProcess}` }
     ];
 
     const AI_TIMEOUT_MS = 60_000;
@@ -180,11 +188,11 @@ Output ONLY the list or NONE. No explanations, no markdown, no JSON.`;
         const reply = completion.choices[0]?.message?.content?.trim() || "NONE";
 
         if (reply === "NONE" || reply.length < 5) {
-            console.log(`[${tenantId}] 🧠 No new capabilities to add.`);
+            console.log(`[${tenantId}] 🧠 No new facts found.`);
             return { success: true, learned_items: 0 };
         }
 
-        // Parse the lines — each line starting with "- " is a fact
+        // Parse facts
         const newFacts = reply
             .split("\n")
             .map(line => line.trim())
@@ -193,42 +201,30 @@ Output ONLY the list or NONE. No explanations, no markdown, no JSON.`;
             .filter(line => line.length > 0);
 
         if (newFacts.length === 0) {
-            console.log(`[${tenantId}] 🧠 No new capabilities extracted.`);
+            console.log(`[${tenantId}] 🧠 No new facts extracted.`);
             return { success: true, learned_items: 0 };
         }
 
-        // Append new facts to agent_prompt
-        const separator = "\n\n--- נלמד אוטומטית ---\n";
-        const newFactsText = newFacts.map(f => `- ${f}`).join("\n");
+        // Add to pending_learned_facts (owner needs to approve)
+        const now = new Date().toISOString();
+        const newPendingEntries = newFacts.map(fact => ({ fact, learned_at: now }));
+        const updatedPending = [...existingPending, ...newPendingEntries];
 
-        // Check if there's already a learned section
-        let updatedPrompt: string;
-        if (currentCapabilities.includes("--- נלמד אוטומטית ---")) {
-            // Append to existing learned section
-            updatedPrompt = currentCapabilities + "\n" + newFactsText;
-        } else {
-            // Create new learned section
-            updatedPrompt = currentCapabilities + separator + newFactsText;
-        }
-
-        // Safety: cap at 8000 chars to prevent prompt bloat
-        if (updatedPrompt.length > 8000) {
-            console.warn(`[${tenantId}] ⚠️ agent_prompt would exceed 8000 chars — skipping learning update`);
-            return { success: false, error: "agent_prompt too long" };
-        }
+        // Cap at 50 pending items to prevent bloat
+        const cappedPending = updatedPending.slice(-50);
 
         const { error: updateError } = await supabase
             .from("tenants")
-            .update({ agent_prompt: updatedPrompt })
+            .update({ pending_learned_facts: cappedPending })
             .eq("id", tenantId);
 
         if (updateError) {
-            console.error(`[${tenantId}] Failed to update agent_prompt:`, updateError);
+            console.error(`[${tenantId}] Failed to update pending_learned_facts:`, updateError);
             return { success: false, error: updateError.message };
         }
 
         for (const fact of newFacts) {
-            console.log(`[${tenantId}] 💡 Learned: "${fact.substring(0, 80)}"`);
+            console.log(`[${tenantId}] 📋 Pending approval: "${fact.substring(0, 80)}"`);
         }
 
         return { success: true, learned_items: newFacts.length, facts: newFacts };
