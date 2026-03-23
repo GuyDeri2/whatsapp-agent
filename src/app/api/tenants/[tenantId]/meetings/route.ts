@@ -20,7 +20,8 @@ export async function GET(req: Request, { params }: Params) {
 
   const url = new URL(req.url);
   const status = url.searchParams.get('status');
-  const limit = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  const parsedLimit = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  const limit = Number.isNaN(parsedLimit) ? 50 : Math.min(Math.max(parsedLimit, 1), 100);
 
   let query = supabase
     .from('meetings')
@@ -52,6 +53,18 @@ export async function POST(req: Request, { params }: Params) {
 
   if (!customer_phone || !start_time || !end_time) {
     return NextResponse.json({ error: 'customer_phone, start_time, end_time are required' }, { status: 400 });
+  }
+
+  const startDate = new Date(start_time);
+  const endDate = new Date(end_time);
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    return NextResponse.json({ error: 'Invalid date format for start_time or end_time' }, { status: 400 });
+  }
+  if (endDate <= startDate) {
+    return NextResponse.json({ error: 'end_time must be after start_time' }, { status: 400 });
+  }
+  if (startDate <= new Date()) {
+    return NextResponse.json({ error: 'start_time must be in the future' }, { status: 400 });
   }
 
   // Check for overlapping confirmed meetings to prevent double-booking

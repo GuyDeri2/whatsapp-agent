@@ -13,14 +13,24 @@ export default async function AdminDashboard() {
     const { data: profiles } = await admin
         .from("profiles")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(200);
 
     const { data: tenants } = await admin
         .from("tenants")
-        .select("id, owner_id, business_name, agent_mode, whatsapp_connected");
+        .select("id, owner_id, business_name, agent_mode, whatsapp_connected")
+        .limit(1000);
+
+    // Build Map for O(n+m) join instead of O(n*m)
+    const tenantsByOwner = new Map<string, typeof tenants>();
+    for (const t of tenants ?? []) {
+        const existing = tenantsByOwner.get(t.owner_id) ?? [];
+        existing.push(t);
+        tenantsByOwner.set(t.owner_id, existing);
+    }
 
     const clients = (profiles ?? []).map((profile) => {
-        const clientTenants = (tenants ?? []).filter((t) => t.owner_id === profile.id);
+        const clientTenants = tenantsByOwner.get(profile.id) ?? [];
         return { ...profile, businessCount: clientTenants.length, businesses: clientTenants };
     });
 

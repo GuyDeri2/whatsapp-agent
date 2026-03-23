@@ -67,15 +67,35 @@ export interface CrawlResult {
 
 function isPrivateIP(ip: string): boolean {
     if (ip === "::1" || ip === "::ffff:127.0.0.1") return true;
-    if (net.isIPv4(ip)) {
-        const parts = ip.split(".").map(Number);
-        if (parts[0] === 127) return true;
-        if (parts[0] === 10) return true;
-        if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-        if (parts[0] === 192 && parts[1] === 168) return true;
-        if (parts[0] === 169 && parts[1] === 254) return true;
-        if (parts[0] === 0) return true;
+
+    // IPv6 private ranges
+    if (net.isIPv6(ip)) {
+        const lower = ip.toLowerCase();
+        // Link-local
+        if (lower.startsWith("fe80:")) return true;
+        // Unique local (fc00::/7)
+        if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+        // IPv4-mapped IPv6 (::ffff:x.x.x.x) — extract the IPv4 part and check
+        const v4MappedMatch = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+        if (v4MappedMatch) {
+            return isPrivateIPv4(v4MappedMatch[1]);
+        }
     }
+
+    if (net.isIPv4(ip)) {
+        return isPrivateIPv4(ip);
+    }
+    return false;
+}
+
+function isPrivateIPv4(ip: string): boolean {
+    const parts = ip.split(".").map(Number);
+    if (parts[0] === 127) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0) return true;
     return false;
 }
 
@@ -185,6 +205,14 @@ async function fetchSitemap(origin: string): Promise<string[]> {
                 if (url.startsWith("http")) {
                     // Check if it's a nested sitemap
                     if (url.endsWith(".xml") || url.includes("sitemap")) {
+                        // Validate nested sitemap hostname matches original
+                        try {
+                            const nestedUrl = new URL(url);
+                            const originUrl = new URL(origin);
+                            if (nestedUrl.hostname.replace(/^www\./, "") !== originUrl.hostname.replace(/^www\./, "")) {
+                                continue; // Skip cross-origin nested sitemaps (SSRF)
+                            }
+                        } catch { continue; }
                         // Try to fetch nested sitemap (one level deep only)
                         try {
                             const ctrl2 = new AbortController();
@@ -321,8 +349,8 @@ function extractStructuredData($: cheerio.CheerioAPI): string {
 
 function extractContactInfo($: cheerio.CheerioAPI): string {
     const info: string[] = [];
-    const contactZones = $("header, footer, nav, [class*='contact'], [id*='contact'], [class*='footer'], [class*='header'], address").text();
-    const fullText = $("body").text();
+    const contactZones = $("header, footer, nav, [class*='contact'], [id*='contact'], [class*='footer'], [class*='header'], address").text().substring(0, 20_000);
+    const fullText = $("body").text().substring(0, 20_000);
 
     // Phone numbers (Israeli formats)
     const phones = contactZones.match(/(?:\+?972[-\s]?|0)(?:[2-9][-\s]?\d{7}|\d[-\s]?\d{3}[-\s]?\d{4})|(?:\*\d{4})/g);
@@ -445,54 +473,78 @@ function extractInternalLinks($: cheerio.CheerioAPI, baseUrl: URL): string[] {
 
 // ── Fetch a single page ──────────────────────────────────────────────
 
+const MAX_REDIRECTS = 5;
+
 async function fetchPage(url: string): Promise<{ html: string; finalUrl: string }> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PAGE_TIMEOUT_MS);
 
+    let currentUrl = url;
+
     try {
-        const res = await fetch(url, {
-            signal: controller.signal,
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
-            },
-            redirect: "follow",
-        });
+        for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+            // Validate each redirect target against SSRF
+            const parsed = new URL(currentUrl);
+            await resolveAndValidateHost(parsed.hostname);
 
-        clearTimeout(timeout);
+            const res = await fetch(currentUrl, {
+                signal: controller.signal,
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
+                },
+                redirect: "manual",
+            });
 
-        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-
-        const contentType = res.headers.get("content-type") || "";
-        if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
-            throw new Error(`Not HTML: ${contentType}`);
-        }
-
-        const contentLength = res.headers.get("content-length");
-        if (contentLength && parseInt(contentLength) > MAX_RESPONSE_BYTES) {
-            throw new Error(`Response too large: ${contentLength} bytes`);
-        }
-
-        const reader = res.body?.getReader();
-        if (!reader) throw new Error("No response body");
-
-        const chunks: Uint8Array[] = [];
-        let totalSize = 0;
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            totalSize += value.length;
-            if (totalSize > MAX_RESPONSE_BYTES) {
-                reader.cancel();
-                throw new Error(`Response exceeded ${MAX_RESPONSE_BYTES} bytes`);
+            // Handle redirects manually — validate each hop
+            if (res.status >= 300 && res.status < 400) {
+                const location = res.headers.get("location");
+                if (!location) throw new Error(`Redirect ${res.status} without Location header`);
+                // Resolve relative redirects
+                currentUrl = new URL(location, currentUrl).href;
+                if (redirectCount === MAX_REDIRECTS) {
+                    throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
+                }
+                continue;
             }
-            chunks.push(value);
+
+            clearTimeout(timeout);
+
+            if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+
+            const contentType = res.headers.get("content-type") || "";
+            if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
+                throw new Error(`Not HTML: ${contentType}`);
+            }
+
+            const contentLength = res.headers.get("content-length");
+            if (contentLength && parseInt(contentLength) > MAX_RESPONSE_BYTES) {
+                throw new Error(`Response too large: ${contentLength} bytes`);
+            }
+
+            const reader = res.body?.getReader();
+            if (!reader) throw new Error("No response body");
+
+            const chunks: Uint8Array[] = [];
+            let totalSize = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                totalSize += value.length;
+                if (totalSize > MAX_RESPONSE_BYTES) {
+                    reader.cancel();
+                    throw new Error(`Response exceeded ${MAX_RESPONSE_BYTES} bytes`);
+                }
+                chunks.push(value);
+            }
+
+            const html = new TextDecoder().decode(Buffer.concat(chunks));
+            return { html, finalUrl: currentUrl };
         }
 
-        const html = new TextDecoder().decode(Buffer.concat(chunks));
-        return { html, finalUrl: res.url || url };
+        throw new Error("Unexpected end of redirect loop");
     } finally {
         clearTimeout(timeout);
     }
@@ -677,10 +729,10 @@ export async function crawlRelevantPages(
                 return { url: l, score };
             })
             .sort((a, b) => b.score - a.score)
-            .slice(0, 5); // Try top 5 links
+            .slice(0, 4); // Try top 4 links
 
         // Fetch up to 4 additional pages concurrently
-        const fetchBatch = scored.slice(0, 4).filter(c => !visited.has(c.url));
+        const fetchBatch = scored.filter(c => !visited.has(c.url));
         const promises = fetchBatch.map(async (candidate) => {
             if (Date.now() >= deadline) return null;
             visited.add(candidate.url);

@@ -32,7 +32,10 @@ export async function GET() {
         .select("id, email, first_name, last_name, role, approval_status, created_at")
         .order("created_at", { ascending: false });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+        console.error("[admin/profiles GET]", error.message);
+        return NextResponse.json({ error: "Failed to fetch profiles" }, { status: 500 });
+    }
 
     return NextResponse.json({ profiles });
 }
@@ -48,12 +51,19 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "Invalid parameters" }, { status: 400 });
     }
 
-    const { error } = await getSupabaseAdmin()
+    const { error, count } = await getSupabaseAdmin()
         .from("profiles")
-        .update({ approval_status })
+        .update({ approval_status }, { count: "exact" })
         .eq("id", profileId);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+        console.error("[admin/profiles PATCH]", error.message);
+        return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+    }
+
+    if (count === 0) {
+        return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true });
 }
@@ -75,20 +85,47 @@ export async function DELETE(req: NextRequest) {
     }
 
     const adminClient = getSupabaseAdmin();
+
+    // Check target user is not an admin (prevent deleting other admins)
+    const { data: targetProfile } = await adminClient
+        .from("profiles")
+        .select("role")
+        .eq("id", profileId)
+        .single();
+
+    if (!targetProfile) {
+        return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    if (targetProfile.role === "admin") {
+        return NextResponse.json({ error: "Cannot delete admin accounts" }, { status: 400 });
+    }
+
+    // Delete tenants BEFORE profile/auth user (correct order to avoid orphans)
+    const { error: tenantsDeleteError } = await adminClient
+        .from("tenants")
+        .delete()
+        .eq("owner_id", profileId);
+
+    if (tenantsDeleteError) {
+        console.error("[admin/profiles DELETE] Failed to delete tenants:", tenantsDeleteError.message);
+        return NextResponse.json({ error: "Failed to delete user's businesses" }, { status: 500 });
+    }
+
+    // Delete auth user (this cascades to profiles via trigger/FK in most setups)
     const { error } = await adminClient.auth.admin.deleteUser(profileId);
 
     if (error) {
-        // If user doesn't exist in auth.users, clean up orphaned profile + tenants directly
+        console.error("[admin/profiles DELETE] Auth deletion failed, cleaning up orphan:", error.message);
+        // If user doesn't exist in auth.users, clean up orphaned profile directly
         const { error: profileDeleteError } = await adminClient
             .from("profiles")
             .delete()
             .eq("id", profileId);
 
-        // Also clean up any tenants owned by this user (CASCADE will handle child tables)
-        await adminClient.from("tenants").delete().eq("owner_id", profileId);
-
         if (profileDeleteError) {
-            return NextResponse.json({ error: profileDeleteError.message }, { status: 500 });
+            console.error("[admin/profiles DELETE] Profile cleanup failed:", profileDeleteError.message);
+            return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
         }
     }
 

@@ -5,20 +5,28 @@ let _openai: OpenAI | null = null;
 let _supabase: SupabaseClient | null = null;
 
 function getOpenAI(): OpenAI {
-    if (!_openai)
+    if (!_openai) {
+        if (!process.env.DEEPSEEK_API_KEY) {
+            throw new Error("DEEPSEEK_API_KEY is not set");
+        }
         _openai = new OpenAI({
-            apiKey: process.env.DEEPSEEK_API_KEY!,
+            apiKey: process.env.DEEPSEEK_API_KEY,
             baseURL: "https://api.deepseek.com",
         });
+    }
     return _openai;
 }
 
 function getSupabase(): SupabaseClient {
-    if (!_supabase)
+    if (!_supabase) {
+        if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+            throw new Error("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set");
+        }
         _supabase = createClient(
-            process.env.SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY
         );
+    }
     return _supabase;
 }
 

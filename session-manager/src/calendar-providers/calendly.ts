@@ -24,15 +24,8 @@
  *   CALENDLY_WEBHOOK_SECRET — used by the webhook receiver to verify signatures
  */
 
-import { createClient } from "@supabase/supabase-js";
 import type { BusyBlock, CalendarProvider, CreatedEvent, CreateEventParams } from "./types";
-
-function getSupabase() {
-    return createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-}
+import { getSupabase } from "./index";
 
 async function getIntegration(tenantId: string) {
     const { data } = await getSupabase()
@@ -65,17 +58,17 @@ async function calendlyPost(path: string, body: unknown, token: string) {
 
 /**
  * Get the current user's URI (needed for most Calendly API calls).
- * Cached per token to avoid repeated calls.
+ * Cached per tenantId (not token — tokens rotate, tenant IDs don't).
  */
 const _userUriCache = new Map<string, { uri: string; cachedAt: number }>();
 const USER_URI_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-async function getUserUri(token: string): Promise<string> {
-    const cached = _userUriCache.get(token);
+async function getUserUri(tenantId: string, token: string): Promise<string> {
+    const cached = _userUriCache.get(tenantId);
     if (cached && Date.now() - cached.cachedAt < USER_URI_CACHE_TTL_MS) return cached.uri;
     const data = await calendlyGet("/users/me", token) as { resource: { uri: string } };
     const uri = data.resource.uri;
-    _userUriCache.set(token, { uri, cachedAt: Date.now() });
+    _userUriCache.set(tenantId, { uri, cachedAt: Date.now() });
 
     // Evict expired entries to prevent unbounded growth
     if (_userUriCache.size > 50) {
@@ -106,12 +99,15 @@ export const calendlyProvider: CalendarProvider = {
         if (!integration) return [];
 
         const token = integration.access_token;
-        const userUri = await getUserUri(token);
+        const userUri = await getUserUri(tenantId, token);
 
-        // Fetch all scheduled events in the window
+        // Fetch scheduled events in the window.
+        // Expand min_start_time backward by 24h to catch events that started before
+        // rangeStart but overlap into it (Calendly filters by start_time, not end_time).
+        const expandedStart = new Date(rangeStart.getTime() - 24 * 60 * 60_000);
         const params = new URLSearchParams({
             user: userUri,
-            min_start_time: rangeStart.toISOString(),
+            min_start_time: expandedStart.toISOString(),
             max_start_time: rangeEnd.toISOString(),
             status: "active",
             count: "100",
@@ -141,7 +137,7 @@ export const calendlyProvider: CalendarProvider = {
         // Create a one-time event directly (Calendly v2 "one_off_event_types")
         const body = {
             name: params.title,
-            host: await getUserUri(token),
+            host: await getUserUri(tenantId, token),
             duration: Math.round((params.end.getTime() - params.start.getTime()) / 60_000),
             date_setting: {
                 type: "date_range",

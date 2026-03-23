@@ -8,15 +8,8 @@
  *   MICROSOFT_CLIENT_SECRET
  */
 
-import { createClient } from "@supabase/supabase-js";
 import type { BusyBlock, CalendarProvider, CreatedEvent } from "./types";
-
-function getSupabase() {
-    return createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-}
+import { getSupabase } from "./index";
 
 // ── Token Management ──────────────────────────────────────────────────────────
 
@@ -71,12 +64,22 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
         throw new Error(`Outlook token refresh failed: ${resp.status} ${body}`);
     }
 
-    const json = await resp.json() as { access_token: string; expires_in: number };
+    const json = await resp.json() as { access_token: string; expires_in: number; refresh_token?: string };
     const newExpiry = new Date(Date.now() + json.expires_in * 1000).toISOString();
+
+    // Save new access_token + refresh_token (Microsoft may rotate the refresh token)
+    const updatePayload: Record<string, string> = {
+        access_token: json.access_token,
+        token_expires_at: newExpiry,
+        updated_at: new Date().toISOString(),
+    };
+    if (json.refresh_token) {
+        updatePayload.refresh_token = json.refresh_token;
+    }
 
     await getSupabase()
         .from("calendar_integrations")
-        .update({ access_token: json.access_token, token_expires_at: newExpiry, updated_at: new Date().toISOString() })
+        .update(updatePayload)
         .eq("tenant_id", tenantId)
         .eq("provider", "outlook");
 
@@ -134,15 +137,13 @@ export const outlookCalendarProvider: CalendarProvider = {
 
     async getFreeBusy(tenantId: string, rangeStart: Date, rangeEnd: Date): Promise<BusyBlock[]> {
         const accessToken = await refreshTokenIfNeeded(tenantId);
-        const integration = await getIntegration(tenantId);
 
         // Get the user's email (needed for getSchedule API)
         const me = await graphGet("/me", accessToken) as { mail?: string; userPrincipalName?: string };
         const email = me.mail ?? me.userPrincipalName ?? "";
 
-        const calendarId = integration?.calendar_id;
-
         // Microsoft Graph getSchedule endpoint
+        // Always use /me/calendar/getSchedule — per-calendar endpoint doesn't support getSchedule
         const body = {
             schedules: [email],
             startTime: { dateTime: rangeStart.toISOString(), timeZone: "UTC" },
@@ -150,11 +151,7 @@ export const outlookCalendarProvider: CalendarProvider = {
             availabilityViewInterval: 15,
         };
 
-        const basePath = calendarId && calendarId !== "primary"
-            ? `/me/calendars/${calendarId}/getSchedule`
-            : "/me/calendar/getSchedule";
-
-        const result = await graphPost(basePath, body, accessToken) as {
+        const result = await graphPost("/me/calendar/getSchedule", body, accessToken) as {
             value: { scheduleItems: { start: { dateTime: string }; end: { dateTime: string }; status: string }[] }[];
         };
 

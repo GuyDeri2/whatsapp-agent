@@ -2,16 +2,30 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+function sanitizeRedirectPath(path: string | null): string {
+    if (!path || !path.startsWith("/") || path.startsWith("//") || path.startsWith("/\\")) {
+        return "/dashboard";
+    }
+    return path;
+}
+
 export async function GET(request: Request) {
     const { searchParams, origin } = new URL(request.url);
     const code = searchParams.get("code");
-    const next = searchParams.get("next") ?? "/dashboard";
+    const next = sanitizeRedirectPath(searchParams.get("next"));
 
     if (code) {
         const cookieStore = await cookies();
+
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        if (!supabaseUrl || !supabaseAnonKey) {
+            throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+        }
+
         const supabase = createServerClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder",
+            supabaseUrl,
+            supabaseAnonKey,
             {
                 cookies: {
                     getAll() {

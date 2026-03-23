@@ -36,6 +36,9 @@ export async function GET(req: Request, { params }: Params) {
 
   // Use noon UTC to get stable day-of-week regardless of server timezone
   const date = new Date(dateStr + 'T12:00:00Z');
+  if (isNaN(date.getTime()) || !date.toISOString().startsWith(dateStr)) {
+    return NextResponse.json({ error: 'Invalid date (overflow or out of range)' }, { status: 400 });
+  }
   const dayOfWeek = date.getUTCDay(); // 0=Sun, 6=Sat
 
   // Get availability rules for this day
@@ -95,7 +98,7 @@ export async function GET(req: Request, { params }: Params) {
         // Check for conflicts with existing meetings
         const hasConflict = (existingMeetings ?? []).some(m => {
           const mStart = new Date(m.start_time);
-          const mEnd = new Date(m.end_time);
+          const mEnd = new Date(new Date(m.end_time).getTime() + bufferMin * 60_000);
           return slotStart < mEnd && slotEnd > mStart;
         });
 

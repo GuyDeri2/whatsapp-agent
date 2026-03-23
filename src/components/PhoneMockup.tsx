@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCheck } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export function PhoneMockup() {
     const defaultMessages = [
@@ -14,43 +14,58 @@ export function PhoneMockup() {
 
     const [visibleMessages, setVisibleMessages] = useState<number>(0);
     const [isTyping, setIsTyping] = useState(false);
+    const mountedRef = useRef(true);
 
     useEffect(() => {
+        mountedRef.current = true;
+
+        const delay = (ms: number) => new Promise<void>(r => {
+            const t = setTimeout(r, ms);
+            // Store timeout for potential cleanup — but the mounted check prevents stale updates
+            return t;
+        });
+
         const sequence = async () => {
-            // Wait for entry
-            await new Promise(r => setTimeout(r, 1500));
-            // Show first message
+            await delay(1500);
+            if (!mountedRef.current) return;
             setVisibleMessages(1);
 
-            // Bot typing
-            await new Promise(r => setTimeout(r, 800));
+            await delay(800);
+            if (!mountedRef.current) return;
             setIsTyping(true);
-            await new Promise(r => setTimeout(r, 1800));
+            await delay(1800);
+            if (!mountedRef.current) return;
             setIsTyping(false);
             setVisibleMessages(2);
 
-            // User typing
-            await new Promise(r => setTimeout(r, 1500));
+            await delay(1500);
+            if (!mountedRef.current) return;
             setVisibleMessages(3);
 
-            // Bot typing
-            await new Promise(r => setTimeout(r, 800));
+            await delay(800);
+            if (!mountedRef.current) return;
             setIsTyping(true);
-            await new Promise(r => setTimeout(r, 2200));
+            await delay(2200);
+            if (!mountedRef.current) return;
             setIsTyping(false);
             setVisibleMessages(4);
         };
 
         sequence();
 
-        // Loop every 15 seconds
         const intervalId = setInterval(() => {
+            if (!mountedRef.current) return;
             setVisibleMessages(0);
             setIsTyping(false);
-            setTimeout(sequence, 500);
+            setTimeout(() => {
+                if (mountedRef.current) sequence();
+            }, 500);
         }, 15000);
 
-        return () => clearInterval(intervalId);
+        return () => {
+            mountedRef.current = false;
+            clearInterval(intervalId);
+        };
     }, []);
 
     return (
@@ -82,7 +97,7 @@ export function PhoneMockup() {
 
             {/* Chat Area */}
             <div className="flex-1 bg-[#efeae2] p-4 flex flex-col gap-3 overflow-y-auto overflow-x-hidden relative custom-scrollbar">
-                {/* Chat Background Pattern */}
+                {/* Chat Background Pattern — TODO: download and host locally to avoid external dependency */}
                 <div className="absolute inset-0 opacity-[0.06] pointer-events-none" style={{ backgroundImage: 'url("https://w0.peakpx.com/wallpaper/818/148/HD-wallpaper-whatsapp-background-solid-color-whatsapp-background-thumbnail.jpg")', backgroundSize: 'cover' }} />
 
                 <AnimatePresence>

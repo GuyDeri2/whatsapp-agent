@@ -26,7 +26,10 @@ export async function GET() {
         .select("key, enabled, label, updated_at")
         .order("key");
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+        console.error("[admin/feature-flags GET]", error.message);
+        return NextResponse.json({ error: "Failed to fetch feature flags" }, { status: 500 });
+    }
     return NextResponse.json({ flags: data });
 }
 
@@ -41,11 +44,19 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "Invalid parameters" }, { status: 400 });
     }
 
-    const { error } = await getSupabaseAdmin()
+    const { error, count } = await getSupabaseAdmin()
         .from("feature_flags")
-        .update({ enabled, updated_at: new Date().toISOString() })
+        .update({ enabled, updated_at: new Date().toISOString() }, { count: "exact" })
         .eq("key", key);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+        console.error("[admin/feature-flags PATCH]", error.message);
+        return NextResponse.json({ error: "Failed to update feature flag" }, { status: 500 });
+    }
+
+    if (count === 0) {
+        return NextResponse.json({ error: "Feature flag not found" }, { status: 404 });
+    }
+
     return NextResponse.json({ success: true });
 }

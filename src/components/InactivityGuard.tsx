@@ -1,18 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 
 export function InactivityGuard() {
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const supabase = createClient();
+    const supabaseRef = useRef(createClient());
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+    // Check auth status on mount
+    useEffect(() => {
+        supabaseRef.current.auth.getUser().then(({ data: { user } }) => {
+            setIsLoggedIn(!!user);
+        });
+    }, []);
 
     const logout = useCallback(async () => {
-        await supabase.auth.signOut();
+        await supabaseRef.current.auth.signOut();
         window.location.href = "/";
-    }, [supabase]);
+    }, []);
 
     const resetTimer = useCallback(() => {
         if (timerRef.current) clearTimeout(timerRef.current);
@@ -20,6 +28,8 @@ export function InactivityGuard() {
     }, [logout]);
 
     useEffect(() => {
+        if (!isLoggedIn) return;
+
         const events = ["mousedown", "keydown", "scroll", "touchstart"];
         events.forEach((e) => window.addEventListener(e, resetTimer));
         resetTimer();
@@ -28,7 +38,7 @@ export function InactivityGuard() {
             events.forEach((e) => window.removeEventListener(e, resetTimer));
             if (timerRef.current) clearTimeout(timerRef.current);
         };
-    }, [resetTimer]);
+    }, [resetTimer, isLoggedIn]);
 
     return null;
 }

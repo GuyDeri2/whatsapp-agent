@@ -10,14 +10,19 @@
  * boolean flags to ensure each reminder is sent exactly once.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { formatDateHebrew, formatTimeHebrew } from "./date-utils";
 
-function getSupabase() {
-    return createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+let _supabase: SupabaseClient | null = null;
+
+function getSupabase(): SupabaseClient {
+    if (!_supabase) {
+        _supabase = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+    }
+    return _supabase;
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -104,12 +109,22 @@ export async function sendDayBeforeReminders(
                         `⏰ שעה: ${timeStr}\n\n` +
                         `כדי לבטל את הפגישה, השב: *ביטול פגישה*`;
 
-                    await sendMessage(tenantId, customerJid, msg);
-
+                    // Mark flag before sending to prevent duplicate sends (race condition)
                     await supabase
                         .from("meetings")
                         .update({ reminder_day_sent: true })
                         .eq("id", meeting.id);
+
+                    try {
+                        await sendMessage(tenantId, customerJid, msg);
+                    } catch (sendErr: any) {
+                        // Rollback flag on send failure so we retry next cycle
+                        await supabase
+                            .from("meetings")
+                            .update({ reminder_day_sent: false })
+                            .eq("id", meeting.id);
+                        throw sendErr;
+                    }
 
                     console.log(`[${tenantId}] 📅 Day-before reminder sent to ${meeting.customer_phone} for meeting ${meeting.id}`);
                 } catch (err: any) {
@@ -175,11 +190,21 @@ export async function sendTwoHourReminders(
                             `🕐 שעה: ${timeStr}\n\n` +
                             `נתראה בקרוב! 😊`;
 
-                        await sendMessage(tenantId, customerJid, msg);
+                        // Mark flag before sending to prevent duplicate sends
                         await supabase
                             .from("meetings")
                             .update({ reminder_2h_sent: true })
                             .eq("id", meeting.id);
+
+                        try {
+                            await sendMessage(tenantId, customerJid, msg);
+                        } catch (sendErr: any) {
+                            await supabase
+                                .from("meetings")
+                                .update({ reminder_2h_sent: false })
+                                .eq("id", meeting.id);
+                            throw sendErr;
+                        }
 
                         console.log(`[${tenantId}] ⏰ 2h-before reminder sent to customer ${meeting.customer_phone}`);
                     } catch (err: any) {
@@ -198,11 +223,21 @@ export async function sendTwoHourReminders(
                             `📞 ${meeting.customer_phone}\n` +
                             `🕐 שעה: ${timeStr}`;
 
-                        await sendMessage(tenantId, ownerJid, msg);
+                        // Mark flag before sending to prevent duplicate sends
                         await supabase
                             .from("meetings")
                             .update({ owner_reminder_2h_sent: true })
                             .eq("id", meeting.id);
+
+                        try {
+                            await sendMessage(tenantId, ownerJid, msg);
+                        } catch (sendErr: any) {
+                            await supabase
+                                .from("meetings")
+                                .update({ owner_reminder_2h_sent: false })
+                                .eq("id", meeting.id);
+                            throw sendErr;
+                        }
 
                         console.log(`[${tenantId}] ⏰ 2h-before reminder sent to owner for meeting with ${customerName}`);
                     } catch (err: any) {
@@ -242,10 +277,15 @@ export async function cancelMeeting(
     if (!meeting || meeting.status !== "confirmed") return false;
 
     // Mark cancelled
-    await supabase
+    const { error: cancelError } = await supabase
         .from("meetings")
         .update({ status: "cancelled" })
         .eq("id", meetingId);
+
+    if (cancelError) {
+        console.error(`[${tenantId}] ❌ Failed to cancel meeting ${meetingId}:`, cancelError.message);
+        return false;
+    }
 
     console.log(`[${tenantId}] 🗑️ Meeting ${meetingId} cancelled`);
 

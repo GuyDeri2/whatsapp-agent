@@ -15,12 +15,14 @@ export async function DELETE(
     .from('tenants').select('id').eq('id', tenantId).eq('owner_id', user.id).single();
   if (!tenant) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { error } = await supabase
+  const { data: deleted, error } = await supabase
     .from('leads')
     .delete()
     .eq('id', leadId)
-    .eq('tenant_id', tenantId);
+    .eq('tenant_id', tenantId)
+    .select('id');
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'Failed to delete lead' }, { status: 500 });
+  if (!deleted || deleted.length === 0) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
   return NextResponse.json({ success: true });
 }

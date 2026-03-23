@@ -8,19 +8,19 @@
  *   GOOGLE_CLIENT_SECRET
  */
 
-import { createClient } from "@supabase/supabase-js";
 import type { BusyBlock, CalendarProvider, CreatedEvent } from "./types";
-
-function getSupabase() {
-    return createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-}
+import { getSupabase } from "./index";
 
 // ── Token Management ─────────────────────────────────────────────────────────
 
-async function getIntegration(tenantId: string) {
+interface GoogleIntegration {
+    access_token: string;
+    refresh_token: string;
+    token_expires_at: string | null;
+    calendar_id: string | null;
+}
+
+async function getIntegration(tenantId: string): Promise<GoogleIntegration | null> {
     const { data, error } = await getSupabase()
         .from("calendar_integrations")
         .select("access_token, refresh_token, token_expires_at, calendar_id")
@@ -29,15 +29,14 @@ async function getIntegration(tenantId: string) {
         .eq("is_active", true)
         .single();
     if (error || !data) return null;
-    return data as {
-        access_token: string;
-        refresh_token: string;
-        token_expires_at: string | null;
-        calendar_id: string | null;
-    };
+    return data as GoogleIntegration;
 }
 
-async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
+/**
+ * Refreshes the token if needed and returns BOTH the access token and the full integration object.
+ * This avoids double getIntegration calls in callers.
+ */
+async function refreshTokenIfNeeded(tenantId: string): Promise<{ accessToken: string; integration: GoogleIntegration }> {
     const integration = await getIntegration(tenantId);
     if (!integration) throw new Error(`No active Google Calendar integration for tenant ${tenantId}`);
 
@@ -45,7 +44,7 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
     const expiresAt = integration.token_expires_at ? new Date(integration.token_expires_at) : null;
     const needsRefresh = !expiresAt || expiresAt.getTime() - Date.now() < 5 * 60_000;
 
-    if (!needsRefresh) return integration.access_token;
+    if (!needsRefresh) return { accessToken: integration.access_token, integration };
 
     if (!integration.refresh_token) {
         throw new Error(
@@ -80,7 +79,13 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
         .eq("tenant_id", tenantId)
         .eq("provider", "google");
 
-    return json.access_token;
+    const updatedIntegration: GoogleIntegration = {
+        ...integration,
+        access_token: json.access_token,
+        token_expires_at: newExpiry,
+    };
+
+    return { accessToken: json.access_token, integration: updatedIntegration };
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -126,16 +131,28 @@ async function googleApiDelete(url: string, accessToken: string) {
 
 // ── CalendarProvider implementation ──────────────────────────────────────────
 
+/**
+ * Resolve the tenant's timezone from the DB (defaults to Asia/Jerusalem).
+ */
+async function getTenantTimezone(tenantId: string): Promise<string> {
+    const { data } = await getSupabase()
+        .from("tenants")
+        .select("timezone")
+        .eq("id", tenantId)
+        .single();
+    return (data as { timezone?: string } | null)?.timezone ?? "Asia/Jerusalem";
+}
+
 export const googleCalendarProvider: CalendarProvider = {
 
     async refreshTokenIfNeeded(tenantId: string): Promise<string> {
-        return refreshTokenIfNeeded(tenantId);
+        const { accessToken } = await refreshTokenIfNeeded(tenantId);
+        return accessToken;
     },
 
     async getFreeBusy(tenantId: string, rangeStart: Date, rangeEnd: Date): Promise<BusyBlock[]> {
-        const accessToken = await refreshTokenIfNeeded(tenantId);
-        const integration = await getIntegration(tenantId);
-        const calendarId = integration?.calendar_id ?? "primary";
+        const { accessToken, integration } = await refreshTokenIfNeeded(tenantId);
+        const calendarId = integration.calendar_id ?? "primary";
 
         const body = {
             timeMin: rangeStart.toISOString(),
@@ -156,16 +173,17 @@ export const googleCalendarProvider: CalendarProvider = {
         }));
     },
 
+    // Fix #5: Use tenant timezone instead of "UTC" for event creation
     async createEvent(tenantId: string, params): Promise<CreatedEvent> {
-        const accessToken = await refreshTokenIfNeeded(tenantId);
-        const integration = await getIntegration(tenantId);
-        const calendarId = integration?.calendar_id ?? "primary";
+        const { accessToken, integration } = await refreshTokenIfNeeded(tenantId);
+        const calendarId = integration.calendar_id ?? "primary";
+        const tz = await getTenantTimezone(tenantId);
 
         const event = {
             summary: params.title,
             description: params.description ?? `פגישה עם ${params.customerName} (${params.customerPhone})`,
-            start: { dateTime: params.start.toISOString(), timeZone: "UTC" },
-            end:   { dateTime: params.end.toISOString(),   timeZone: "UTC" },
+            start: { dateTime: params.start.toISOString(), timeZone: tz },
+            end:   { dateTime: params.end.toISOString(),   timeZone: tz },
             attendees: [],
             reminders: {
                 useDefault: false,
@@ -186,9 +204,8 @@ export const googleCalendarProvider: CalendarProvider = {
     },
 
     async deleteEvent(tenantId: string, eventId: string): Promise<void> {
-        const accessToken = await refreshTokenIfNeeded(tenantId);
-        const integration = await getIntegration(tenantId);
-        const calendarId = integration?.calendar_id ?? "primary";
+        const { accessToken, integration } = await refreshTokenIfNeeded(tenantId);
+        const calendarId = integration.calendar_id ?? "primary";
 
         await googleApiDelete(
             `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,

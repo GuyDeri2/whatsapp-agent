@@ -31,7 +31,7 @@ export async function GET(_req: Request, { params }: Params) {
 
   const { data } = await supabase
     .from('meeting_settings')
-    .select('*')
+    .select('scheduling_enabled, duration_minutes, buffer_minutes, timezone, booking_notice_hours, booking_window_days, meeting_type_label')
     .eq('tenant_id', tenantId)
     .single();
 
@@ -46,7 +46,12 @@ export async function PATCH(req: Request, { params }: Params) {
   const body = await req.json();
 
   const update: Record<string, unknown> = { tenant_id: tenantId, updated_at: new Date().toISOString() };
-  if (body.scheduling_enabled !== undefined) update.scheduling_enabled = body.scheduling_enabled;
+  if (body.scheduling_enabled !== undefined) {
+    if (typeof body.scheduling_enabled !== 'boolean') {
+      return NextResponse.json({ error: 'scheduling_enabled must be a boolean' }, { status: 400 });
+    }
+    update.scheduling_enabled = body.scheduling_enabled;
+  }
   if (body.meeting_duration !== undefined) {
     const v = Number(body.meeting_duration);
     if (!Number.isInteger(v) || v < 5 || v > 480) return NextResponse.json({ error: 'Invalid meeting duration' }, { status: 400 });
@@ -57,7 +62,13 @@ export async function PATCH(req: Request, { params }: Params) {
     if (!Number.isInteger(v) || v < 0 || v > 120) return NextResponse.json({ error: 'Invalid buffer time' }, { status: 400 });
     update.buffer_minutes = v;
   }
-  if (body.timezone !== undefined) update.timezone = body.timezone;
+  if (body.timezone !== undefined) {
+    const validTimezones = Intl.supportedValuesOf('timeZone');
+    if (!validTimezones.includes(body.timezone)) {
+      return NextResponse.json({ error: 'Invalid timezone' }, { status: 400 });
+    }
+    update.timezone = body.timezone;
+  }
   if (body.min_notice_hours !== undefined) {
     const v = Number(body.min_notice_hours);
     if (!Number.isInteger(v) || v < 0 || v > 168) return NextResponse.json({ error: 'Invalid notice hours' }, { status: 400 });
@@ -68,7 +79,12 @@ export async function PATCH(req: Request, { params }: Params) {
     if (!Number.isInteger(v) || v < 1 || v > 90) return NextResponse.json({ error: 'Invalid booking window' }, { status: 400 });
     update.booking_window_days = v;
   }
-  if (body.meeting_label !== undefined) update.meeting_type_label = body.meeting_label;
+  if (body.meeting_label !== undefined) {
+    if (typeof body.meeting_label !== 'string' || body.meeting_label.length > 50) {
+      return NextResponse.json({ error: 'meeting_label must be a string of max 50 characters' }, { status: 400 });
+    }
+    update.meeting_type_label = body.meeting_label;
+  }
 
   const { error } = await supabase
     .from('meeting_settings')

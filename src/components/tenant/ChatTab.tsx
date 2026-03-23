@@ -95,6 +95,12 @@ interface ChatTabProps {
     onTogglePause?: (convId: string, currentPausedState: boolean) => Promise<void>;
 }
 
+// URL validation helper — only allow http(s) URLs to prevent XSS via javascript: etc.
+function isSafeUrl(url: string | null | undefined): boolean {
+    if (!url) return false;
+    return /^https?:\/\//i.test(url);
+}
+
 const ChatTab = React.memo(function ChatTab({
     tenant,
     conversations,
@@ -143,7 +149,7 @@ const ChatTab = React.memo(function ChatTab({
     return (
         <div className="flex flex-1 h-full w-full overflow-hidden bg-black/40 relative z-10">
             {/* Photo Lightbox Overlay */}
-            {lightboxUrl && (
+            {lightboxUrl && isSafeUrl(lightboxUrl) && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
                     onClick={() => setLightboxUrl(null)}
@@ -188,9 +194,9 @@ const ChatTab = React.memo(function ChatTab({
                             onClick={() => selectConversation(conv)}
                         >
                             <div className="relative shrink-0">
-                                {conv.profile_picture_url ? (
+                                {isSafeUrl(conv.profile_picture_url) ? (
                                     <img
-                                        src={conv.profile_picture_url}
+                                        src={conv.profile_picture_url!}
                                         alt={getDisplayName(conv)}
                                         className="w-12 h-12 rounded-full object-cover bg-neutral-800 ring-2 ring-transparent"
                                         onClick={(e) => { e.stopPropagation(); setLightboxUrl(conv.profile_picture_url); }}
@@ -202,7 +208,7 @@ const ChatTab = React.memo(function ChatTab({
                                     />
                                 ) : null}
                                 <div
-                                    className={`w-12 h-12 rounded-full items-center justify-center text-white font-medium text-lg shrink-0 overflow-hidden ${conv.profile_picture_url ? 'hidden' : 'flex'}`}
+                                    className={`w-12 h-12 rounded-full items-center justify-center text-white font-medium text-lg shrink-0 overflow-hidden ${isSafeUrl(conv.profile_picture_url) ? 'hidden' : 'flex'}`}
                                     style={{ background: getAvatarColor(getDisplayName(conv)) }}
                                 >
                                     {getInitials(getDisplayName(conv), conv.is_group)}
@@ -258,9 +264,9 @@ const ChatTab = React.memo(function ChatTab({
                                 <>
                                 <div className="relative z-10 flex items-center justify-between px-6 py-3 bg-neutral-900/90 backdrop-blur-md border-b border-white/10 shadow-sm shrink-0">
                                     <div className="flex items-center gap-3 min-w-0">
-                                        {conv.profile_picture_url ? (
+                                        {isSafeUrl(conv.profile_picture_url) ? (
                                             <img
-                                                src={conv.profile_picture_url}
+                                                src={conv.profile_picture_url!}
                                                 alt={getDisplayName(conv)}
                                                 className="w-10 h-10 rounded-full object-cover cursor-pointer ring-1 ring-white/10"
                                                 onClick={() => setLightboxUrl(conv.profile_picture_url)}
@@ -272,7 +278,7 @@ const ChatTab = React.memo(function ChatTab({
                                             />
                                         ) : null}
                                         <div
-                                            className={`w-10 h-10 rounded-full items-center justify-center text-white font-medium text-sm shrink-0 ${conv.profile_picture_url ? 'hidden' : 'flex'}`}
+                                            className={`w-10 h-10 rounded-full items-center justify-center text-white font-medium text-sm shrink-0 ${isSafeUrl(conv.profile_picture_url) ? 'hidden' : 'flex'}`}
                                             style={{ background: getAvatarColor(getDisplayName(conv)) }}
                                         >
                                             {getInitials(getDisplayName(conv), conv.is_group)}
@@ -425,9 +431,7 @@ const ChatTab = React.memo(function ChatTab({
                                                 <div className={`absolute top-0 w-4 h-4 overflow-hidden ${isUserMessage ? '-right-2' : '-left-2'}`}>
                                                     <div className={`w-4 h-4 rotate-45 transform origin-top-left ${isUserMessage
                                                             ? "bg-neutral-800 translate-y-[-50%] translate-x-[-50%]"
-                                                            : isBotMessage
-                                                                ? "bg-emerald-900/40 border-[0.5px] border-emerald-500/20 translate-y-[-50%] translate-x-[50%]"
-                                                                : "bg-emerald-900/40 border-[0.5px] border-emerald-500/20 translate-y-[-50%] translate-x-[50%]"
+                                                            : "bg-emerald-900/40 border-[0.5px] border-emerald-500/20 translate-y-[-50%] translate-x-[50%]"
                                                         }`} />
                                                 </div>
                                             )}

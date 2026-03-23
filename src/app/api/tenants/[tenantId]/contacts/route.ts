@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const VALID_RULE_TYPES = ["allow", "block"] as const;
+
+function isValidUUID(id: string): boolean {
+    return UUID_REGEX.test(id);
+}
+
+function sanitizePhoneNumber(raw: string): string | null {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length < 9 || digits.length > 15) return null;
+    return digits;
+}
+
 // GET — list contact rules for a tenant
 export async function GET(
     request: NextRequest,
@@ -8,6 +21,11 @@ export async function GET(
 ) {
     try {
         const { tenantId } = await params;
+
+        if (!isValidUUID(tenantId)) {
+            return NextResponse.json({ error: "Invalid tenant ID" }, { status: 400 });
+        }
+
         const supabase = await createClient();
 
         const {
@@ -36,12 +54,15 @@ export async function GET(
             .order("created_at", { ascending: false });
 
         if (error) {
-            return NextResponse.json({ error: error.message }, { status: 500 });
+            console.error("[contacts/GET] DB error:", error.message);
+            return NextResponse.json({ error: "Failed to fetch contact rules" }, { status: 500 });
         }
 
         return NextResponse.json({ rules });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[contacts/GET] Unexpected error:", message);
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
 }
 
@@ -52,6 +73,11 @@ export async function POST(
 ) {
     try {
         const { tenantId } = await params;
+
+        if (!isValidUUID(tenantId)) {
+            return NextResponse.json({ error: "Invalid tenant ID" }, { status: 400 });
+        }
+
         const supabase = await createClient();
 
         const {
@@ -82,22 +108,47 @@ export async function POST(
             );
         }
 
+        // Validate rule_type
+        if (!VALID_RULE_TYPES.includes(rule_type)) {
+            return NextResponse.json(
+                { error: "Invalid rule_type. Must be 'allow' or 'block'" },
+                { status: 400 }
+            );
+        }
+
+        // Validate and sanitize phone number
+        const sanitizedPhone = sanitizePhoneNumber(String(phone_number));
+        if (!sanitizedPhone) {
+            return NextResponse.json(
+                { error: "Invalid phone number. Must be 9-15 digits" },
+                { status: 400 }
+            );
+        }
+
+        // Sanitize contact_name: trim and limit to 100 chars
+        const sanitizedName = contact_name
+            ? String(contact_name).trim().slice(0, 100)
+            : null;
+
         const { data, error } = await supabase
             .from("contact_rules")
             .upsert(
-                { tenant_id: tenantId, phone_number, contact_name, rule_type },
+                { tenant_id: tenantId, phone_number: sanitizedPhone, contact_name: sanitizedName, rule_type },
                 { onConflict: "tenant_id,phone_number" }
             )
             .select()
             .single();
 
         if (error) {
-            return NextResponse.json({ error: error.message }, { status: 500 });
+            console.error("[contacts/POST] DB error:", error.message);
+            return NextResponse.json({ error: "Failed to add contact rule" }, { status: 500 });
         }
 
         return NextResponse.json({ rule: data });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[contacts/POST] Unexpected error:", message);
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
 }
 
@@ -108,6 +159,11 @@ export async function DELETE(
 ) {
     try {
         const { tenantId } = await params;
+
+        if (!isValidUUID(tenantId)) {
+            return NextResponse.json({ error: "Invalid tenant ID" }, { status: 400 });
+        }
+
         const supabase = await createClient();
 
         const {
@@ -135,18 +191,26 @@ export async function DELETE(
             return NextResponse.json({ error: "Missing rule id" }, { status: 400 });
         }
 
-        const { error } = await supabase
+        const { data: deleted, error } = await supabase
             .from("contact_rules")
             .delete()
             .eq("id", ruleId)
-            .eq("tenant_id", tenantId);
+            .eq("tenant_id", tenantId)
+            .select();
 
         if (error) {
-            return NextResponse.json({ error: error.message }, { status: 500 });
+            console.error("[contacts/DELETE] DB error:", error.message);
+            return NextResponse.json({ error: "Failed to delete contact rule" }, { status: 500 });
+        }
+
+        if (!deleted || deleted.length === 0) {
+            return NextResponse.json({ error: "Rule not found" }, { status: 404 });
         }
 
         return NextResponse.json({ success: true });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[contacts/DELETE] Unexpected error:", message);
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
 }

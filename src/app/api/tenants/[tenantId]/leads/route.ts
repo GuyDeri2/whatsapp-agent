@@ -22,6 +22,6 @@ export async function GET(
     .order('created_at', { ascending: false })
     .limit(500);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 });
   return NextResponse.json(data);
 }

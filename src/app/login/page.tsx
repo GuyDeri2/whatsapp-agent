@@ -2,10 +2,21 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bot, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
+
+function mapAuthError(message: string): string {
+    const map: Record<string, string> = {
+        "Invalid login credentials": "אימייל או סיסמה שגויים",
+        "Email not confirmed": "האימייל טרם אושר — בדוק את תיבת הדואר שלך",
+        "User not found": "משתמש לא נמצא",
+        "Too many requests": "יותר מדי ניסיונות — נסה שוב בעוד כמה דקות",
+        "Email rate limit exceeded": "נשלחו יותר מדי אימיילים — נסה שוב מאוחר יותר",
+        "User already registered": "משתמש עם אימייל זה כבר קיים",
+    };
+    return map[message] || "שגיאה בהתחברות — נסה שוב מאוחר יותר";
+}
 
 declare global {
     interface Window {
@@ -25,7 +36,6 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
-    const router = useRouter();
     const supabaseRef = useRef(createClient());
 
     const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
@@ -34,7 +44,7 @@ export default function LoginPage() {
             token: response.credential,
         });
         if (signInError) {
-            setError(signInError.message);
+            setError(mapAuthError(signInError.message));
         } else {
             window.location.href = "/dashboard";
         }
@@ -83,7 +93,7 @@ export default function LoginPage() {
         });
 
         if (signInError) {
-            setError(signInError.message);
+            setError(mapAuthError(signInError.message));
             setLoading(false);
         } else {
             window.location.href = "/dashboard";

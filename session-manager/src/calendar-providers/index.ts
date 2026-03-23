@@ -4,18 +4,24 @@
  * or null if no calendar integration is configured.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import type { CalendarProvider, ProviderName } from "./types";
 import { googleCalendarProvider } from "./google";
 import { calendlyProvider } from "./calendly";
 import { outlookCalendarProvider } from "./outlook";
 import { appleCalendarProvider } from "./apple";
 
-function getSupabase() {
-    return createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+// ── Shared Supabase singleton (used by all calendar providers) ──────────────
+let _supabase: SupabaseClient | null = null;
+
+export function getSupabase(): SupabaseClient {
+    if (!_supabase) {
+        _supabase = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+    }
+    return _supabase;
 }
 
 /**

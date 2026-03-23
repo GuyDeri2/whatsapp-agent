@@ -260,7 +260,7 @@ function OnboardingWizard({ tenant, onComplete }: OnboardingWizardProps) {
 
             // If we had scan results, apply them (knowledge base + agent_prompt)
             if (analysis) {
-                await fetch(`/api/tenants/${tenant.id}/website-crawl/apply`, {
+                const applyRes = await fetch(`/api/tenants/${tenant.id}/website-crawl/apply`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -268,6 +268,9 @@ function OnboardingWizard({ tenant, onComplete }: OnboardingWizardProps) {
                         website_url: websiteUrl,
                     }),
                 });
+                if (!applyRes.ok) {
+                    console.error("Failed to apply website crawl analysis:", applyRes.status);
+                }
             }
 
             goNext();

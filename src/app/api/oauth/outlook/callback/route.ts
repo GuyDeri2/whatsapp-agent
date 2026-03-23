@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import crypto from 'crypto';
 
@@ -20,19 +21,34 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${appUrl}/?error=outlook_oauth_${error ?? 'missing_params'}`);
   }
 
+  // Verify current user is logged in
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.redirect(`${appUrl}/?error=outlook_oauth_unauthorized`);
+  }
+
   let tenantId: string;
   try {
     const decoded = JSON.parse(Buffer.from(state, 'base64').toString());
     tenantId = decoded.tenantId;
     if (!tenantId) throw new Error('missing tenantId');
 
-    // Verify HMAC signature to prevent state tampering
-    const stateSecret = process.env.OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    // Verify the callback user matches the user who initiated the OAuth flow
+    if (decoded.userId !== user.id) {
+      throw new Error('user mismatch');
+    }
+
+    // Verify HMAC signature to prevent state tampering (timing-safe)
+    const stateSecret = process.env.OAUTH_STATE_SECRET;
+    if (!stateSecret) throw new Error('OAUTH_STATE_SECRET not configured');
     const expectedSig = crypto.createHmac('sha256', stateSecret)
       .update(`${decoded.tenantId}:${decoded.userId}:${decoded.ts}`)
       .digest('hex');
 
-    if (decoded.sig !== expectedSig) {
+    const sigBuf = Buffer.from(decoded.sig ?? '', 'utf8');
+    const expectedBuf = Buffer.from(expectedSig, 'utf8');
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
       throw new Error('invalid signature');
     }
 
@@ -40,8 +56,9 @@ export async function GET(req: Request) {
     if (Date.now() - decoded.ts > STATE_MAX_AGE_MS) {
       throw new Error('state expired');
     }
-  } catch {
-    return NextResponse.redirect(`${appUrl}/?error=invalid_oauth_state`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'unknown';
+    return NextResponse.redirect(`${appUrl}/?error=invalid_oauth_state&debug=${encodeURIComponent(msg)}`);
   }
 
   const REDIRECT_URI = `${appUrl}/api/oauth/outlook/callback`;
@@ -88,19 +105,25 @@ export async function GET(req: Request) {
 
   // Upsert into calendar_integrations using service role (bypass RLS)
   const admin = getSupabaseAdmin();
+
+  // Build upsert payload — only overwrite refresh_token if we received a new one
+  const upsertData: Record<string, unknown> = {
+    tenant_id: tenantId,
+    provider: 'outlook',
+    access_token: tokens.access_token,
+    token_expires_at: tokens.expires_in
+      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+      : null,
+    calendar_id: calendarId,
+    calendar_name: calendarName,
+    is_active: true,
+  };
+  if (tokens.refresh_token) {
+    upsertData.refresh_token = tokens.refresh_token;
+  }
+
   const { error: upsertError } = await admin.from('calendar_integrations').upsert(
-    {
-      tenant_id: tenantId,
-      provider: 'outlook',
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token ?? null,
-      token_expires_at: tokens.expires_in
-        ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-        : null,
-      calendar_id: calendarId,
-      calendar_name: calendarName,
-      is_active: true,
-    },
+    upsertData,
     { onConflict: 'tenant_id,provider' }
   );
 

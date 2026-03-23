@@ -73,6 +73,11 @@ const ConnectTab = React.memo(function ConnectTab({
         }
         window.addEventListener("message", handleMessage);
 
+        if (!META_APP_ID) {
+            // No app ID configured — SDK cannot initialize
+            return () => { window.removeEventListener("message", handleMessage); };
+        }
+
         if (window.FB) {
             setSdkReady(true);
         } else {

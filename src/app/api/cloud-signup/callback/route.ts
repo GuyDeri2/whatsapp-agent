@@ -7,6 +7,8 @@ export const dynamic = 'force-dynamic';
 
 const STATE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Fixed redirect URI for Facebook OAuth — tenantId comes from the state parameter
 const REDIRECT_PATH = '/api/cloud-signup/callback';
 
@@ -30,9 +32,10 @@ export async function GET(req: Request) {
 
   // Handle OAuth errors (e.g. user denied access)
   if (error || !code || !state) {
+    if (error) console.error('[OAuth Callback] Meta returned error:', error);
     const redirectTo = tenantId
-      ? `${appUrl}/tenant/${tenantId}?tab=connect&error=meta_oauth_${error ?? 'missing_params'}`
-      : `${appUrl}?error=meta_oauth_${error ?? 'missing_params'}`;
+      ? `${appUrl}/tenant/${tenantId}?tab=connect&error=meta_oauth_failed`
+      : `${appUrl}?error=meta_oauth_failed`;
     return NextResponse.redirect(redirectTo);
   }
 
@@ -45,12 +48,17 @@ export async function GET(req: Request) {
     if (!verifiedTenantId) throw new Error('missing tenantId');
 
     // Verify HMAC signature to prevent state tampering
-    const stateSecret = process.env.OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const stateSecret = process.env.OAUTH_STATE_SECRET;
+    if (!stateSecret) throw new Error('OAUTH_STATE_SECRET not configured');
+
     const expectedSig = crypto.createHmac('sha256', stateSecret)
       .update(`${decoded.tenantId}:${decoded.userId}:${decoded.ts}`)
       .digest('hex');
 
-    if (decoded.sig !== expectedSig) {
+    // Use timing-safe comparison to prevent timing attacks
+    const sigBuf = Buffer.from(decoded.sig ?? '', 'utf8');
+    const expectedBuf = Buffer.from(expectedSig, 'utf8');
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
       throw new Error('invalid signature');
     }
 
@@ -63,6 +71,24 @@ export async function GET(req: Request) {
   }
 
   tenantId = verifiedTenantId;
+
+  // Validate tenantId is a valid UUID
+  if (!UUID_RE.test(tenantId)) {
+    return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=invalid_tenant`);
+  }
+
+  // Verify that the userId from state actually owns this tenant
+  const admin = getSupabaseAdmin();
+  const { data: ownerCheck } = await admin
+    .from('tenants')
+    .select('id')
+    .eq('id', tenantId)
+    .eq('owner_id', userId)
+    .single();
+
+  if (!ownerCheck) {
+    return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=forbidden`);
+  }
 
   const META_APP_ID = process.env.META_APP_ID;
   const META_APP_SECRET = process.env.META_APP_SECRET;
@@ -90,9 +116,7 @@ export async function GET(req: Request) {
     if (!tokenRes.ok) {
       const errText = await tokenRes.text();
       console.error('Meta token exchange failed:', errText);
-      console.error('Token exchange details:', { REDIRECT_URI, META_APP_ID, META_API_VERSION });
-      const detail = encodeURIComponent(errText.substring(0, 200));
-      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=token_exchange&detail=${detail}`);
+      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=token_exchange`);
     }
 
     const userTokens = await tokenRes.json();
@@ -106,14 +130,14 @@ export async function GET(req: Request) {
     // Step 2: Get WhatsApp Business Accounts directly
     // The user token with whatsapp_business_management scope gives us direct access
     const wabasRes = await fetch(
-      `https://graph.facebook.com/${META_API_VERSION}/me/businesses?access_token=${userAccessToken}&fields=id,name`
+      `https://graph.facebook.com/${META_API_VERSION}/me/businesses?fields=id,name`,
+      { headers: { 'Authorization': `Bearer ${userAccessToken}` } }
     );
 
     if (!wabasRes.ok) {
       const errText = await wabasRes.text();
       console.error('Failed to fetch businesses:', errText);
-      const detail = encodeURIComponent(errText.substring(0, 200));
-      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=business_fetch&detail=${detail}`);
+      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=business_fetch`);
     }
 
     const businessesData = await wabasRes.json();
@@ -126,7 +150,8 @@ export async function GET(req: Request) {
     for (const business of businesses) {
       // Get WABAs owned by this business
       const ownedWabasRes = await fetch(
-        `https://graph.facebook.com/${META_API_VERSION}/${business.id}/owned_whatsapp_business_accounts?access_token=${userAccessToken}&fields=id,name`
+        `https://graph.facebook.com/${META_API_VERSION}/${business.id}/owned_whatsapp_business_accounts?fields=id,name`,
+        { headers: { 'Authorization': `Bearer ${userAccessToken}` } }
       );
 
       if (!ownedWabasRes.ok) continue;
@@ -137,7 +162,8 @@ export async function GET(req: Request) {
       if (wabas.length === 0) {
         // Also try client_whatsapp_business_accounts (shared WABAs)
         const clientWabasRes = await fetch(
-          `https://graph.facebook.com/${META_API_VERSION}/${business.id}/client_whatsapp_business_accounts?access_token=${userAccessToken}&fields=id,name`
+          `https://graph.facebook.com/${META_API_VERSION}/${business.id}/client_whatsapp_business_accounts?fields=id,name`,
+          { headers: { 'Authorization': `Bearer ${userAccessToken}` } }
         );
         if (clientWabasRes.ok) {
           const clientWabas = await clientWabasRes.json();
@@ -150,7 +176,8 @@ export async function GET(req: Request) {
 
         // Get phone numbers for this WABA
         const phoneNumbersRes = await fetch(
-          `https://graph.facebook.com/${META_API_VERSION}/${wabaId}/phone_numbers?access_token=${userAccessToken}&fields=id,display_phone_number,verified_name`
+          `https://graph.facebook.com/${META_API_VERSION}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name`,
+          { headers: { 'Authorization': `Bearer ${userAccessToken}` } }
         );
 
         if (!phoneNumbersRes.ok) continue;
@@ -173,8 +200,7 @@ export async function GET(req: Request) {
         phoneNumberId,
         businessesCount: businesses.length
       });
-      const detail = encodeURIComponent(`Found ${businesses.length} businesses, wabaId=${wabaId}, phoneNumberId=${phoneNumberId}`);
-      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_waba_setup&detail=${detail}`);
+      return NextResponse.redirect(`${appUrl}/tenant/${tenantId}?tab=connect&error=no_waba_setup`);
     }
 
     // Mutual exclusion: disconnect Baileys if active
@@ -209,7 +235,6 @@ export async function GET(req: Request) {
     const webhookVerifyToken = crypto.randomBytes(32).toString('hex');
 
     // Store credentials in whatsapp_cloud_config using service role (bypass RLS)
-    const admin = getSupabaseAdmin();
     const { error: upsertError } = await admin.from('whatsapp_cloud_config').upsert(
       {
         tenant_id: tenantId,
@@ -231,7 +256,8 @@ export async function GET(req: Request) {
     let displayPhone: string | null = null;
     try {
       const phoneInfoRes = await fetch(
-        `https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name&access_token=${finalToken}`
+        `https://graph.facebook.com/${META_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name`,
+        { headers: { 'Authorization': `Bearer ${finalToken}` } }
       );
       if (phoneInfoRes.ok) {
         const phoneInfo = await phoneInfoRes.json();

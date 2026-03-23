@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+interface ConversationJoin {
+    phone_number: string;
+    contact_name: string | null;
+}
+
+interface HandoffMessage {
+    id: string;
+    conversation_id: string;
+    content: string;
+    created_at: string;
+    conversations: ConversationJoin | null;
+}
+
 // GET /api/tenants/[tenantId]/unanswered-questions
 export async function GET(
     req: NextRequest,
@@ -82,7 +95,12 @@ export async function GET(
                 user_question: preceding.content,
                 conversation_id: msg.conversation_id,
                 date: msg.created_at,
-                contact: msg.conversations ? ((msg.conversations as any).contact_name || (msg.conversations as any).phone_number) : "Unknown",
+                contact: msg.conversations
+                    ? (() => {
+                        const conv = (Array.isArray(msg.conversations) ? msg.conversations[0] : msg.conversations) as ConversationJoin | undefined;
+                        return conv?.contact_name || conv?.phone_number || "Unknown";
+                    })()
+                    : "Unknown",
             });
         }
     }

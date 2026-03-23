@@ -176,8 +176,10 @@ export async function getAvailableSlots(
     const windowDays = settings.booking_window_days ?? 14;
     if (windowDays > 0) {
         const todayInTz = new Date().toLocaleDateString("en-CA", { timeZone: tz }); // "YYYY-MM-DD"
-        const maxDateInTz = new Date(Date.now() + windowDays * 86_400_000)
-            .toLocaleDateString("en-CA", { timeZone: tz });
+        // Use date arithmetic instead of ms multiplication to avoid DST off-by-one
+        const maxDate = new Date();
+        maxDate.setDate(maxDate.getDate() + windowDays);
+        const maxDateInTz = maxDate.toLocaleDateString("en-CA", { timeZone: tz });
         if (dateStr > maxDateInTz) return [];
         if (dateStr < todayInTz) return []; // also reject past dates
     }
@@ -235,13 +237,14 @@ export async function getAvailableSlots(
             });
 
             if (!dbConflict && !calConflict) {
-                const hh = String(
-                    new Date(slotStart).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", hour12: false }).split(":")[0]
-                ).padStart(2, "0");
-                const mm = String(
-                    new Date(slotStart).toLocaleTimeString("en-GB", { timeZone: tz, minute: "2-digit" }).split(":").pop()
-                ).padStart(2, "0");
-                slots.push(`${hh}:${mm}`);
+                const timeStr = new Date(slotStart).toLocaleTimeString("en-GB", {
+                    timeZone: tz,
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                }); // "HH:MM:SS" or "HH:MM"
+                const [hh, mm] = timeStr.split(":");
+                slots.push(`${hh.padStart(2, "0")}:${mm.padStart(2, "0")}`);
             }
 
             slotStart = new Date(slotStart.getTime() + (duration + buffer) * 60_000);

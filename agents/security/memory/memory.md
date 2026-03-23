@@ -153,6 +153,30 @@ Full security audit was performed before production launch. Found 7.5/10 risk sc
 ## Positive Pattern (2026-03-17)
 [Score: 9/10] Always include practical steps for obtaining missing credentials (e.g., 'Go to Google Cloud Console → APIs & Services → Credentials') when identifying missing OAuth configuration.
 
+## Comprehensive Security Audit — 2026-03-23
+
+### Critical Vulnerabilities Found & Fixed:
+1. **Open Redirect** (`auth/callback/route.ts`): `next` param accepted `//evil.com`. Fixed with path sanitization.
+2. **Access tokens in URLs**: All Meta Graph API calls used `?access_token=` query params (logged in server logs). Moved to `Authorization: Bearer` header.
+3. **Apple credentials plaintext**: App-specific passwords stored unencrypted. Now AES-256-GCM encrypted with `SESSION_ENCRYPTION_KEY`.
+4. **OAUTH_STATE_SECRET fallback**: Was falling back to `SUPABASE_SERVICE_ROLE_KEY` — if HMAC leaked, attacker gets full DB access. Now throws error if not set.
+5. **OAuth callback no user verification**: Callbacks only checked HMAC signature, not that the current browser user matched the `userId` in state. Added `getUser()` verification.
+6. **Cloud-signup callback missing ownership check**: HMAC state verified but `userId` not checked against `tenantId` ownership in DB. Fixed.
+7. **Dead callback route**: `tenants/[tenantId]/cloud-signup/callback/route.ts` was never called but exposed attack surface. Deleted.
+8. **CORS open to all**: Session-manager had `cors({ origin: "*" })`. Restricted to app domain.
+9. **Data deletion not implemented**: Meta data deletion callback returned confirmation but deleted nothing (GDPR violation). Now actually deletes data.
+10. **In-memory dedup/rate-limit**: Maps in serverless don't persist between invocations. Moved to DB-based approach.
+
+### Security Patterns to Enforce:
+- HMAC comparison: ALWAYS use `crypto.timingSafeEqual()`, never `===`
+- OAuth state: Require dedicated `OAUTH_STATE_SECRET`, no fallback to service role key
+- Tokens: NEVER in URLs, always in Authorization header
+- Credentials at rest: Encrypt with AES-256-GCM before DB storage
+- Redirect URLs: Validate `tenantId` is UUID before using in redirects
+- Error responses: Generic messages only, log details server-side
+- DELETE operations: Always verify rows were actually affected
+- Serverless state: No in-memory Maps for dedup/rate-limiting — use DB or Redis
+
 ## Anti-Ban Security Improvements — 2026-03-22
 - Read receipts with 1-3s gaussian delay (prevents bot detection)
 - Risk score monitoring: 0-100 scale, automatic decay, alerts at critical levels

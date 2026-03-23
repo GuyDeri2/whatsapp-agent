@@ -43,7 +43,10 @@ export async function GET(req: Request) {
   );
 
   // Sign state with HMAC to prevent tampering
-  const stateSecret = process.env.OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const stateSecret = process.env.OAUTH_STATE_SECRET;
+  if (!stateSecret) {
+    return NextResponse.json({ error: 'OAUTH_STATE_SECRET is not configured' }, { status: 500 });
+  }
   const ts = Date.now();
   const sig = crypto.createHmac('sha256', stateSecret)
     .update(`${tenantId}:${user.id}:${ts}`)

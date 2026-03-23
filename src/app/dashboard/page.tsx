@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -31,7 +31,8 @@ function getGreeting(): string {
 }
 
 export default function Dashboard() {
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
   const router = useRouter();
 
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -48,14 +49,13 @@ export default function Dashboard() {
       const data = await res.json();
       if (data.tenants) {
         setTenants(data.tenants);
-        data.tenants.forEach((t: Tenant) => router.prefetch(`/tenant/${t.id}`));
       }
       if (data.profile) setProfile(data.profile);
     } catch (err) {
       console.error("Failed to fetch tenants:", err);
     }
     setLoading(false);
-  }, [router]);
+  }, []);
 
   useEffect(() => { fetchTenants(); }, [fetchTenants]);
 
@@ -93,11 +93,11 @@ export default function Dashboard() {
     setCreating(false);
   };
 
-  const modeConfig = {
+  const modeConfig = useMemo(() => ({
     learning: { label: "למידה", icon: <BookOpen className="w-3.5 h-3.5" />, bg: "bg-amber-500/15 text-amber-400 ring-amber-500/25" },
     active: { label: "פעיל", icon: <Activity className="w-3.5 h-3.5" />, bg: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/25" },
     paused: { label: "מושהה", icon: <PauseCircle className="w-3.5 h-3.5" />, bg: "bg-neutral-500/15 text-neutral-400 ring-neutral-500/25" },
-  };
+  }), []);
 
   return (
     <div className="min-h-screen text-neutral-200 font-sans selection:bg-emerald-500/30 relative overflow-x-hidden bg-background">

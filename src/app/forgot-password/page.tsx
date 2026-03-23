@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { KeyRound, Mail, ArrowRight, Loader2 } from "lucide-react";
@@ -10,14 +10,14 @@ export default function ForgotPasswordPage() {
     const [email, setEmail] = useState("");
     const [status, setStatus] = useState<{ type: "error" | "success" | null; message: string }>({ type: null, message: "" });
     const [loading, setLoading] = useState(false);
-    const supabase = createClient();
+    const supabaseRef = useRef(createClient());
 
     const handleReset = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setStatus({ type: null, message: "" });
 
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        const { error } = await supabaseRef.current.auth.resetPasswordForEmail(email, {
             redirectTo: `${window.location.origin}/reset-password`,
         });
 

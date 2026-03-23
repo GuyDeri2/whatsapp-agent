@@ -22,13 +22,33 @@ function getSupabase() {
     );
 }
 
-/** Verify Calendly webhook signature */
+/**
+ * Verify Calendly webhook signature.
+ * Calendly sends: `Calendly-Webhook-Signature: t=<timestamp>,v1=<signature>`
+ * HMAC is computed over `t.rawBody` (timestamp + "." + body).
+ */
 function verifySignature(rawBody: string, signature: string | null): boolean {
     const secret = process.env.CALENDLY_WEBHOOK_SECRET;
     if (!secret || !signature) return false;
-    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+
+    // Parse Calendly's `t=...,v1=...` format
+    const parts: Record<string, string> = {};
+    for (const part of signature.split(",")) {
+        const [key, ...rest] = part.split("=");
+        if (key && rest.length > 0) {
+            parts[key.trim()] = rest.join("=").trim();
+        }
+    }
+
+    const timestamp = parts["t"];
+    const v1Signature = parts["v1"];
+    if (!timestamp || !v1Signature) return false;
+
+    // Compute HMAC on "timestamp.rawBody"
+    const payload = `${timestamp}.${rawBody}`;
+    const expected = createHmac("sha256", secret).update(payload).digest("hex");
     const expectedBuf = Buffer.from(expected, "hex");
-    const signatureBuf = Buffer.from(signature, "hex");
+    const signatureBuf = Buffer.from(v1Signature, "hex");
     if (expectedBuf.length !== signatureBuf.length) return false;
     return timingSafeEqual(expectedBuf, signatureBuf);
 }

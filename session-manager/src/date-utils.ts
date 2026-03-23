@@ -7,17 +7,6 @@
  * with an explicit UTC offset so Postgres stores the correct instant.
  */
 
-/** Map of Hebrew day names → 0-based day-of-week (Sunday = 0) */
-const HEBREW_DAYS: Record<string, number> = {
-    ראשון: 0, שני: 1, שלישי: 2, רביעי: 3, חמישי: 4, שישי: 5, שבת: 6,
-};
-
-/** Map of Hebrew month names → 1-based month number */
-const HEBREW_MONTHS: Record<string, number> = {
-    ינואר: 1, פברואר: 2, מרץ: 3, אפריל: 4, מאי: 5, יוני: 6,
-    יולי: 7, אוגוסט: 8, ספטמבר: 9, אוקטובר: 10, נובמבר: 11, דצמבר: 12,
-};
-
 /**
  * Get the UTC offset in minutes for a given timezone and date.
  * Uses Intl.DateTimeFormat internals to determine the actual offset (DST-aware).
@@ -40,7 +29,15 @@ export function buildTzDate(
     // Start with a rough UTC candidate
     const rough = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
     const offsetMin = getUtcOffsetMinutes(timezone, rough);
-    return new Date(rough.getTime() - offsetMin * 60_000);
+    const candidate = new Date(rough.getTime() - offsetMin * 60_000);
+
+    // Iterative correction: the offset we used was for `rough`, but the actual UTC instant
+    // `candidate` may fall in a different DST period. Re-check and correct if needed.
+    const correctedOffset = getUtcOffsetMinutes(timezone, candidate);
+    if (correctedOffset !== offsetMin) {
+        return new Date(rough.getTime() - correctedOffset * 60_000);
+    }
+    return candidate;
 }
 
 /**

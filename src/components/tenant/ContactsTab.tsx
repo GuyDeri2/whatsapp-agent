@@ -48,6 +48,7 @@ const ContactsTab = React.memo(function ContactsTab({
     const [deletingId, setDeletingId] = useState<string | null>(null);
 
     const onSubmit = async (e: React.FormEvent) => {
+        if (isSubmitting) return;
         setIsSubmitting(true);
         try { await handleAddRule(e); } finally { setIsSubmitting(false); }
     };

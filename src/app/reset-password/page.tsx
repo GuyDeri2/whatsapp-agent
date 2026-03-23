@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -13,18 +13,8 @@ export default function ResetPasswordPage() {
     const [status, setStatus] = useState<{ type: "error" | "success" | null; message: string }>({ type: null, message: "" });
     const [loading, setLoading] = useState(false);
     const router = useRouter();
-    const supabase = createClient();
-
-    useEffect(() => {
-        // If the user isn't holding a recovery session, they shouldn't be here in theory
-        // but we'll let supabase handle the validation during updateUser
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            if (!session) {
-                // Not strictly an error here as the session might be established in the query params implicitly
-                // but good to check.
-            }
-        });
-    }, [supabase.auth]);
+    const supabaseRef = useRef(createClient());
+    const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -37,7 +27,7 @@ export default function ResetPasswordPage() {
             return;
         }
 
-        const { error } = await supabase.auth.updateUser({
+        const { error } = await supabaseRef.current.auth.updateUser({
             password: password
         });
 
@@ -46,7 +36,8 @@ export default function ResetPasswordPage() {
             setLoading(false);
         } else {
             setStatus({ type: "success", message: "הסיסמה עודכנה בהצלחה!" });
-            setTimeout(() => {
+            if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+            redirectTimerRef.current = setTimeout(() => {
                 router.push("/dashboard");
                 router.refresh();
             }, 2000);

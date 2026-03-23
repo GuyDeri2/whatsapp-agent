@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -29,14 +29,14 @@ export default function RegisterPage() {
     const [loading, setLoading] = useState(false);
     const [emailSent, setEmailSent] = useState(false);
     const router = useRouter();
-    const supabase = createClient();
+    const supabaseRef = useRef(createClient());
 
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
 
-        const { data: { session }, error: signUpError } = await supabase.auth.signUp({
+        const { data: { session }, error: signUpError } = await supabaseRef.current.auth.signUp({
             email,
             password,
             options: {
@@ -58,7 +58,7 @@ export default function RegisterPage() {
     };
 
     const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
-        const { error: signInError } = await supabase.auth.signInWithIdToken({
+        const { error: signInError } = await supabaseRef.current.auth.signInWithIdToken({
             provider: 'google',
             token: response.credential,
         });
@@ -67,7 +67,7 @@ export default function RegisterPage() {
         } else {
             window.location.href = "/dashboard";
         }
-    }, [supabase]);
+    }, []);
 
     useEffect(() => {
         const script = document.createElement("script");

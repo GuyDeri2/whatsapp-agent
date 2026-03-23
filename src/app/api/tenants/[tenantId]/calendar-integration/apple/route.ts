@@ -56,8 +56,9 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: 'app_password is required' }, { status: 400 });
   }
 
-  // Basic email format validation for Apple ID
-  if (!apple_id.includes('@')) {
+  // Email format validation for Apple ID
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(apple_id.trim())) {
     return NextResponse.json({ error: 'apple_id must be a valid email address' }, { status: 400 });
   }
 

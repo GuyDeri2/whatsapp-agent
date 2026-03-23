@@ -74,7 +74,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                 answer: editForm.answer,
                 category: editForm.category,
                 updated_at: new Date().toISOString()
-            }).eq("id", id);
+            }).eq("id", id).eq("tenant_id", tenant.id);
 
             if (!error) {
                 setEditingId(null);
@@ -90,7 +90,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
     const handleDelete = async (id: string) => {
         if (!confirm("האם למחוק יכולת זו? הסוכן לא ישתמש בה יותר.")) return;
         setLearnings(prev => prev.filter(l => l.id !== id)); // Instant
-        const { error } = await supabaseRef.current.from("knowledge_base").delete().eq("id", id);
+        const { error } = await supabaseRef.current.from("knowledge_base").delete().eq("id", id).eq("tenant_id", tenant.id);
         if (error) {
             fetchLearnings(); // Revert
             alert("שגיאה במחיקה");

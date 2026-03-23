@@ -89,11 +89,12 @@ const SettingsTab = React.memo(function SettingsTab({
         try {
             // Save URL first if changed
             if (websiteUrl !== tenant.website_url) {
-                await fetch(`/api/tenants/${tenant.id}`, {
+                const saveRes = await fetch(`/api/tenants/${tenant.id}`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ website_url: websiteUrl }),
                 });
+                if (!saveRes.ok) throw new Error("save_url_failed");
             }
 
             setScanProgress("סורק את האתר...");
@@ -203,7 +204,7 @@ const SettingsTab = React.memo(function SettingsTab({
                             <input
                                 type="text"
                                 value={editForm.business_name}
-                                onChange={(e) => setEditForm({ ...editForm, business_name: e.target.value })}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, business_name: e.target.value }))}
                                 required
                                 className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all placeholder-neutral-600 group-hover:border-white/20"
                                 placeholder="הזן את שם העסק המלא"
@@ -218,7 +219,7 @@ const SettingsTab = React.memo(function SettingsTab({
                             </label>
                             <textarea
                                 value={editForm.description}
-                                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
                                 rows={4}
                                 className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all placeholder-neutral-600 resize-none group-hover:border-white/20 custom-scrollbar"
                                 placeholder="מי אנחנו, מה המומחיות שלנו, שעות פעילות, וכו'..."
@@ -233,7 +234,7 @@ const SettingsTab = React.memo(function SettingsTab({
                             </label>
                             <textarea
                                 value={editForm.products}
-                                onChange={(e) => setEditForm({ ...editForm, products: e.target.value })}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, products: e.target.value }))}
                                 rows={4}
                                 className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all placeholder-neutral-600 resize-none group-hover:border-white/20 custom-scrollbar"
                                 placeholder="למשל: ייעוץ משכנתאות, ליווי פיננסי לעסקים..."
@@ -248,7 +249,7 @@ const SettingsTab = React.memo(function SettingsTab({
                             </label>
                             <textarea
                                 value={editForm.target_customers}
-                                onChange={(e) => setEditForm({ ...editForm, target_customers: e.target.value })}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, target_customers: e.target.value }))}
                                 rows={3}
                                 className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all placeholder-neutral-600 resize-none group-hover:border-white/20 custom-scrollbar"
                                 placeholder="למשל: זוגות צעירים לפני קניית דירה..."
@@ -256,7 +257,7 @@ const SettingsTab = React.memo(function SettingsTab({
                         </div>
 
                         {/* Save Contacts Toggle */}
-                        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 mt-6 hover:bg-white/[0.07] transition-colors cursor-pointer" onClick={() => setEditForm({ ...editForm, agent_respond_to_saved_contacts: !editForm.agent_respond_to_saved_contacts })}>
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 mt-6 hover:bg-white/[0.07] transition-colors cursor-pointer" onClick={() => setEditForm(prev => ({ ...prev, agent_respond_to_saved_contacts: !prev.agent_respond_to_saved_contacts }))}>
                             <div className="flex items-start gap-4">
                                 <div className="mt-1">
                                     <div className={`w-6 h-6 rounded flex items-center justify-center border transition-all ${editForm.agent_respond_to_saved_contacts
@@ -271,7 +272,7 @@ const SettingsTab = React.memo(function SettingsTab({
                                         type="checkbox"
                                         className="hidden"
                                         checked={editForm.agent_respond_to_saved_contacts}
-                                        onChange={(e) => setEditForm({ ...editForm, agent_respond_to_saved_contacts: e.target.checked })}
+                                        onChange={(e) => setEditForm(prev => ({ ...prev, agent_respond_to_saved_contacts: e.target.checked }))}
                                     />
                                 </div>
                                 <div className="flex-1">
@@ -287,7 +288,7 @@ const SettingsTab = React.memo(function SettingsTab({
                         </div>
 
                         {/* Handoff Collect Email Toggle */}
-                        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 mt-6 hover:bg-white/[0.07] transition-colors cursor-pointer" onClick={() => setEditForm({ ...editForm, handoff_collect_email: !editForm.handoff_collect_email })}>
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 mt-6 hover:bg-white/[0.07] transition-colors cursor-pointer" onClick={() => setEditForm(prev => ({ ...prev, handoff_collect_email: !prev.handoff_collect_email }))}>
                             <div className="flex items-start gap-4">
                                 <div className="mt-1">
                                     <div className={`w-6 h-6 rounded flex items-center justify-center border transition-all ${editForm.handoff_collect_email
@@ -302,7 +303,7 @@ const SettingsTab = React.memo(function SettingsTab({
                                         type="checkbox"
                                         className="hidden"
                                         checked={editForm.handoff_collect_email}
-                                        onChange={(e) => setEditForm({ ...editForm, handoff_collect_email: e.target.checked })}
+                                        onChange={(e) => setEditForm(prev => ({ ...prev, handoff_collect_email: e.target.checked }))}
                                     />
                                 </div>
                                 <div className="flex-1">
@@ -325,7 +326,7 @@ const SettingsTab = React.memo(function SettingsTab({
                             <input
                                 type="tel"
                                 value={editForm.owner_phone}
-                                onChange={(e) => setEditForm({ ...editForm, owner_phone: e.target.value })}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, owner_phone: e.target.value }))}
                                 dir="ltr"
                                 className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-5 text-neutral-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all placeholder-neutral-600 group-hover:border-white/20"
                                 placeholder="972501234567"

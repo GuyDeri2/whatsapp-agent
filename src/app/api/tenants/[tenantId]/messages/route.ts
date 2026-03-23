@@ -37,12 +37,28 @@ export async function POST(
         }
 
         // 3. Parse body
-        const body = await request.json();
+        let body: { phone_number?: string; text?: string };
+        try {
+            body = await request.json();
+        } catch {
+            return NextResponse.json(
+                { error: "Invalid JSON body" },
+                { status: 400 }
+            );
+        }
         const { phone_number, text } = body;
 
         if (!phone_number || !text) {
             return NextResponse.json(
                 { error: "Missing phone_number or text" },
+                { status: 400 }
+            );
+        }
+
+        // Validate phone number format (international digits only, 7-15 chars)
+        if (!/^\d{7,15}$/.test(phone_number)) {
+            return NextResponse.json(
+                { error: "Invalid phone number format" },
                 { status: 400 }
             );
         }
@@ -136,6 +152,8 @@ export async function POST(
                 .from("conversations")
                 .update({ is_paused: true })
                 .eq("id", conversation.id);
+        } else {
+            console.warn(`[messages/POST] Conversation upsert returned null for tenant=${tenantId} phone=${phone_number}`);
         }
 
         return NextResponse.json({

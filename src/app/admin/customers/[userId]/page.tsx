@@ -38,24 +38,25 @@ export default async function CustomerDetailPage({
 
     const tenantIds = userTenants.map((t) => t.id);
 
-    // Fetch bot messages for this user's tenants
-    let allMessages: { tenant_id: string; is_from_agent: boolean }[] = [];
-    if (tenantIds.length > 0) {
-        const { data: messages } = await admin
-            .from("messages")
-            .select("tenant_id, is_from_agent")
-            .eq("is_from_agent", true)
-            .in("tenant_id", tenantIds);
-        allMessages = messages ?? [];
-    }
-
-    // Build per-tenant bot message counts
+    // Fetch bot message counts per tenant using count queries (avoids 1000 row limit)
     const messageCountByTenant: Record<string, number> = {};
-    for (const msg of allMessages) {
-        messageCountByTenant[msg.tenant_id] = (messageCountByTenant[msg.tenant_id] ?? 0) + 1;
-    }
+    let totalBotMessages = 0;
 
-    const totalBotMessages = allMessages.length;
+    if (tenantIds.length > 0) {
+        const countResults = await Promise.all(
+            tenantIds.map(tid =>
+                admin.from("messages")
+                    .select("id", { count: "exact", head: true })
+                    .eq("is_from_agent", true)
+                    .eq("tenant_id", tid)
+            )
+        );
+        for (let i = 0; i < tenantIds.length; i++) {
+            const count = countResults[i].count ?? 0;
+            messageCountByTenant[tenantIds[i]] = count;
+            totalBotMessages += count;
+        }
+    }
 
     const agentModeLabel: Record<string, { label: string; cls: string }> = {
         active: { label: "פעיל", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },

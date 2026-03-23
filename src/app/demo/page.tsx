@@ -32,7 +32,6 @@ const STEPS = [
 export default function DemoPage() {
     const [active, setActive] = useState(0);
     const [qrScanned, setQrScanned] = useState(false);
-    const [typing, setTyping] = useState(false);
     const [typed, setTyped] = useState("");
 
     const businessDesc = "מסעדה איטלקית במרכז תל אביב. מגישים פסטה טרייה, פיצות מהתנור ויינות נבחרים. פתוחים כל יום 12:00–23:00.";
@@ -46,7 +45,6 @@ export default function DemoPage() {
 
     useEffect(() => {
         if (active !== 1) return;
-        setTyping(true);
         setTyped("");
         let i = 0;
         const interval = setInterval(() => {
@@ -65,7 +63,6 @@ export default function DemoPage() {
         setActive(0);
         setQrScanned(false);
         setTyped("");
-        setTyping(false);
     };
 
     return (
@@ -236,7 +233,7 @@ export default function DemoPage() {
 
                                 <div className="relative bg-black/40 border border-white/10 rounded-2xl px-4 py-3 min-h-[110px] text-[15px] text-white/90 leading-relaxed font-mono">
                                     {typed}
-                                    {typing && typed.length < businessDesc.length && (
+                                    {typed.length > 0 && typed.length < businessDesc.length && (
                                         <span className="inline-block w-0.5 h-4 bg-indigo-400 ml-0.5 animate-pulse align-middle" />
                                     )}
                                 </div>

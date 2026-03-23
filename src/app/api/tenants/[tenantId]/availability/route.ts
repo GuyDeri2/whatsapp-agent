@@ -56,6 +56,18 @@ export async function POST(req: Request, { params }: Params) {
   if (delError) return NextResponse.json({ error: delError.message }, { status: 500 });
 
   if (slots && slots.length > 0) {
+    if (slots.length > 20) {
+      return NextResponse.json({ error: 'Maximum 20 slots per day' }, { status: 400 });
+    }
+    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+    for (const s of slots as { start_time: string; end_time: string }[]) {
+      if (!timeRegex.test(s.start_time) || !timeRegex.test(s.end_time)) {
+        return NextResponse.json({ error: `Invalid time format: ${s.start_time}-${s.end_time}. Expected HH:MM (00:00-23:59)` }, { status: 400 });
+      }
+      if (s.end_time <= s.start_time) {
+        return NextResponse.json({ error: `end_time (${s.end_time}) must be after start_time (${s.start_time})` }, { status: 400 });
+      }
+    }
     const rows = slots.map((s: { start_time: string; end_time: string }) => ({
       tenant_id: tenantId,
       day_of_week,

@@ -131,6 +131,46 @@ DEEPSEEK_API_KEY=...
 
 ---
 
+## Comprehensive Code Audit — 2026-03-23
+
+### Overview
+15 parallel audit agents scanned the entire codebase. Found **253 issues** (41 critical, 56 high, 82 medium, 72 low). 15 parallel fix agents deployed to resolve all findings.
+
+### Top Recurring Patterns (apply to ALL future code):
+
+1. **Supabase error handling**: `.single()` returns `error.code === 'PGRST116'` for 0 rows, not `data: null`. Always check error.code before data.
+2. **Error message leakage**: NEVER return `error.message` from Supabase to client — it exposes schema details. Use generic messages + server-side logging.
+3. **In-memory state doesn't work in Vercel serverless**: Maps, setInterval, rate limiters reset between invocations. Use DB or Redis instead.
+4. **req.json() needs try-catch**: Always wrap in try-catch, return 400 for malformed JSON.
+5. **SSRF protection must cover redirects**: `redirect: "follow"` bypasses URL validation. Use `redirect: "manual"` and validate each hop.
+6. **UUID validation**: Always validate tenantId/userId params as UUID before passing to Supabase queries.
+7. **Supabase 1000 row limit**: Default limit is 1000 rows. Use `{ count: "exact", head: true }` for counts, add explicit `.limit()` for all queries.
+8. **DELETE verification**: Supabase DELETE returns success even if 0 rows affected. Always verify with `.select()` or count.
+9. **useRef for Supabase client**: In React client components, always use `useRef(createClient())` — never call `createClient()` at component level (causes re-render loops).
+10. **timingSafeEqual for HMAC**: Always use `crypto.timingSafeEqual()` for signature comparison, never `===` or `!==`.
+
+### Critical Security Fixes Applied:
+- Open redirect in auth callback (next param validation)
+- Access tokens moved from URL query strings to Authorization headers
+- Apple credentials encrypted with AES-256-GCM before DB storage
+- CORS restricted from `*` to specific origins in session-manager
+- Dead `/admin/set-key` endpoint removed (attack surface)
+- Data deletion endpoint now actually deletes data (GDPR/Meta compliance)
+- Webhook dedup moved from in-memory Map to DB-based (wa_message_id constraint)
+- Calendly webhook signature verification fixed (was using wrong header format)
+- SSRF protection upgraded: DNS resolution, IPv6 private ranges, redirect validation
+- Prompt injection defense strengthened with Unicode stripping + explicit boundary instructions
+
+### Performance Fixes Applied:
+- Middleware: webhook bypass moved before getUser() (saves ~100ms per webhook)
+- Admin analytics: count queries instead of fetching all rows
+- O(n*m) join replaced with Map-based O(n+m) lookup
+- Pure functions extracted from 1160-line tenant component
+- InactivityGuard only activates for logged-in users
+- Supabase singleton pattern applied across session-manager
+
+---
+
 ## Lessons Learned
 
 ### Baileys Event Patterns

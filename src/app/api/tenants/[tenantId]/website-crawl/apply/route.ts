@@ -48,6 +48,78 @@ export async function POST(
         return NextResponse.json({ error: "analysis object is required" }, { status: 400 });
     }
 
+    // Validate and sanitize analysis fields
+    const MAX_TEXT_LEN = 2000;
+    const MAX_PROMPT_LEN = 5000;
+    const MAX_KNOWLEDGE_ENTRIES = 200;
+
+    // Sanitize string fields
+    const sanitizeStr = (val: unknown, maxLen: number): string | null => {
+        if (typeof val !== "string") return null;
+        return val.trim().substring(0, maxLen) || null;
+    };
+
+    analysis.business_name = sanitizeStr(analysis.business_name, 200);
+    analysis.description = sanitizeStr(analysis.description, MAX_TEXT_LEN);
+    analysis.products_services = sanitizeStr(analysis.products_services, MAX_TEXT_LEN);
+    analysis.target_customers = sanitizeStr(analysis.target_customers, MAX_TEXT_LEN);
+    analysis.operating_hours = sanitizeStr(analysis.operating_hours, 500);
+    analysis.location = sanitizeStr(analysis.location, 500);
+    analysis.contact_phone = sanitizeStr(analysis.contact_phone, 200);
+    analysis.contact_email = sanitizeStr(analysis.contact_email, 200);
+    analysis.suggested_agent_prompt = sanitizeStr(analysis.suggested_agent_prompt, MAX_PROMPT_LEN);
+
+    // Limit and validate knowledge_entries
+    if (Array.isArray(analysis.knowledge_entries)) {
+        analysis.knowledge_entries = analysis.knowledge_entries
+            .slice(0, MAX_KNOWLEDGE_ENTRIES)
+            .filter((e: unknown): e is { category: string; question: string; answer: string } =>
+                typeof e === "object" && e !== null &&
+                typeof (e as Record<string, unknown>).question === "string" &&
+                typeof (e as Record<string, unknown>).answer === "string"
+            )
+            .map((e: { category?: string; question: string; answer: string }) => ({
+                category: (typeof e.category === "string" ? e.category : "general").substring(0, 100),
+                question: e.question.substring(0, 500),
+                answer: e.answer.substring(0, MAX_TEXT_LEN),
+            }));
+    } else {
+        analysis.knowledge_entries = [];
+    }
+
+    // Limit and validate products_with_prices
+    if (Array.isArray(analysis.products_with_prices)) {
+        analysis.products_with_prices = analysis.products_with_prices
+            .slice(0, MAX_KNOWLEDGE_ENTRIES)
+            .filter((p: unknown): p is { name: string; price: string; description?: string } =>
+                typeof p === "object" && p !== null &&
+                typeof (p as Record<string, unknown>).name === "string" &&
+                typeof (p as Record<string, unknown>).price === "string"
+            )
+            .map((p: { name: string; price: string; description?: string }) => ({
+                name: p.name.substring(0, 200),
+                price: p.price.substring(0, 100),
+                ...(typeof p.description === "string" ? { description: p.description.substring(0, 500) } : {}),
+            }));
+    } else {
+        analysis.products_with_prices = [];
+    }
+
+    // Validate website_url if provided
+    if (website_url !== undefined) {
+        if (typeof website_url !== "string" || website_url.length > 2000) {
+            return NextResponse.json({ error: "Invalid website_url" }, { status: 400 });
+        }
+        try {
+            const parsedWUrl = new URL(website_url);
+            if (parsedWUrl.protocol !== "http:" && parsedWUrl.protocol !== "https:") {
+                return NextResponse.json({ error: "website_url must use http or https" }, { status: 400 });
+            }
+        } catch {
+            return NextResponse.json({ error: "Invalid website_url format" }, { status: 400 });
+        }
+    }
+
     // 1. Update tenant profile with extracted data
     const tenantUpdates: Record<string, unknown> = {
         website_last_crawled_at: new Date().toISOString(),

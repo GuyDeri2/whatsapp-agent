@@ -14,6 +14,7 @@ export function GrantScansButton({ tenantId, scansUsed, scansLimit, scansMonth }
     const [granting, setGranting] = useState(false);
     const [currentLimit, setCurrentLimit] = useState(scansLimit);
     const [granted, setGranted] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const currentMonth = new Date().toISOString().substring(0, 7);
     const displayUsed = scansMonth === currentMonth ? scansUsed : 0;
@@ -21,6 +22,7 @@ export function GrantScansButton({ tenantId, scansUsed, scansLimit, scansMonth }
 
     const handleGrant = async () => {
         setGranting(true);
+        setError(null);
         try {
             const res = await fetch("/api/admin/tenant-scans", {
                 method: "POST",
@@ -32,9 +34,11 @@ export function GrantScansButton({ tenantId, scansUsed, scansLimit, scansMonth }
                 setCurrentLimit(data.total_limit);
                 setGranted(true);
                 setTimeout(() => setGranted(false), 2000);
+            } else {
+                setError("שגיאה בהוספת סריקות");
             }
         } catch {
-            // ignore
+            setError("שגיאה בהוספת סריקות");
         } finally {
             setGranting(false);
         }
@@ -45,6 +49,7 @@ export function GrantScansButton({ tenantId, scansUsed, scansLimit, scansMonth }
             <span className={`text-xs font-medium ${isAtLimit ? "text-red-400" : "text-neutral-400"}`}>
                 {displayUsed}/{currentLimit}
             </span>
+            {error && <span className="text-xs text-red-400">{error}</span>}
             {isAtLimit && (
                 <button
                     onClick={handleGrant}

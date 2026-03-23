@@ -144,14 +144,74 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
 }
 
 /* ------------------------------------------------------------------ */
+/* Pure utility functions (extracted outside component)                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Normalize any Israeli phone format to the WhatsApp-native "972..." format.
+ * Handles: 05x..., +97252..., 972-52-..., etc.
+ * Returns digits-only. Non-Israeli numbers remain stripped of non-digits.
+ */
+function normalizePhone(input: string): string {
+    const digits = input.replace(/[^0-9]/g, "");
+    if (digits.startsWith("0") && digits.length === 10) {
+        return "972" + digits.substring(1);
+    }
+    return digits;
+}
+
+/**
+ * Format a phone number for beautiful display in the UI.
+ */
+function formatPhone(phone: string): string {
+    if (!phone) return "";
+    if (phone.endsWith("@lid")) return "מזהה WA";
+    if (phone.includes("-") || phone.includes("@")) return "קבוצה";
+    const digits = phone.replace(/\D/g, "");
+    if (!digits) return phone;
+    if (digits.length >= 16 && digits.startsWith("120")) return "קבוצה";
+    if (digits.length > 13 && !digits.startsWith("972")) return "מזהה WA";
+    if (digits.startsWith("972")) {
+        const local = digits.substring(3);
+        if (local.length === 9) return `0${local.substring(0, 2)}-${local.substring(2, 5)}-${local.substring(5)}`;
+        if (local.length === 8) return `0${local.substring(0, 1)}-${local.substring(1, 4)}-${local.substring(4)}`;
+        return `+972-${local}`;
+    }
+    if (digits.startsWith("05") && digits.length === 10) return `${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}`;
+    if (/^1203631\d{4}$/.test(digits) || /^1650\d{7}$/.test(digits)) return "מספר מערכת";
+    if (digits.startsWith("1") && digits.length === 11) return `+1 (${digits.substring(1, 4)}) ${digits.substring(4, 7)}-${digits.substring(7)}`;
+    if (digits.length >= 8) {
+        const cc = digits.substring(0, digits.length - 9);
+        const rest = digits.substring(cc.length);
+        const grouped = rest.match(/.{1,3}/g)?.join(" ") || rest;
+        return `+${cc} ${grouped}`;
+    }
+    return `+${digits}`;
+}
+
+function formatDate(ts: string): string {
+    const d = new Date(ts);
+    const today = new Date();
+    if (d.toDateString() === today.toDateString()) {
+        return d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+    }
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return "אתמול";
+    return d.toLocaleDateString("he-IL", { month: "short", day: "numeric" });
+}
+
+/* ------------------------------------------------------------------ */
 /* Page component                                                      */
 /* ------------------------------------------------------------------ */
 
 export default function TenantPage() {
-    const supabase = createClient();
+    const supabaseRef = useRef(createClient());
+    const supabase = supabaseRef.current;
     const router = useRouter();
     const params = useParams();
-    const tenantId = params.id as string;
+    const rawId = params.id;
+    const tenantId = typeof rawId === "string" ? rawId : Array.isArray(rawId) ? rawId[0] : "";
 
     const [tenant, setTenant] = useState<Tenant | null>(null);
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -717,110 +777,8 @@ export default function TenantPage() {
 
     // ── Helpers ──
 
-    /**
-     * Normalize any Israeli phone format to the WhatsApp-native "972..." format.
-     * Handles: 05x..., +97252..., 972-52-..., etc.
-     * Returns digits-only. Non-Israeli numbers remain stripped of non-digits.
-     */
-    const normalizePhone = (input: string): string => {
-        // Strip everything except digits
-        const digits = input.replace(/[^0-9]/g, "");
-        // Israeli local → international: 05xxxxxxxx → 9725xxxxxxxx
-        if (digits.startsWith("0") && digits.length === 10) {
-            return "972" + digits.substring(1);
-        }
-        return digits;
-    };
-
-    /**
-     * Format a phone number for beautiful display in the UI.
-     * - Israeli cells (972 + 9 digits):  052-699-1415
-     * - Israeli landlines (972 + 8 digits): 02-123-4567
-     * - Group JIDs (contain "-"):  show "קבוצה"
-     * - Other international:  +CC XXXXXXXXX
-     */
-    const formatPhone = (phone: string) => {
-        if (!phone) return "";
-
-        // LID format (e.g. "217875201687576@lid") — unresolved WhatsApp privacy ID
-        if (phone.endsWith("@lid")) return "מזהה WA";
-
-        // Groups have a hyphen in the JID (e.g. "120363404274395120-1234@g.us")
-        if (phone.includes("-") || phone.includes("@")) return "קבוצה";
-
-        // Strip any accidental non-digit characters (spaces, +, etc.)
-        const digits = phone.replace(/\D/g, "");
-        if (!digits) return phone;
-
-        // WhatsApp group IDs stored without @g.us suffix (16-18 digits, starts with 120)
-        if (digits.length >= 16 && digits.startsWith("120")) {
-            return "קבוצה";
-        }
-
-        // WhatsApp LID / internal identifiers (13+ digits that aren't real phone numbers)
-        // e.g. 240213326622964 — no real phone number is longer than 15 digits
-        // but valid E.164 numbers top out at 15 digits; LIDs are often 15+ or have unusual patterns
-        if (digits.length > 13 && !digits.startsWith("972")) {
-            return `מזהה WA`;
-        }
-
-        // Israeli numbers starting with 972
-        if (digits.startsWith("972")) {
-            const local = digits.substring(3); // strip country code
-            if (local.length === 9) {
-                // Mobile: 05X-XXX-XXXX
-                return `0${local.substring(0, 2)}-${local.substring(2, 5)}-${local.substring(5)}`;
-            }
-            if (local.length === 8) {
-                // Landline: 0X-XXX-XXXX
-                return `0${local.substring(0, 1)}-${local.substring(1, 4)}-${local.substring(4)}`;
-            }
-            // Fallback for unexpected Israeli lengths
-            return `+972-${local}`;
-        }
-
-        // Israeli local format (stored without country code, starts with 05x)
-        if (digits.startsWith("05") && digits.length === 10) {
-            return `${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}`;
-        }
-
-        // Known Meta/WhatsApp system numbers — show as system
-        if (/^1203631\d{4}$/.test(digits) || /^1650\d{7}$/.test(digits)) {
-            return "מספר מערכת";
-        }
-
-        // US/Canada: 1 + 10 digits
-        if (digits.startsWith("1") && digits.length === 11) {
-            return `+1 (${digits.substring(1, 4)}) ${digits.substring(4, 7)}-${digits.substring(7)}`;
-        }
-
-        // Generic international: group into blocks of 3 for readability
-        // e.g. 447911123456 → +44 791 112 3456
-        if (digits.length >= 8) {
-            const cc = digits.substring(0, digits.length - 9);
-            const rest = digits.substring(cc.length);
-            const grouped = rest.match(/.{1,3}/g)?.join(" ") || rest;
-            return `+${cc} ${grouped}`;
-        }
-
-        return `+${digits}`;
-    };
-
     const formatTime = (ts: string) =>
         new Date(ts).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-
-    const formatDate = (ts: string) => {
-        const d = new Date(ts);
-        const today = new Date();
-        if (d.toDateString() === today.toDateString()) {
-            // Today → show HH:MM like real WhatsApp
-            return d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-        }
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        if (d.toDateString() === yesterday.toDateString()) return "אתמול";
-        return d.toLocaleDateString("he-IL", { month: "short", day: "numeric" });
-    };
 
     const getDisplayName = (conv: Conversation) => {
         if (conv.contact_name) return conv.contact_name;

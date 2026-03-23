@@ -33,6 +33,16 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: 'webhook_url is required' }, { status: 400 });
   }
 
+  // Validate URL is HTTPS only
+  try {
+    const parsed = new URL(webhook_url.trim());
+    if (parsed.protocol !== 'https:') {
+      return NextResponse.json({ error: 'webhook_url must use HTTPS' }, { status: 400 });
+    }
+  } catch {
+    return NextResponse.json({ error: 'webhook_url must be a valid URL' }, { status: 400 });
+  }
+
   const admin = getSupabaseAdmin();
   const { error } = await admin.from('calendar_integrations').upsert(
     {

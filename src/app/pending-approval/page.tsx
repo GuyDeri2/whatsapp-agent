@@ -1,23 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Clock, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function PendingApprovalPage() {
-    const supabase = createClient();
+    const supabaseRef = useRef(createClient());
+    const supabase = supabaseRef.current;
     const router = useRouter();
     const [userEmail, setUserEmail] = useState<string | null>(null);
 
     useEffect(() => {
-        supabase.auth.getUser().then(({ data: { user } }) => {
-            if (user) {
-                setUserEmail(user.email ?? null);
+        const checkUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            setUserEmail(user.email ?? null);
+
+            // If profile is already approved, redirect to dashboard
+            const { data: profile } = await supabase
+                .from("profiles")
+                .select("status")
+                .eq("id", user.id)
+                .single();
+            if (profile?.status === "approved") {
+                router.replace("/dashboard");
             }
-        });
-    }, [supabase.auth]);
+        };
+        checkUser();
+    }, [supabase, router]);
 
     const handleLogout = async () => {
         await supabase.auth.signOut();

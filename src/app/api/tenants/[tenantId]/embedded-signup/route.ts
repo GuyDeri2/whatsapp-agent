@@ -111,14 +111,16 @@ export async function POST(
         if (!finalWabaId || !finalPhoneNumberId) {
             // Get businesses
             const bizRes = await fetch(
-                `https://graph.facebook.com/${META_API_VERSION}/me/businesses?access_token=${accessToken}&fields=id,name`
+                `https://graph.facebook.com/${META_API_VERSION}/me/businesses?fields=id,name`,
+                { headers: { 'Authorization': `Bearer ${accessToken}` } }
             );
             if (bizRes.ok) {
                 const bizData = await bizRes.json();
                 for (const biz of (bizData.data || [])) {
                     // Get WABAs
                     const wabasRes = await fetch(
-                        `https://graph.facebook.com/${META_API_VERSION}/${biz.id}/owned_whatsapp_business_accounts?access_token=${accessToken}&fields=id,name`
+                        `https://graph.facebook.com/${META_API_VERSION}/${biz.id}/owned_whatsapp_business_accounts?fields=id,name`,
+                        { headers: { 'Authorization': `Bearer ${accessToken}` } }
                     );
                     if (!wabasRes.ok) continue;
                     const wabas = await wabasRes.json();
@@ -129,7 +131,8 @@ export async function POST(
 
                         // Get phone numbers
                         const phonesRes = await fetch(
-                            `https://graph.facebook.com/${META_API_VERSION}/${waba.id}/phone_numbers?access_token=${accessToken}&fields=id,display_phone_number,verified_name`
+                            `https://graph.facebook.com/${META_API_VERSION}/${waba.id}/phone_numbers?fields=id,display_phone_number,verified_name`,
+                            { headers: { 'Authorization': `Bearer ${accessToken}` } }
                         );
                         if (!phonesRes.ok) continue;
                         const phones = await phonesRes.json();
@@ -189,7 +192,8 @@ export async function POST(
         let displayPhone: string | null = null;
         try {
             const phoneInfoRes = await fetch(
-                `https://graph.facebook.com/${META_API_VERSION}/${finalPhoneNumberId}?fields=display_phone_number,verified_name&access_token=${finalToken}`
+                `https://graph.facebook.com/${META_API_VERSION}/${finalPhoneNumberId}?fields=display_phone_number,verified_name`,
+                { headers: { 'Authorization': `Bearer ${finalToken}` } }
             );
             if (phoneInfoRes.ok) {
                 const phoneInfo = await phoneInfoRes.json();
@@ -228,12 +232,7 @@ export async function POST(
             console.error(`[${tenantId}] Webhook subscription error:`, subErr);
         }
 
-        return NextResponse.json({
-            success: true,
-            phone: displayPhone,
-            waba_id: finalWabaId,
-            phone_number_id: finalPhoneNumberId,
-        });
+        return NextResponse.json({ success: true });
 
     } catch (error) {
         console.error('[Embedded Signup] Unexpected error:', error);

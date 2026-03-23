@@ -225,6 +225,51 @@ WHY: Every deploy killed WhatsApp connections because `clearAuthState` wiped cre
 - Learning engine correctly validates AI-generated IDs before mutations
 - Calendar providers handle token refresh and error cases properly
 
+## Comprehensive Backend Audit — 2026-03-23
+
+### Critical Patterns Fixed Across All API Routes:
+1. **req.json() try-catch**: All POST/PATCH/PUT handlers now wrap `request.json()` in try-catch → 400 for malformed JSON
+2. **Error message hiding**: All `error.message` from Supabase replaced with generic messages, details logged server-side
+3. **PGRST116 handling**: `.single()` returning 0 rows now returns 404 instead of 500
+4. **DELETE verification**: All DELETE operations verify rows were affected (404 if not)
+5. **UUID validation**: tenantId params validated as UUID at handler entry
+6. **Input validation**: Added field-type validators for PATCH/PUT (enum checks, string lengths, boolean types)
+7. **Phone validation**: Server-side regex validation on all phone number inputs (9-15 digits)
+8. **select("*") replaced**: Explicit column lists to prevent future column leakage
+
+### Session Manager Fixes:
+1. **CORS restricted** from `*` to specific origins
+2. **`/admin/set-key` deleted** — dead code that was attack surface
+3. **uncaughtException now exits** — prevents corrupted state
+4. **Supabase singleton** pattern applied to server.ts and reminders.ts
+5. **N+1 queries optimized** in unanswered reminder cron
+6. **Unbounded caches** capped with max size (500 entries)
+7. **Learning cron timeout guard** — resets if stuck > 30 minutes
+8. **Phone normalization** handles `00` prefix
+
+### AI Agent Fixes:
+1. **sanitizeInput** only applies to user messages, not assistant (was cutting AI responses)
+2. **Prompt injection** defense: strips markdown headings, Unicode invisible chars, adds explicit boundary
+3. **[PAUSE] detection** before website fallback (prevents 20s delay on handoff)
+4. **KB size cap** at 8000 chars in system prompt
+5. **Hebrew fallback** message instead of English
+6. **AbortController** on API timeout
+
+### Key Lesson:
+Every API route should follow this pattern:
+```typescript
+try {
+  const body = await request.json();
+} catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
+// validate inputs...
+const { data, error } = await supabase.from(...).select().single();
+if (error) {
+  if (error.code === 'PGRST116') return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  console.error('Internal:', error.message);
+  return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
+}
+```
+
 ## Escalation to Human (Owner Notification) — 2026-03-22
 
 ### Problem Found:

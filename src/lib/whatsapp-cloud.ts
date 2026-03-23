@@ -269,6 +269,12 @@ export async function markMessageRead(config: CloudConfig, messageId: string): P
  * Returns the media URL that can be fetched with the access token.
  */
 export async function getMediaUrl(config: CloudConfig, mediaId: string): Promise<string | null> {
+    // Validate mediaId to prevent SSRF — must be alphanumeric/underscore only
+    if (!/^[a-zA-Z0-9_]+$/.test(mediaId)) {
+        console.error("[WhatsApp Cloud] Invalid mediaId — rejecting to prevent SSRF");
+        return null;
+    }
+
     try {
         const res = await fetch(`${META_API_BASE}/${mediaId}`, {
             headers: { "Authorization": `Bearer ${config.access_token}` },

@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { crawlWebsite } from "@/lib/website-crawler";
 import { analyzeWebsiteContent } from "@/lib/website-analyzer";
 
@@ -137,25 +138,36 @@ export async function POST(
     try {
         const analysis = await analyzeWebsiteContent(crawlResult.pages);
 
-        // Increment scan counter (after successful scan)
+        // Atomic increment scan counter (after successful scan)
         const currentMonth = new Date().toISOString().substring(0, 7);
-        const currentUsed = (tenant.website_scans_month === currentMonth)
-            ? (tenant.website_scans_used ?? 0)
+        const admin = getSupabaseAdmin();
+
+        // Re-read fresh data and atomically increment to avoid race conditions
+        const { data: freshTenant } = await admin
+            .from("tenants")
+            .select("website_scans_used, website_scans_month, website_scans_bonus")
+            .eq("id", tenantId)
+            .single();
+
+        const freshUsed = (freshTenant?.website_scans_month === currentMonth)
+            ? (freshTenant?.website_scans_used ?? 0)
             : 0;
-        await supabase
+
+        await admin
             .from("tenants")
             .update({
-                website_scans_used: currentUsed + 1,
+                website_scans_used: freshUsed + 1,
                 website_scans_month: currentMonth,
             })
-            .eq("id", tenantId);
+            .eq("id", tenantId)
+            .eq("website_scans_month", freshTenant?.website_scans_month ?? ""); // Optimistic lock
 
         return NextResponse.json({
             analysis,
             pages_crawled: crawlResult.pages.length,
             errors: crawlResult.errors,
-            scans_used: currentUsed + 1,
-            scans_limit: MONTHLY_SCAN_LIMIT + (tenant.website_scans_bonus ?? 0),
+            scans_used: freshUsed + 1,
+            scans_limit: MONTHLY_SCAN_LIMIT + (freshTenant?.website_scans_bonus ?? 0),
         });
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";

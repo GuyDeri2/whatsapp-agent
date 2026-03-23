@@ -18,20 +18,26 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import cron from "node-cron";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { runBatchLearning } from "./learning-engine";
 import { sendDayBeforeReminders, sendTwoHourReminders } from "./reminders";
+import { summarizeConversationForHandoff } from "./ai-agent";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const PUBLIC_URL = process.env.PUBLIC_URL;
 
 // ─── Supabase singleton ──────────────────────────────────────────────
-function getSupabase() {
-    return createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+let _supabase: SupabaseClient | null = null;
+
+function getSupabase(): SupabaseClient {
+    if (!_supabase) {
+        _supabase = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+    }
+    return _supabase;
 }
 
 // ─── WhatsApp Cloud API sender ───────────────────────────────────────
@@ -45,6 +51,7 @@ interface CloudConfig {
 
 const configCache = new Map<string, { config: CloudConfig | null; expiresAt: number }>();
 const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CONFIG_CACHE_MAX_SIZE = 500;
 
 async function getCloudConfig(tenantId: string): Promise<CloudConfig | null> {
     const cached = configCache.get(tenantId);
@@ -65,6 +72,12 @@ async function getCloudConfig(tenantId: string): Promise<CloudConfig | null> {
         ? { phone_number_id: data.phone_number_id, access_token: data.access_token }
         : null;
 
+    // Evict oldest entry if cache is full
+    if (configCache.size >= CONFIG_CACHE_MAX_SIZE && !configCache.has(tenantId)) {
+        const oldestKey = configCache.keys().next().value;
+        if (oldestKey) configCache.delete(oldestKey);
+    }
+
     configCache.set(tenantId, { config, expiresAt: Date.now() + CONFIG_CACHE_TTL });
     return config;
 }
@@ -83,6 +96,9 @@ async function sendCloudMessage(tenantId: string, to: string, text: string): Pro
     // Normalize: strip JID suffix, convert Israeli local to international
     let phone = to.replace(/@s\.whatsapp\.net$/, "").replace(/@g\.us$/, "");
     phone = phone.replace(/^\+/, "");
+    if (phone.startsWith("00")) {
+        phone = phone.slice(2);
+    }
     if (/^0[2-9]/.test(phone)) {
         phone = "972" + phone.slice(1);
     }
@@ -112,7 +128,20 @@ async function sendCloudMessage(tenantId: string, to: string, text: string): Pro
 }
 
 // ─── Middleware ────────────────────────────────────────────────────────
-app.use(cors({ origin: "*" }));
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+    : [process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (cron, health checks, server-to-server)
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
+}));
 app.use(express.json());
 
 function authMiddleware(
@@ -168,22 +197,10 @@ app.post("/sessions/:tenantId/learn", async (req, res) => {
     }
 });
 
-/** Admin: update DeepSeek API key at runtime */
-app.post("/admin/set-key", (req, res) => {
-    if (req.headers.authorization !== `Bearer ${process.env.SESSION_MANAGER_SECRET}`) {
-        return res.status(401).json({ error: "Unauthorized" });
-    }
-    const { key } = req.body;
-    if (key) {
-        process.env.DEEPSEEK_API_KEY = key;
-        return res.json({ success: true, message: "DeepSeek API key updated in memory." });
-    }
-    return res.status(400).json({ error: "Missing key" });
-});
-
 // ─── Global crash protection ─────────────────────────────────────────
 process.on("uncaughtException", (err) => {
-    console.error("❌ Uncaught Exception (process will NOT exit):", err.message);
+    console.error("❌ Uncaught Exception — exiting:", err.message);
+    process.exit(1);
 });
 process.on("unhandledRejection", (reason: any) => {
     console.error("❌ Unhandled Rejection (process will NOT exit):", reason?.message || reason);
@@ -221,6 +238,8 @@ app.listen(PORT, HOST, () => {
 
 // ─── Cron overlap guards ─────────────────────────────────────────────
 let _learningRunning = false;
+let _learningStartedAt = 0;
+const LEARNING_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // ─── Auto-Unpause (40 minutes) ──────────────────────────────────────
 // Every 2 minutes: unpause conversations that have been paused for 40+ minutes.
@@ -266,7 +285,6 @@ setInterval(() => {
 cron.schedule("*/5 * * * *", async () => {
     try {
         const supabase = getSupabase();
-        const { summarizeConversationForHandoff } = await import("./ai-agent");
 
         // Get all tenants with Cloud API configured (replaces "active sessions" check)
         const { data: cloudConfigs } = await supabase
@@ -324,20 +342,33 @@ cron.schedule("*/5 * * * *", async () => {
                     return matched?.rule_type !== "block";
                 };
 
-                for (const conv of pausedConvs) {
-                    if (!isEligible(conv.phone_number)) continue;
-
+                // Filter eligible conversations before querying messages
+                const eligibleConvs = pausedConvs.filter((conv) => {
+                    if (!isEligible(conv.phone_number)) return false;
                     const lastSent = _reminderSentAt.get(conv.id) ?? 0;
-                    if (Date.now() - lastSent < REMINDER_DEBOUNCE_MS) continue;
+                    return Date.now() - lastSent >= REMINDER_DEBOUNCE_MS;
+                });
 
-                    const { data: lastMsg } = await supabase
-                        .from("messages")
-                        .select("role, created_at")
-                        .eq("conversation_id", conv.id)
-                        .order("created_at", { ascending: false })
-                        .limit(1)
-                        .maybeSingle();
+                if (eligibleConvs.length === 0) continue;
 
+                // Batch query: fetch last message per conversation using a single query
+                const convIds = eligibleConvs.map((c) => c.id);
+                const { data: lastMessages } = await supabase
+                    .from("messages")
+                    .select("conversation_id, role, created_at")
+                    .in("conversation_id", convIds)
+                    .order("created_at", { ascending: false });
+
+                // Build map of conversation_id → last message (first occurrence per conv is the latest)
+                const lastMsgMap = new Map<string, { role: string; created_at: string }>();
+                for (const msg of lastMessages ?? []) {
+                    if (!lastMsgMap.has(msg.conversation_id)) {
+                        lastMsgMap.set(msg.conversation_id, { role: msg.role, created_at: msg.created_at });
+                    }
+                }
+
+                for (const conv of eligibleConvs) {
+                    const lastMsg = lastMsgMap.get(conv.id);
                     if (!lastMsg) continue;
                     if (lastMsg.role !== "user") continue;
                     if (lastMsg.created_at > tenCutoff) continue;
@@ -503,10 +534,16 @@ cron.schedule("0 3 * * *", async () => {
 // ─── Daily batch learning (02:00) ───────────────────────────────────
 cron.schedule("0 2 * * *", async () => {
     if (_learningRunning) {
-        console.warn("⚠️ Daily learning cron still running — skipping");
-        return;
+        if (Date.now() - _learningStartedAt > LEARNING_TIMEOUT_MS) {
+            console.warn("⚠️ Daily learning cron stuck for >30 min — resetting flag");
+            _learningRunning = false;
+        } else {
+            console.warn("⚠️ Daily learning cron still running — skipping");
+            return;
+        }
     }
     _learningRunning = true;
+    _learningStartedAt = Date.now();
     console.log("⏰ Running daily batch learning for all tenants...");
     try {
         const supabase = getSupabase();

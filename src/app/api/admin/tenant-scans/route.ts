@@ -55,7 +55,8 @@ export async function POST(req: NextRequest) {
         .eq("id", tenant_id);
 
     if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 });
+        console.error("[admin/tenant-scans POST]", updateError.message);
+        return NextResponse.json({ error: "Failed to update scan limit" }, { status: 500 });
     }
 
     return NextResponse.json({

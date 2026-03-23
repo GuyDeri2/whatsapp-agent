@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Calendar, Clock, Globe, Plus, X, CheckCircle2, Trash2, Save, Link2, Link2Off } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -66,7 +66,7 @@ const DEFAULT_SETTINGS: MeetingSettings = {
 /* Helper: generate a stable local id                                 */
 /* ------------------------------------------------------------------ */
 function uid() {
-    return `local-${Math.random().toString(36).slice(2)}`;
+    return `local-${crypto.randomUUID()}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -262,11 +262,12 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
     /* Availability: save day slots to API                              */
     /* ---------------------------------------------------------------- */
     const saveAvailabilityDay = async (day: number, slots: DaySlot[]) => {
-        await fetch(`/api/tenants/${tenant.id}/availability`, {
+        const res = await fetch(`/api/tenants/${tenant.id}/availability`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ day_of_week: day, slots }),
         });
+        if (!res.ok) throw new Error("Failed to save availability");
     };
 
     /* ---------------------------------------------------------------- */
@@ -277,7 +278,8 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
         if (!form || !form.start || !form.end) return;
 
         const newSlot: DaySlot = { id: uid(), start_time: form.start, end_time: form.end };
-        const updatedSlots = [...(availability[day] ?? []), newSlot];
+        const previousSlots = availability[day] ?? [];
+        const updatedSlots = [...previousSlots, newSlot];
 
         // Optimistic update
         setAvailability(prev => ({ ...prev, [day]: updatedSlots }));
@@ -290,8 +292,8 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
         try {
             await saveAvailabilityDay(day, updatedSlots);
         } catch {
-            // Revert
-            setAvailability(prev => ({ ...prev, [day]: availability[day] ?? [] }));
+            // Revert using captured previousSlots to avoid stale closure
+            setAvailability(prev => ({ ...prev, [day]: previousSlots }));
             showToast("שגיאה בשמירת שעות הזמינות", "error");
         }
     };
@@ -398,7 +400,7 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
     /* ---------------------------------------------------------------- */
     /* Compute dates for the selected week (weekOffset 0=current week) */
     /* ---------------------------------------------------------------- */
-    const { nextDates, weekLabel } = (() => {
+    const { nextDates, weekLabel } = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         // Start of current week (Sunday)
@@ -420,7 +422,7 @@ const CalendarTab = React.memo(function CalendarTab({ tenant }: { tenant: { id: 
         const label = weekOffset === 0 ? `השבוע (${fmt(startOfWeek)}–${fmt(endOfWeek)})` : `${fmt(startOfWeek)}–${fmt(endOfWeek)}`;
 
         return { nextDates: result, weekLabel: label };
-    })();
+    }, [weekOffset]);
 
     /* ---------------------------------------------------------------- */
     /* Render                                                            */

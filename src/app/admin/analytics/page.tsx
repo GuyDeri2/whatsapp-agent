@@ -43,8 +43,10 @@ export default async function AnalyticsPage({
     const defaultTo = new Date();
     const defaultFrom = addDays(defaultTo, -30);
 
-    const fromDate = params.from ? new Date(params.from) : defaultFrom;
-    const toDate = params.to ? new Date(params.to) : defaultTo;
+    const parsedFrom = params.from ? new Date(params.from) : null;
+    const parsedTo = params.to ? new Date(params.to) : null;
+    const fromDate = (parsedFrom && !isNaN(parsedFrom.getTime())) ? parsedFrom : defaultFrom;
+    const toDate = (parsedTo && !isNaN(parsedTo.getTime())) ? parsedTo : defaultTo;
     // Ensure toDate covers the full day
     const toDateEnd = new Date(toDate);
     toDateEnd.setHours(23, 59, 59, 999);
@@ -54,36 +56,32 @@ export default async function AnalyticsPage({
 
     const admin = getSupabaseAdmin();
 
-    // Fetch all data in parallel
+    // Fetch all data in parallel — use count queries where we only need totals
     const [
         profilesResult,
         tenantsResult,
         messagesResult,
-        conversationsResult,
-        allMessagesResult,
     ] = await Promise.all([
         admin.from("profiles").select("id, created_at, role").gte("created_at", fromStr).lte("created_at", toStr),
         admin.from("tenants").select("id, owner_id, business_name, agent_mode").gte("created_at", fromStr).lte("created_at", toStr),
         admin.from("messages").select("tenant_id, role, is_from_agent, created_at").eq("is_from_agent", true).gte("created_at", fromStr).lte("created_at", toStr),
-        admin.from("conversations").select("id, created_at").gte("created_at", fromStr).lte("created_at", toStr),
-        // For top 5 businesses, we need all bot messages (not date filtered per business)
-        admin.from("messages").select("tenant_id, is_from_agent").eq("is_from_agent", true).gte("created_at", fromStr).lte("created_at", toStr),
     ]);
 
-    // Also fetch totals without date filter for KPI cards
-    const [allProfilesResult, allTenantsResult, allConversationsResult] = await Promise.all([
-        admin.from("profiles").select("id, role", { count: "exact" }),
-        admin.from("tenants").select("id", { count: "exact" }),
-        admin.from("conversations").select("id", { count: "exact" }),
+    // Also fetch totals without date filter for KPI cards — use count queries to avoid 1000 row limit
+    const [allProfilesClientCount, allTenantsResult, allConversationsResult, allBotMessagesCount] = await Promise.all([
+        admin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "client"),
+        admin.from("tenants").select("id", { count: "exact", head: true }),
+        admin.from("conversations").select("id", { count: "exact", head: true }),
+        admin.from("messages").select("id", { count: "exact", head: true }).eq("is_from_agent", true),
     ]);
 
-    const allProfiles = allProfilesResult.data ?? [];
-    const totalRegistered = allProfiles.filter(p => p.role === "client").length;
+    const totalRegistered = allProfilesClientCount.count ?? 0;
     const totalBusinesses = allTenantsResult.count ?? 0;
     const totalConversations = allConversationsResult.count ?? 0;
+    const totalMessagesInSystem = allBotMessagesCount.count ?? 0;
 
-    const allMsgs = allMessagesResult.data ?? [];
-    const totalMessagesInSystem = allMsgs.length;
+    // Use the date-filtered messages for charts (messagesResult serves both charts and top businesses)
+    const allMsgs = messagesResult.data ?? [];
 
     const avgBusinessesPerCustomer = totalRegistered > 0
         ? (totalBusinesses / totalRegistered).toFixed(1)

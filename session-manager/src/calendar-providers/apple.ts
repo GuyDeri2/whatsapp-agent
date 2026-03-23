@@ -11,17 +11,10 @@
  * No OAuth refresh needed — app-specific passwords don't expire.
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { createDecipheriv } from "crypto";
 import { DAVClient } from "tsdav";
 import type { BusyBlock, CalendarProvider, CreatedEvent, CreateEventParams } from "./types";
-
-function getSupabase() {
-    return createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-}
+import { getSupabase } from "./index";
 
 /**
  * Decrypt an AES-256-GCM encrypted string (format: "iv:authTag:ciphertext", all hex).
@@ -99,6 +92,18 @@ async function getDefaultCalendar(client: DAVClient) {
 }
 
 /**
+ * Escape a string for iCalendar text values (RFC 5545 §3.3.11).
+ * Backslashes, semicolons, commas, and newlines must be escaped.
+ */
+function escapeICalText(text: string): string {
+    return text
+        .replace(/\\/g, "\\\\")
+        .replace(/;/g, "\\;")
+        .replace(/,/g, "\\,")
+        .replace(/\r?\n/g, "\\n");
+}
+
+/**
  * Generate an iCalendar VEVENT string.
  */
 function buildVEvent(params: {
@@ -119,8 +124,8 @@ function buildVEvent(params: {
         `UID:${params.uid}`,
         `DTSTART:${formatDate(params.start)}`,
         `DTEND:${formatDate(params.end)}`,
-        `SUMMARY:${params.title}`,
-        `DESCRIPTION:${params.description ?? ""}`,
+        `SUMMARY:${escapeICalText(params.title)}`,
+        `DESCRIPTION:${escapeICalText(params.description ?? "")}`,
         `DTSTAMP:${formatDate(new Date())}`,
         "END:VEVENT",
         "END:VCALENDAR",
@@ -128,19 +133,52 @@ function buildVEvent(params: {
 }
 
 /**
- * Parse DTSTART/DTEND from iCalendar data into a Date.
- * Handles both "20260323T100000Z" and "20260323T100000" formats.
+ * Parse DTSTART/DTEND from iCalendar data into a Date (UTC).
+ * Handles:
+ *   - "20260323T100000Z" (UTC)
+ *   - "20260323T100000" (floating → treated as UTC)
+ *   - "TZID=Asia/Jerusalem:20260323T100000" (timezone-aware → converted to UTC)
  */
 function parseICalDate(value: string): Date | null {
     if (!value) return null;
-    // Remove TZID parameter if present (e.g., "TZID=Asia/Jerusalem:20260323T100000")
-    const clean = value.includes(":") ? value.split(":").pop()! : value;
+
+    // Extract TZID if present (e.g., "TZID=Asia/Jerusalem:20260323T100000")
+    let tzid: string | null = null;
+    let clean = value;
+    const tzidMatch = value.match(/^TZID=([^:]+):(.+)$/);
+    if (tzidMatch) {
+        tzid = tzidMatch[1];
+        clean = tzidMatch[2];
+    } else if (value.includes(":")) {
+        clean = value.split(":").pop()!;
+    }
 
     // Try DATETIME format first: YYYYMMDDTHHmmss or YYYYMMDDTHHmmssZ
-    const dtMatch = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/);
+    const dtMatch = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
     if (dtMatch) {
-        const [, y, m, d, h, min, s] = dtMatch;
-        return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`);
+        const [, y, m, d, h, min, s, zulu] = dtMatch;
+
+        if (zulu === "Z" || !tzid) {
+            // Already UTC or no timezone info — treat as UTC
+            return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`);
+        }
+
+        // Has TZID — convert from local time in that timezone to UTC
+        try {
+            const localDate = new Date(`${y}-${m}-${d}T${h}:${min}:${s}`);
+            const utcStr = new Date(localDate.toLocaleString("en-US", { timeZone: "UTC" }));
+            const tzStr = new Date(localDate.toLocaleString("en-US", { timeZone: tzid }));
+            const offsetMs = tzStr.getTime() - utcStr.getTime();
+            // The actual UTC instant = local time - offset
+            const utcDate = new Date(Date.UTC(
+                Number(y), Number(m) - 1, Number(d),
+                Number(h), Number(min), Number(s)
+            ));
+            return new Date(utcDate.getTime() - offsetMs);
+        } catch {
+            // If timezone is unrecognized, fall back to UTC
+            return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`);
+        }
     }
 
     // Handle DATE-only format (all-day events): YYYYMMDD — treat as midnight UTC
@@ -160,12 +198,19 @@ function extractBusyBlocks(objects: Array<{ data?: string }>): BusyBlock[] {
     const blocks: BusyBlock[] = [];
     for (const obj of objects) {
         if (!obj.data) continue;
-        const dtStartMatch = obj.data.match(/DTSTART[^:]*:([^\r\n]+)/);
-        const dtEndMatch = obj.data.match(/DTEND[^:]*:([^\r\n]+)/);
+        // Capture the full property value including TZID parameter
+        // e.g. "DTSTART;TZID=Asia/Jerusalem:20260323T100000" → "TZID=Asia/Jerusalem:20260323T100000"
+        // or   "DTSTART:20260323T100000Z" → "20260323T100000Z"
+        const dtStartMatch = obj.data.match(/DTSTART(?:;([^\r\n:]+))?:([^\r\n]+)/);
+        const dtEndMatch = obj.data.match(/DTEND(?:;([^\r\n:]+))?:([^\r\n]+)/);
         if (!dtStartMatch || !dtEndMatch) continue;
 
-        const start = parseICalDate(dtStartMatch[1]);
-        const end = parseICalDate(dtEndMatch[1]);
+        // Reconstruct the value with TZID prefix if present
+        const startVal = dtStartMatch[1] ? `${dtStartMatch[1]}:${dtStartMatch[2]}` : dtStartMatch[2];
+        const endVal = dtEndMatch[1] ? `${dtEndMatch[1]}:${dtEndMatch[2]}` : dtEndMatch[2];
+
+        const start = parseICalDate(startVal);
+        const end = parseICalDate(endVal);
         if (start && end) {
             blocks.push({ start, end });
         }
@@ -261,8 +306,29 @@ export const appleCalendarProvider: CalendarProvider = {
         try {
             const calendar = await getDefaultCalendar(client);
 
-            // Fetch all objects and find the one matching the UID
-            const objects = await client.fetchCalendarObjects({ calendar });
+            // Try direct URL first (our events use a predictable filename pattern)
+            const directUrl = `${calendar.url}${eventId}.ics`;
+            try {
+                await client.deleteCalendarObject({
+                    calendarObject: { url: directUrl, etag: "" },
+                });
+                return; // Success — no need to search
+            } catch {
+                // Direct URL didn't work — fall through to search
+            }
+
+            // Fallback: fetch with a time range filter (±30 days from now) instead of ALL events
+            const now = new Date();
+            const rangeStart = new Date(now.getTime() - 30 * 24 * 60 * 60_000);
+            const rangeEnd = new Date(now.getTime() + 90 * 24 * 60 * 60_000);
+
+            const objects = await client.fetchCalendarObjects({
+                calendar,
+                timeRange: {
+                    start: rangeStart.toISOString(),
+                    end: rangeEnd.toISOString(),
+                },
+            });
             const target = objects.find((obj) =>
                 obj.data?.includes(`UID:${eventId}`)
             );

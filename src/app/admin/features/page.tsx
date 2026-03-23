@@ -14,33 +14,49 @@ export default function FeaturesPage() {
     const [flags, setFlags] = useState<FeatureFlag[]>([]);
     const [loading, setLoading] = useState(true);
     const [toggling, setToggling] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         fetch("/api/admin/feature-flags")
             .then((r) => r.json())
             .then((d) => { setFlags(d.flags || []); setLoading(false); })
-            .catch(() => setLoading(false));
+            .catch(() => { setError("שגיאה בטעינת הפיצ'רים"); setLoading(false); });
     }, []);
 
     const toggle = async (key: string, currentEnabled: boolean) => {
         setToggling(key);
-        const res = await fetch("/api/admin/feature-flags", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key, enabled: !currentEnabled }),
-        });
-        if (res.ok) {
-            setFlags((prev) =>
-                prev.map((f) => f.key === key ? { ...f, enabled: !currentEnabled, updated_at: new Date().toISOString() } : f)
-            );
+        try {
+            const res = await fetch("/api/admin/feature-flags", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key, enabled: !currentEnabled }),
+            });
+            if (res.ok) {
+                setFlags((prev) =>
+                    prev.map((f) => f.key === key ? { ...f, enabled: !currentEnabled, updated_at: new Date().toISOString() } : f)
+                );
+            } else {
+                setError("שגיאה בעדכון הפיצ'ר");
+            }
+        } catch {
+            setError("שגיאה בעדכון הפיצ'ר");
+        } finally {
+            setToggling(null);
         }
-        setToggling(null);
     };
 
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
                 <Loader2 className="w-6 h-6 animate-spin text-neutral-500" />
+            </div>
+        );
+    }
+
+    if (error && flags.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <p className="text-red-400 text-sm">{error}</p>
             </div>
         );
     }
@@ -52,6 +68,7 @@ export default function FeaturesPage() {
                 <p className="text-sm text-neutral-500 mt-1">
                     הפעל או כבה טאבים בדשבורד של כל הלקוחות
                 </p>
+                {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
             </div>
 
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">

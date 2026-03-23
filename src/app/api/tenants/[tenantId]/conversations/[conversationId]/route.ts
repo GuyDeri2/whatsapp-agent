@@ -35,7 +35,7 @@ export async function PATCH(
     const body = await req.json();
 
     // Prepare update object
-    const updateData: any = {};
+    const updateData: Record<string, string | boolean> = {};
 
     // Validate contact_name if provided
     if (body.contact_name !== undefined) {
@@ -45,7 +45,11 @@ export async function PATCH(
         if (body.contact_name.length > 100) {
             return NextResponse.json({ error: "contact_name too long (max 100)" }, { status: 400 });
         }
-        updateData.contact_name = body.contact_name.trim();
+        // Strip control characters (except common whitespace) and normalize Unicode
+        updateData.contact_name = body.contact_name
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, "")
+            .normalize("NFC")
+            .trim();
         updateData.name_manually_set = true;
     }
 
@@ -68,8 +72,10 @@ export async function PATCH(
         .select()
         .single();
 
-    if (error)
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+        console.error(`[conversations/PATCH] Update failed for conversation=${conversationId} tenant=${tenantId}:`, error.message);
+        return NextResponse.json({ error: "Failed to update conversation" }, { status: 500 });
+    }
 
     if (!conversation)
         return NextResponse.json({ error: "Conversation not found" }, { status: 404 });

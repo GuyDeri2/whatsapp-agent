@@ -24,6 +24,7 @@ const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: { id: string
 
     const [exporting, setExporting] = useState(false);
     const [exportToast, setExportToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+    const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
     // Sync webhook URL when tenant prop changes
     useEffect(() => {
@@ -50,7 +51,23 @@ const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: { id: string
         fetchLeads();
     }, [fetchLeads]);
 
+    const showToast = (message: string, type: "success" | "error") => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+    };
+
     const handleSaveWebhook = async () => {
+        // Fix #9: Client-side URL validation
+        if (webhookUrl) {
+            try {
+                const parsed = new URL(webhookUrl);
+                if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+            } catch {
+                showToast("כתובת Webhook לא תקינה", "error");
+                return;
+            }
+        }
+
         setWebhookSaving(true);
         try {
             const res = await fetch(`/api/tenants/${tenant.id}`, {
@@ -62,7 +79,8 @@ const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: { id: string
             setWebhookSaved(true);
             setTimeout(() => setWebhookSaved(false), 2500);
         } catch {
-            alert("שגיאה בשמירת ה-Webhook URL");
+            // Fix #8: Replace alert() with toast
+            showToast("שגיאה בשמירת ה-Webhook URL", "error");
         }
         setWebhookSaving(false);
     };
@@ -82,6 +100,9 @@ const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: { id: string
     };
 
     const handleDelete = async (id: string) => {
+        // Fix #6: Confirmation before delete
+        if (!window.confirm("למחוק את הליד הזה?")) return;
+
         // Optimistic delete
         const prev = leads;
         setLeads(leads.filter(l => l.id !== id));
@@ -100,6 +121,17 @@ const LeadsTab = React.memo(function LeadsTab({ tenant }: { tenant: { id: string
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto" dir="rtl">
+
+            {/* General toast */}
+            {toast && (
+                <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-medium shadow-xl border transition-all ${
+                    toast.type === "success"
+                        ? "bg-emerald-600/90 text-white border-emerald-500/50"
+                        : "bg-red-600/90 text-white border-red-500/50"
+                }`}>
+                    {toast.message}
+                </div>
+            )}
 
             {/* Export toast */}
             {exportToast && (

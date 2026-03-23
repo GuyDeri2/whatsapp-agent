@@ -11,8 +11,15 @@ export async function GET(
   { params }: { params: Promise<{ tenantId: string }> }
 ) {
   const { tenantId } = await params;
+
+  // Validate tenantId is a valid UUID
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(tenantId)) {
+    return NextResponse.json({ error: 'Invalid tenant ID' }, { status: 400 });
+  }
+
   const url = new URL(req.url);
-  
+
   // Check for required environment variables
   const META_APP_ID = process.env.META_APP_ID;
   const META_APP_SECRET = process.env.META_APP_SECRET;
@@ -55,7 +62,13 @@ export async function GET(
   ].join(','));
 
   // Sign state with HMAC to prevent tampering (same pattern as Google OAuth)
-  const stateSecret = process.env.OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const stateSecret = process.env.OAUTH_STATE_SECRET;
+  if (!stateSecret) {
+    return NextResponse.json(
+      { error: 'OAUTH_STATE_SECRET is not configured' },
+      { status: 500 }
+    );
+  }
   const ts = Date.now();
   const sig = crypto.createHmac('sha256', stateSecret)
     .update(`${tenantId}:${user.id}:${ts}`)

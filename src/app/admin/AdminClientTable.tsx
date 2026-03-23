@@ -168,7 +168,7 @@ export default function AdminClientTable({ clients }: Props) {
                                 </td>
                             </tr>
                         ))}
-                        {clients.length === 0 && (
+                        {visibleClients.length === 0 && (
                             <tr>
                                 <td colSpan={7} className="px-6 py-12 text-center text-neutral-500">
                                     אין משתמשים במערכת עדיין.

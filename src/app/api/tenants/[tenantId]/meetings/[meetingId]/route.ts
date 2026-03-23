@@ -58,7 +58,7 @@ export async function DELETE(_req: Request, { params }: Params) {
 
   const { error } = await supabase
     .from('meetings')
-    .delete()
+    .update({ status: 'deleted' })
     .eq('id', meetingId)
     .eq('tenant_id', tenantId);
 

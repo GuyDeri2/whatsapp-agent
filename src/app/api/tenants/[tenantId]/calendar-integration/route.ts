@@ -61,6 +61,38 @@ export async function DELETE(req: Request, { params }: Params) {
     );
   }
 
+  // Best-effort: revoke OAuth tokens before deleting
+  if (provider === 'google' || provider === 'outlook') {
+    try {
+      const { data: integration } = await supabase
+        .from('calendar_integrations')
+        .select('access_token, refresh_token')
+        .eq('tenant_id', tenantId)
+        .eq('provider', provider)
+        .single();
+
+      if (integration) {
+        const tokenToRevoke = integration.refresh_token || integration.access_token;
+        if (tokenToRevoke) {
+          if (provider === 'google') {
+            await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(tokenToRevoke)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            }).catch(() => {});
+          } else if (provider === 'outlook') {
+            // Microsoft doesn't have a simple revoke endpoint for consumer accounts,
+            // but we can attempt to invalidate via the logout endpoint
+            await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/logout', {
+              method: 'POST',
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch {
+      // Best effort — continue with deletion even if revoke fails
+    }
+  }
+
   const { error } = await supabase
     .from('calendar_integrations')
     .delete()

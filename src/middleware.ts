@@ -3,6 +3,22 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+    const { pathname } = request.nextUrl
+
+    // Webhook routes — bypass ALL middleware processing (no auth, no cookies)
+    if (pathname.startsWith('/api/webhooks/')) {
+        return NextResponse.next()
+    }
+
+    // Ignore static files, api routes, Next internals
+    if (
+        pathname.startsWith('/_next') ||
+        pathname.startsWith('/api') ||
+        pathname.startsWith('/static')
+    ) {
+        return NextResponse.next()
+    }
+
     let supabaseResponse = NextResponse.next({
         request,
     })
@@ -28,23 +44,6 @@ export async function middleware(request: NextRequest) {
         data: { user },
     } = await supabase.auth.getUser()
 
-    const { pathname } = request.nextUrl
-
-    // Webhook routes — bypass ALL middleware processing (no auth, no cookies)
-    if (pathname.startsWith('/api/webhooks/')) {
-        return NextResponse.next()
-    }
-
-    // Ignore static files, api routes, Next internals
-    if (
-        pathname.startsWith('/_next') ||
-        pathname.startsWith('/api') ||
-        pathname.startsWith('/static') ||
-        pathname.includes('.')
-    ) {
-        return supabaseResponse
-    }
-
     // Protected Routes
     const isProtectedRoute = pathname.startsWith('/dashboard') || pathname.startsWith('/admin') || pathname.startsWith('/tenant')
     const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register') || pathname.startsWith('/forgot-password') || pathname.startsWith('/reset-password')
@@ -56,14 +55,22 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(url)
     }
 
-    if (user) {
-        // User is logged in, check profile status
+    if (user && (isProtectedRoute || isAuthRoute || pathname === '/pending-approval')) {
+        // User is logged in and on a route that needs profile check
         const { data: profile } = await supabase.from('profiles').select('approval_status, role').eq('id', user.id).single()
-        
+
         const isApproved = profile?.approval_status === 'approved'
-        const isPending = profile?.approval_status === 'pending'
-        const isRejected = profile?.approval_status === 'rejected'
         const isAdmin = profile?.role === 'admin'
+
+        // No profile row — treat as pending
+        if (!profile) {
+            if (pathname !== '/pending-approval') {
+                const url = request.nextUrl.clone()
+                url.pathname = '/pending-approval'
+                return NextResponse.redirect(url)
+            }
+            return supabaseResponse
+        }
 
         // If they try to access a protected route but aren't approved
         if (isProtectedRoute && !isApproved) {
@@ -85,7 +92,7 @@ export async function middleware(request: NextRequest) {
             url.pathname = '/dashboard'
             return NextResponse.redirect(url)
         }
-        
+
         // Pending users hitting pending page
         if (pathname === '/pending-approval' && isApproved) {
             const url = request.nextUrl.clone()

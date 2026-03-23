@@ -330,41 +330,64 @@ function classifyPage(url: string, title: string): string {
 
 // ── Fetch single page ────────────────────────────────────────────────
 
-async function fetchPage(url: string): Promise<{ html: string; finalUrl: string }> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PAGE_TIMEOUT_MS);
-    try {
-        const res = await fetch(url, {
-            signal: controller.signal,
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
-            },
-            redirect: "follow",
-        });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const ct = res.headers.get("content-type") || "";
-        if (!ct.includes("text/html") && !ct.includes("application/xhtml")) throw new Error(`Not HTML: ${ct}`);
-        const cl = res.headers.get("content-length");
-        if (cl && parseInt(cl) > MAX_RESPONSE_BYTES) throw new Error("Response too large");
+const MAX_REDIRECTS = 5;
 
-        const reader = res.body?.getReader();
-        if (!reader) throw new Error("No body");
-        const chunks: Uint8Array[] = [];
-        let total = 0;
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            total += value.length;
-            if (total > MAX_RESPONSE_BYTES) { reader.cancel(); throw new Error("Response too large"); }
-            chunks.push(value);
+async function fetchPage(url: string): Promise<{ html: string; finalUrl: string }> {
+    let currentUrl = url;
+    let redirectCount = 0;
+
+    while (true) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), PAGE_TIMEOUT_MS);
+        try {
+            const res = await fetch(currentUrl, {
+                signal: controller.signal,
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
+                },
+                redirect: "manual",
+            });
+            clearTimeout(timeout);
+
+            // Handle redirects manually to validate each target
+            if (res.status >= 300 && res.status < 400) {
+                const location = res.headers.get("location");
+                if (!location) throw new Error("Redirect without Location header");
+                redirectCount++;
+                if (redirectCount > MAX_REDIRECTS) throw new Error("Too many redirects");
+                const redirectUrl = new URL(location, currentUrl);
+                if (redirectUrl.protocol !== "http:" && redirectUrl.protocol !== "https:") {
+                    throw new Error(`SSRF blocked: redirect to ${redirectUrl.protocol}`);
+                }
+                await resolveAndValidateHost(redirectUrl.hostname);
+                currentUrl = redirectUrl.href;
+                continue;
+            }
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const ct = res.headers.get("content-type") || "";
+            if (!ct.includes("text/html") && !ct.includes("application/xhtml")) throw new Error(`Not HTML: ${ct}`);
+            const cl = res.headers.get("content-length");
+            if (cl && parseInt(cl) > MAX_RESPONSE_BYTES) throw new Error("Response too large");
+
+            const reader = res.body?.getReader();
+            if (!reader) throw new Error("No body");
+            const chunks: Uint8Array[] = [];
+            let total = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                total += value.length;
+                if (total > MAX_RESPONSE_BYTES) { reader.cancel(); throw new Error("Response too large"); }
+                chunks.push(value);
+            }
+            const html = new TextDecoder().decode(Buffer.concat(chunks));
+            return { html, finalUrl: currentUrl };
+        } finally {
+            clearTimeout(timeout);
         }
-        const html = new TextDecoder().decode(Buffer.concat(chunks));
-        return { html, finalUrl: res.url || url };
-    } finally {
-        clearTimeout(timeout);
     }
 }
 

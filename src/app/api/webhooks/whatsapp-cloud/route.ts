@@ -88,77 +88,71 @@ export async function POST(req: Request) {
         // 3. Return 200 immediately — process in background via after()
         // Meta requires 200 within ~5 seconds, DeepSeek can take 10s+
         after(async () => {
-            for (const entry of payload.entry) {
-                for (const change of entry.changes) {
-                    if (change.field !== "messages") continue;
+            try {
+                for (const entry of payload.entry) {
+                    for (const change of entry.changes) {
+                        if (change.field !== "messages") continue;
 
-                    const { value } = change;
-                    const phoneNumberId = value.metadata.phone_number_id;
+                        const { value } = change;
+                        const phoneNumberId = value.metadata.phone_number_id;
 
-                    // Handle incoming messages (parallel per message)
-                    if (value.messages && value.messages.length > 0) {
-                        const contacts = value.contacts || [];
-                        await Promise.allSettled(
-                            value.messages.map(message => {
-                                const senderName = contacts.find(c => c.wa_id === message.from)?.profile?.name || null;
-                                return processIncomingMessage(phoneNumberId, message, senderName);
-                            })
-                        );
-                    }
+                        // Handle incoming messages (parallel per message)
+                        if (value.messages && value.messages.length > 0) {
+                            const contacts = value.contacts || [];
+                            await Promise.allSettled(
+                                value.messages.map(message => {
+                                    const senderName = contacts.find(c => c.wa_id === message.from)?.profile?.name || null;
+                                    return processIncomingMessage(phoneNumberId, message, senderName);
+                                })
+                            );
+                        }
 
-                    // Handle status updates (parallel)
-                    if (value.statuses && value.statuses.length > 0) {
-                        await Promise.allSettled(
-                            value.statuses.map(status => processStatusUpdate(phoneNumberId, status))
-                        );
+                        // Handle status updates (parallel)
+                        if (value.statuses && value.statuses.length > 0) {
+                            await Promise.allSettled(
+                                value.statuses.map(status => processStatusUpdate(phoneNumberId, status))
+                            );
+                        }
                     }
                 }
+            } catch (err) {
+                console.error("[Webhook] Error in after() background processing:", err);
             }
         });
 
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (err) {
         console.error("[Webhook] Unhandled error:", err);
-        return NextResponse.json({ error: String(err) }, { status: 500 });
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
 }
 
 // ── Message Processing ──────────────────────────────────────────────
 
-// Deduplication: track recently processed message IDs
-const processedMessages = new Map<string, number>();
-setInterval(() => {
-    const cutoff = Date.now() - 5 * 60 * 1000; // 5 minutes
-    for (const [id, ts] of processedMessages) {
-        if (ts < cutoff) processedMessages.delete(id);
-    }
-}, 60_000);
+/**
+ * DB-based rate limiting: check if the last AI reply in this conversation
+ * was sent less than 2 seconds ago. Prevents runaway AI replies.
+ */
+async function isRateLimited(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    conversationId: string,
+    tenantId: string
+): Promise<boolean> {
+    const { data } = await supabase
+        .from("messages")
+        .select("created_at")
+        .eq("conversation_id", conversationId)
+        .eq("tenant_id", tenantId)
+        .eq("role", "assistant")
+        .eq("is_from_agent", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
 
-// Rate limiting per conversation
-const replyTimestamps = new Map<string, number[]>();
-const MAX_REPLIES_PER_MINUTE = 5;
+    if (!data) return false;
 
-// Cleanup stale replyTimestamps entries every 5 minutes
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, timestamps] of replyTimestamps) {
-        const recent = timestamps.filter(t => now - t < 60_000);
-        if (recent.length === 0) {
-            replyTimestamps.delete(key);
-        } else {
-            replyTimestamps.set(key, recent);
-        }
-    }
-}, 5 * 60_000);
-
-function isRateLimited(conversationId: string): boolean {
-    const now = Date.now();
-    const timestamps = replyTimestamps.get(conversationId) ?? [];
-    const recent = timestamps.filter(t => now - t < 60_000);
-    replyTimestamps.set(conversationId, recent);
-    if (recent.length >= MAX_REPLIES_PER_MINUTE) return true;
-    recent.push(now);
-    return false;
+    const lastReplyTime = new Date(data.created_at).getTime();
+    return Date.now() - lastReplyTime < 2000;
 }
 
 async function processIncomingMessage(
@@ -166,10 +160,6 @@ async function processIncomingMessage(
     message: IncomingWhatsAppMessage,
     senderName: string | null
 ): Promise<void> {
-    // Deduplication
-    if (processedMessages.has(message.id)) return;
-    processedMessages.set(message.id, Date.now());
-
     // Get tenant config
     const config = await getCloudConfigByPhoneId(phoneNumberId);
     if (!config) {
@@ -244,13 +234,15 @@ async function processIncomingMessage(
     }
     const conversation = convResult.data;
 
-    // Update contact name (fire-and-forget)
+    // Update contact name (fire-and-forget with error handling)
     if (senderName && !conversation.contact_name) {
-        supabase.from("conversations").update({ contact_name: senderName }).eq("id", conversation.id).then(() => {});
+        Promise.resolve(
+            supabase.from("conversations").update({ contact_name: senderName }).eq("id", conversation.id)
+        ).catch((err: unknown) => console.error(`[${tenantId}] Contact name update failed:`, err));
     }
 
-    // Store the incoming message (don't await — start AI generation in parallel)
-    const msgInsertPromise = supabase.from("messages").insert({
+    // Store the incoming message — use DB unique constraint on wa_message_id for dedup
+    const { error: msgInsertError } = await supabase.from("messages").insert({
         conversation_id: conversation.id,
         tenant_id: tenantId,
         role: "user",
@@ -263,10 +255,20 @@ async function processIncomingMessage(
         status: "delivered",
     });
 
+    // If insert failed due to duplicate wa_message_id, this is a dedup hit — stop processing
+    if (msgInsertError) {
+        if (msgInsertError.code === "23505") {
+            // Unique constraint violation — duplicate message, skip silently
+            return;
+        }
+        console.error(`[${tenantId}] Message insert failed:`, msgInsertError);
+        return;
+    }
+
     // Check if we should generate AI reply
     const tenant = tenantResult.data;
-    if (!tenant || tenant.agent_mode !== "active" || conversation.is_paused || isRateLimited(conversation.id)) {
-        await msgInsertPromise; // Still need to store the message
+    const rateLimited = await isRateLimited(supabase, conversation.id, tenantId);
+    if (!tenant || tenant.agent_mode !== "active" || conversation.is_paused || rateLimited) {
         return;
     }
 
@@ -274,20 +276,12 @@ async function processIncomingMessage(
     if (tenant.agent_filter_mode !== "all") {
         const allowed = await checkContactFilter(supabase, tenantId, phoneNumber, tenant.agent_filter_mode);
         if (!allowed) {
-            await msgInsertPromise;
             return;
         }
     }
 
-    // Start AI generation in parallel with message storage
-    const [msgResult] = await Promise.all([
-        msgInsertPromise,
-        generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText),
-    ]);
-
-    if (msgResult.error) {
-        console.error(`[${tenantId}] Message insert failed:`, msgResult.error);
-    }
+    // Generate and send AI reply (message already saved above)
+    await generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText);
 }
 
 // ── AI Reply Generation ─────────────────────────────────────────────
@@ -317,9 +311,9 @@ async function generateAndSendAiReply(
             created_at: m.created_at,
         }));
 
-        // If the latest message isn't in history yet (parallel insert), append it
+        // If the latest message isn't in history yet, append it (compare by wa_message_id-based insert timing)
         const lastMsg = history[history.length - 1];
-        if (!lastMsg || lastMsg.content !== latestMessage || lastMsg.role !== "user") {
+        if (!lastMsg || lastMsg.role !== "user") {
             history.push({ role: "user", content: latestMessage, created_at: new Date().toISOString() });
         }
 
@@ -351,7 +345,7 @@ async function generateAndSendAiReply(
             }
 
             if (result.success) {
-                console.log(`[${tenantId}] AI replied to ${phoneNumber}`);
+                console.log(`[${tenantId}] AI replied in conversation ${conversationId}`);
             } else {
                 console.error(`[${tenantId}] Failed to send AI reply:`, result.error);
             }

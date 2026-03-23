@@ -78,7 +78,14 @@ export async function POST(
             return NextResponse.json({ error: data.error }, { status: res.status });
         }
 
-        return NextResponse.json(data);
+        // Only return known safe fields
+        const safe = {
+          qr: data.qr ?? undefined,
+          status: data.status ?? undefined,
+          connected: data.connected ?? undefined,
+          phone: data.phone ?? undefined,
+        };
+        return NextResponse.json(safe);
     } catch (err) {
         console.error('[Baileys API] Start session error:', err);
         return NextResponse.json({ error: 'שגיאה בחיבור לשירות' }, { status: 502 });
@@ -130,7 +137,7 @@ export async function DELETE(
 
         const data = await res.json();
         if (!res.ok) {
-            return NextResponse.json({ error: data.error }, { status: res.status });
+            return NextResponse.json({ error: data.error ?? 'Disconnect failed' }, { status: res.status });
         }
 
         return NextResponse.json({ success: true });
@@ -178,7 +185,15 @@ export async function GET(
         });
 
         const data = await res.json();
-        return NextResponse.json(data);
+        // Only return known safe fields
+        const safe = {
+          connected: data.connected ?? false,
+          status: data.status ?? undefined,
+          phone: data.phone ?? undefined,
+          reason: data.reason ?? undefined,
+          qr: data.qr ?? undefined,
+        };
+        return NextResponse.json(safe);
     } catch {
         return NextResponse.json({ connected: false, reason: 'service_unreachable' });
     }
