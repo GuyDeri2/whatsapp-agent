@@ -39,7 +39,7 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ business_name: "", description: "", products: "", target_customers: "" });
+  const [formData, setFormData] = useState({ business_name: "", description: "", products: "", target_customers: "", website_url: "" });
   const [creating, setCreating] = useState(false);
 
   const fetchTenants = useCallback(async () => {
@@ -76,7 +76,7 @@ export default function Dashboard() {
       if (res.ok) {
         const data = await res.json();
         setShowForm(false);
-        setFormData({ business_name: "", description: "", products: "", target_customers: "" });
+        setFormData({ business_name: "", description: "", products: "", target_customers: "", website_url: "" });
         // Navigate directly to the new tenant — the onboarding wizard will show automatically
         if (data.tenant?.id) {
           router.push(`/tenant/${data.tenant.id}`);
@@ -247,6 +247,15 @@ export default function Dashboard() {
                       <textarea value={formData.products} onChange={(e) => setFormData({ ...formData, products: e.target.value })} rows={2}
                         className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all resize-none placeholder-slate-600"
                         placeholder="מה אתם מוכרים?" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">כתובת אתר</label>
+                      <input type="url" value={formData.website_url}
+                        onChange={(e) => setFormData({ ...formData, website_url: e.target.value })}
+                        dir="ltr"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                        placeholder="https://www.example.com" />
+                      <p className="text-xs text-slate-600 mt-1">נסרוק את האתר ונמלא אוטומטית את פרטי העסק</p>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-400 mb-1.5">תיאור העסק</label>

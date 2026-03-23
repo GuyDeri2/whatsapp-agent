@@ -63,11 +63,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { business_name, description, products, target_customers } = body as {
+    const { business_name, description, products, target_customers, website_url } = body as {
         business_name?: string;
         description?: string;
         products?: string;
         target_customers?: string;
+        website_url?: string;
     };
 
     const trimmedName = typeof business_name === "string" ? business_name.trim() : "";
@@ -79,6 +80,8 @@ export async function POST(req: NextRequest) {
         );
     }
 
+    const trimmedUrl = typeof website_url === "string" ? website_url.trim() : null;
+
     const { data: tenant, error } = await supabase
         .from("tenants")
         .insert({
@@ -87,6 +90,7 @@ export async function POST(req: NextRequest) {
             description: (typeof description === "string" ? description.trim() : null) || null,
             products: (typeof products === "string" ? products.trim() : null) || null,
             target_customers: (typeof target_customers === "string" ? target_customers.trim() : null) || null,
+            website_url: trimmedUrl || null,
             agent_mode: "paused",
         })
         .select()

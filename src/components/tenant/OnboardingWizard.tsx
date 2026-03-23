@@ -148,8 +148,8 @@ function OnboardingWizard({ tenant, onComplete }: OnboardingWizardProps) {
     const [step, setStep] = useState(0);
     const [direction, setDirection] = useState(1);
 
-    // Step 1 — Website scan
-    const [hasWebsite, setHasWebsite] = useState<boolean | null>(null);
+    // Step 1 — Website scan (auto-show URL input if tenant already has a website_url)
+    const [hasWebsite, setHasWebsite] = useState<boolean | null>(tenant.website_url ? true : null);
     const [websiteUrl, setWebsiteUrl] = useState(tenant.website_url || "");
     const [scanning, setScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState("");
