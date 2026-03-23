@@ -11,8 +11,7 @@ import { generateReply, summarizeConversationForHandoff } from "./ai-agent";
 import { resolveLidPhone } from "./lid-resolver";
 import { fetchAndStoreProfilePicture } from "./profile-pictures";
 
-const META_API_VERSION = process.env.META_API_VERSION || "v21.0";
-const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
+// META_API constants removed — Baileys sends via socket, not Cloud API
 
 export const rateLimiter = new RateLimiter();
 
@@ -308,8 +307,8 @@ export async function handleMessage(
                 .eq("id", conversationId)
                 .eq("tenant_id", tenantId);
 
-            // Notify business owner (best-effort, non-blocking)
-            notifyOwnerOfEscalation(supabase, tenantId, conversationId, phoneNumber)
+            // Notify business owner via Baileys socket (best-effort, non-blocking)
+            notifyOwnerOfEscalation(supabase, socket, tenantId, conversationId, phoneNumber)
                 .catch((err) => console.error(`[${tenantId}] Escalation notification error:`, err));
         }
     } catch (err) {
@@ -343,10 +342,11 @@ function normalizeOwnerPhone(phone: string): string | null {
     return null;
 }
 
-// ── Notify owner of escalation via Cloud API ──────────────────────
+// ── Notify owner of escalation via Baileys socket ─────────────────
 
 async function notifyOwnerOfEscalation(
     supabase: ReturnType<typeof getSupabase>,
+    socket: WASocket,
     tenantId: string,
     conversationId: string,
     customerPhone: string
@@ -376,19 +376,7 @@ async function notifyOwnerOfEscalation(
             return;
         }
 
-        // 2. Get Cloud API config for sending
-        const { data: cloudConfig } = await supabase
-            .from("whatsapp_cloud_config")
-            .select("phone_number_id, access_token")
-            .eq("tenant_id", tenantId)
-            .single();
-
-        if (!cloudConfig?.phone_number_id || !cloudConfig?.access_token) {
-            console.warn(`[${tenantId}] Escalation: no Cloud API config — skipping notification`);
-            return;
-        }
-
-        // 3. Get conversation details
+        // 2. Get conversation details
         const { data: conv } = await supabase
             .from("conversations")
             .select("contact_name")
@@ -398,12 +386,12 @@ async function notifyOwnerOfEscalation(
 
         const contactName = conv?.contact_name || null;
 
-        // 4. Format display phone
+        // 3. Format display phone
         const displayPhone = customerPhone.startsWith("972") && customerPhone.length >= 11
             ? "0" + customerPhone.substring(3)
             : customerPhone;
 
-        // 5. Generate AI summary (best-effort)
+        // 4. Generate AI summary (best-effort)
         let summary = "";
         try {
             summary = await summarizeConversationForHandoff(tenantId, conversationId);
@@ -411,7 +399,7 @@ async function notifyOwnerOfEscalation(
             // Non-fatal
         }
 
-        // 6. Build notification message
+        // 5. Build notification message
         const summaryLine = summary ? `\n\n${summary}` : "";
         const notificationMsg = [
             `🔔 העברה לנציג`,
@@ -425,28 +413,11 @@ async function notifyOwnerOfEscalation(
             .filter((line) => line !== null)
             .join("\n");
 
-        // 7. Send via Cloud API
-        const res = await fetch(`${META_API_BASE}/${cloudConfig.phone_number_id}/messages`, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${cloudConfig.access_token}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                messaging_product: "whatsapp",
-                recipient_type: "individual",
-                to: ownerPhoneNormalized,
-                type: "text",
-                text: { body: notificationMsg },
-            }),
-        });
+        // 6. Send via Baileys socket (direct WhatsApp message to owner)
+        const ownerJid = `${ownerPhoneNormalized}@s.whatsapp.net`;
+        await socket.sendMessage(ownerJid, { text: notificationMsg });
 
-        if (res.ok) {
-            console.log(`[${tenantId}] Escalation notification sent to owner (${ownerPhoneNormalized})`);
-        } else {
-            const errBody = await res.text();
-            console.error(`[${tenantId}] Escalation notification failed (${res.status}):`, errBody);
-        }
+        console.log(`[${tenantId}] Escalation notification sent to owner (${ownerPhoneNormalized}) via Baileys`);
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         console.error(`[${tenantId}] Escalation notification error:`, msg);
