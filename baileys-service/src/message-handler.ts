@@ -38,6 +38,24 @@ function isConversationCoolingDown(conversationId: string): boolean {
     return Date.now() - lastReply < AI_REPLY_COOLDOWN_MS;
 }
 
+// Role confusion detection — catches when AI responds from customer's perspective
+const CUSTOMER_PERSPECTIVE_PATTERNS = [
+    /^היי,?\s*שמעתי\s*עליכם/,        // "Hi, I heard about you"
+    /^אשמח\s*לשמוע\s*(קצת\s*)?על/,   // "I'd love to hear about"
+    /^אני\s*מעוניין/,                  // "I'm interested" (customer phrasing)
+    /^אני\s*מחפש/,                     // "I'm looking for" (customer phrasing)
+    /^העברת\s*אותי/,                   // "Did you transfer me?" (customer asks)
+    /^אפשר\s*לדעת\s*על/,              // "Can I know about" (customer asks)
+    /^מה\s*המחיר\s*של/,               // "What's the price of" (customer asks)
+    /^יש\s*לכם/,                       // "Do you have" (customer asks)
+    /^מה\s*אתם\s*מציעים/,             // "What do you offer" (customer asks)
+];
+
+function looksLikeCustomerMessage(reply: string): boolean {
+    const trimmed = reply.replace(/\[PAUSE\]/g, "").trim();
+    return CUSTOMER_PERSPECTIVE_PATTERNS.some(p => p.test(trimmed));
+}
+
 // Deduplication: track processed message IDs (last 1000)
 const processedMessages = new Set<string>();
 const MAX_PROCESSED = 1000;
@@ -147,13 +165,28 @@ export async function handleMessage(
         return;
     }
 
-    // Dedup
+    const supabase = getSupabase();
+
+    // Dedup — in-memory first (fast path), then DB check (survives restarts)
     const msgId = msg.key.id;
     if (!msgId || processedMessages.has(msgId)) {
-        console.log(`[${tenantId}] Skipping duplicate: ${msgId}`);
+        console.log(`[${tenantId}] Skipping duplicate (memory): ${msgId}`);
         return;
     }
     addProcessed(msgId);
+
+    // DB-level dedup: check if wa_message_id already exists
+    const { data: existingMsg } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("wa_message_id", msgId)
+        .limit(1)
+        .maybeSingle();
+    if (existingMsg) {
+        console.log(`[${tenantId}] Skipping duplicate (DB): ${msgId}`);
+        return;
+    }
 
     // Extract text content
     const content = extractMessageContent(msg);
@@ -166,7 +199,6 @@ export async function handleMessage(
     const phoneNumber = await resolveLidPhone(jid, msg, tenantId);
     console.log(`[${tenantId}] Processing message from ${phoneNumber}: "${content.substring(0, 50)}"`);
 
-    const supabase = getSupabase();
 
     try {
         // ── Get or create conversation ──
@@ -308,19 +340,26 @@ export async function handleMessage(
         const reply = await generateReply(tenantId, chatHistory);
         if (!reply) return;
 
+        // Role confusion guard: if AI responds from customer's perspective, block it
+        if (looksLikeCustomerMessage(reply)) {
+            console.warn(`[${tenantId}] Role confusion detected — AI responded as customer: "${reply.substring(0, 60)}"`);
+            // Don't send anything — just silently skip
+            return;
+        }
+
         // Check for [PAUSE] — handoff to owner
         const shouldPause = reply.includes("[PAUSE]");
         const cleanReply = reply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
-            // Anti-repetition: check if last 3 assistant messages are similar
+            // Anti-repetition: check if ANY of the last 5 assistant messages match
             const recentAssistant = chatHistory
                 .filter(m => m.role === "assistant")
-                .slice(-3)
+                .slice(-5)
                 .map(m => m.content.substring(0, 80).replace(/\s+/g, " ").trim());
             const replyFingerprint = cleanReply.substring(0, 80).replace(/\s+/g, " ").trim();
             const duplicateCount = recentAssistant.filter(m => m === replyFingerprint).length;
-            if (duplicateCount >= 2) {
+            if (duplicateCount >= 1) {
                 console.warn(`[${tenantId}] Anti-repetition: reply too similar to last ${duplicateCount} messages — auto-escalating`);
                 // Auto-escalate instead of repeating
                 const escalationMsg = "מעביר אותך לנציג שלנו שיוכל לעזור לך טוב יותר.";

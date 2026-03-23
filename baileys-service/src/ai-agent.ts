@@ -65,7 +65,14 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
         weekday: "long",
     });
 
-    let prompt = `אתה עוזר שירות לקוחות ב-WhatsApp עבור "${t.business_name}". השעה: ${now}.`;
+    let prompt = `אתה עוזר שירות לקוחות ב-WhatsApp עבור "${t.business_name}". השעה: ${now}.
+
+## תפקידך
+אתה הנציג של העסק "${t.business_name}". אתה עונה ללקוחות בשם העסק.
+- הודעות עם role "user" הן מהלקוח — אתה עונה עליהן.
+- הודעות עם role "assistant" הן תשובות שלך (הנציג) — אלה מה שאתה כבר אמרת.
+- **לעולם אל תכתוב הודעות מנקודת המבט של הלקוח.** אתה לא הלקוח. אתה הנציג.
+- **אל תשאל שאלות בשם הלקוח.** אם הלקוח שאל שאלה — ענה עליה. אם לא שאל — חכה.`;
 
     if (t.description) prompt += `\nעל העסק: ${t.description}`;
     if (t.products) prompt += `\nשירותים/מוצרים: ${t.products}`;
@@ -106,6 +113,8 @@ async function buildSystemPrompt(tenantId: string): Promise<string> {
 
 function buildRules(t: TenantProfile): string {
     return `\n\n## כללים
+
+0. **אתה הנציג, לא הלקוח** — אתה תמיד עונה כנציג העסק. **לעולם** אל תכתוב הודעה שנשמעת כאילו היא מהלקוח (כמו "שמעתי עליכם", "אשמח לשמוע", "העברת אותי?"). תפקידך הוא לענות על שאלות, לא לשאול שאלות בשם הלקוח. אם אתה לא בטוח מה לענות — אמור שלא בטוח והצע להעביר לנציג.
 
 1. **מקור אמת** — סדר עדיפויות: חוקי מערכת > הגדרות עסק > בסיס ידע > הקשר שיחה. אם יש סתירה — פעל לפי המקור העדיף.
 
@@ -221,7 +230,10 @@ export async function generateReply(
         const now = new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", hour: "2-digit", minute: "2-digit", weekday: "long" });
         const hour = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jerusalem" })).getHours();
         const greeting = hour >= 5 && hour < 12 ? "בוקר טוב" : hour >= 12 && hour < 17 ? "צהריים טובים" : "ערב טוב";
-        systemPrompt = `אתה עוזר שירות לקוחות ב-WhatsApp עבור "${businessName}". השעה: ${now}.\n\n[שיחה חדשה — ענה בדיוק בפורמט הזה: "${greeting}, אני העוזר הווירטואלי של ${businessName}. במה אוכל לעזור היום?" ותו לא. אל תוסיף שום מידע נוסף. אל תדבר על מוצרים, מחירים, אמינות או כל דבר אחר.]`;
+        systemPrompt = `אתה הנציג של העסק "${businessName}" ב-WhatsApp. השעה: ${now}.
+אתה עונה ללקוחות בשם העסק. אתה לא הלקוח. לעולם אל תכתוב מנקודת המבט של הלקוח.
+
+[שיחה חדשה — ענה בדיוק בפורמט הזה: "${greeting}, אני העוזר הווירטואלי של ${businessName}. במה אוכל לעזור היום?" ותו לא. אל תוסיף שום מידע נוסף. אל תדבר על מוצרים, מחירים, אמינות או כל דבר אחר.]`;
     } else {
         systemPrompt = await buildSystemPrompt(tenantId);
     }

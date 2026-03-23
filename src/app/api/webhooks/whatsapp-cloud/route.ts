@@ -25,6 +25,24 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 30; // Vercel function timeout
 
+// Role confusion detection — catches when AI responds from customer's perspective
+const CUSTOMER_PERSPECTIVE_PATTERNS = [
+    /^היי,?\s*שמעתי\s*עליכם/,        // "Hi, I heard about you"
+    /^אשמח\s*לשמוע\s*(קצת\s*)?על/,   // "I'd love to hear about"
+    /^אני\s*מעוניין/,                  // "I'm interested" (customer phrasing)
+    /^אני\s*מחפש/,                     // "I'm looking for" (customer phrasing)
+    /^העברת\s*אותי/,                   // "Did you transfer me?" (customer asks)
+    /^אפשר\s*לדעת\s*על/,              // "Can I know about" (customer asks)
+    /^מה\s*המחיר\s*של/,               // "What's the price of" (customer asks)
+    /^יש\s*לכם/,                       // "Do you have" (customer asks)
+    /^מה\s*אתם\s*מציעים/,             // "What do you offer" (customer asks)
+];
+
+function looksLikeCustomerMessage(reply: string): boolean {
+    const trimmed = reply.replace(/\[PAUSE\]/g, "").trim();
+    return CUSTOMER_PERSPECTIVE_PATTERNS.some(p => p.test(trimmed));
+}
+
 // ── Webhook Verification (GET) ──────────────────────────────────────
 
 export async function GET(req: Request) {
@@ -374,11 +392,42 @@ async function generateAndSendAiReply(
         const reply = await generateReply(tenantId, history);
         if (!reply) return;
 
+        // Role confusion guard: if AI responds from customer's perspective, block it
+        if (looksLikeCustomerMessage(reply)) {
+            console.warn(`[${tenantId}] Role confusion detected — AI responded as customer: "${reply.substring(0, 60)}"`);
+            return;
+        }
+
         // Handle [PAUSE] — handoff to human
         const isPause = reply.includes("[PAUSE]");
         const cleanReply = reply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
+            // Anti-repetition: check if reply matches any of the last 5 assistant messages
+            const recentAssistant = history
+                .filter(m => m.role === "assistant")
+                .slice(-5)
+                .map(m => m.content.substring(0, 80).replace(/\s+/g, " ").trim());
+            const replyFingerprint = cleanReply.substring(0, 80).replace(/\s+/g, " ").trim();
+            const duplicateCount = recentAssistant.filter(m => m === replyFingerprint).length;
+            if (duplicateCount >= 1) {
+                console.warn(`[${tenantId}] Anti-repetition: reply matches previous message — auto-escalating`);
+                const escalationMsg = "מעביר אותך לנציג שלנו שיוכל לעזור לך טוב יותר.";
+                const escResult = await sendTextMessage(config, phoneNumber, escalationMsg);
+                await supabase.from("messages").insert({
+                    conversation_id: conversationId,
+                    tenant_id: tenantId,
+                    role: "assistant",
+                    content: escalationMsg,
+                    is_from_agent: true,
+                    wa_message_id: escResult.messageId ?? null,
+                    status: escResult.success ? "sent" : "failed",
+                });
+                await supabase.from("conversations").update({ is_paused: true }).eq("id", conversationId);
+                await notifyOwnerOfEscalation(config, supabase, tenantId, conversationId, phoneNumber);
+                return;
+            }
+
             // Send via Cloud API
             const result = await sendTextMessage(config, phoneNumber, cleanReply);
 
