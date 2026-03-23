@@ -15,6 +15,29 @@ import { fetchAndStoreProfilePicture } from "./profile-pictures";
 
 export const rateLimiter = new RateLimiter();
 
+// Per-conversation generation lock — prevents concurrent AI replies
+const generationLocks = new Map<string, Promise<void>>();
+
+function tryAcquireGenerationLock(conversationId: string): boolean {
+    if (generationLocks.has(conversationId)) return false;
+    return true;
+}
+
+function setGenerationLock(conversationId: string, promise: Promise<void>): void {
+    generationLocks.set(conversationId, promise);
+    promise.finally(() => generationLocks.delete(conversationId));
+}
+
+// Per-conversation cooldown — prevent rapid-fire AI replies (parity with Cloud API)
+const lastAiReplyAt = new Map<string, number>();
+const AI_REPLY_COOLDOWN_MS = 5_000;
+
+function isConversationCoolingDown(conversationId: string): boolean {
+    const lastReply = lastAiReplyAt.get(conversationId);
+    if (!lastReply) return false;
+    return Date.now() - lastReply < AI_REPLY_COOLDOWN_MS;
+}
+
 // Deduplication: track processed message IDs (last 1000)
 const processedMessages = new Set<string>();
 const MAX_PROCESSED = 1000;
@@ -248,6 +271,20 @@ export async function handleMessage(
             return;
         }
 
+        // ── Per-conversation cooldown (parity with Cloud API) ──
+        if (isConversationCoolingDown(conversationId)) {
+            console.log(`[${tenantId}] Conversation ${conversationId} cooling down — skipping AI`);
+            return;
+        }
+
+        // ── Generation lock — prevent concurrent AI calls for same conversation ──
+        if (!tryAcquireGenerationLock(conversationId)) {
+            console.log(`[${tenantId}] Generation already in progress for ${conversationId} — skipping`);
+            return;
+        }
+
+        // Wrap the generation in a promise so the lock is held until completion
+        const generationPromise = (async () => {
         // ── Generate AI reply ──
 
         // Fetch recent history (last 60 min, with created_at for gap detection)
@@ -276,6 +313,31 @@ export async function handleMessage(
         const cleanReply = reply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
+            // Anti-repetition: check if last 3 assistant messages are similar
+            const recentAssistant = chatHistory
+                .filter(m => m.role === "assistant")
+                .slice(-3)
+                .map(m => m.content.substring(0, 80).replace(/\s+/g, " ").trim());
+            const replyFingerprint = cleanReply.substring(0, 80).replace(/\s+/g, " ").trim();
+            const duplicateCount = recentAssistant.filter(m => m === replyFingerprint).length;
+            if (duplicateCount >= 2) {
+                console.warn(`[${tenantId}] Anti-repetition: reply too similar to last ${duplicateCount} messages — auto-escalating`);
+                // Auto-escalate instead of repeating
+                const escalationMsg = "מעביר אותך לנציג שלנו שיוכל לעזור לך טוב יותר.";
+                await humanSend(socket, jid, escalationMsg);
+                await _saveMessage(tenantId, conversationId, "assistant", escalationMsg, null, true);
+                lastAiReplyAt.set(conversationId, Date.now());
+                // Pause the conversation
+                await supabase
+                    .from("conversations")
+                    .update({ is_paused: true, updated_at: new Date().toISOString() })
+                    .eq("id", conversationId)
+                    .eq("tenant_id", tenantId);
+                notifyOwnerOfEscalation(supabase, socket, tenantId, conversationId, phoneNumber)
+                    .catch((err) => console.error(`[${tenantId}] Escalation notification error:`, err));
+                return;
+            }
+
             // Anti-ban: block identical messages sent to too many different contacts
             if (!rateLimiter.canSendContent(tenantId, conversationId, cleanReply)) {
                 console.warn(`[${tenantId}] Identical content blocked for conversation ${conversationId}`);
@@ -295,7 +357,8 @@ export async function handleMessage(
             // Save assistant message
             await _saveMessage(tenantId, conversationId, "assistant", cleanReply, null, true);
 
-            // Record rate limit + content tracking
+            // Record cooldown + rate limit
+            lastAiReplyAt.set(conversationId, Date.now());
             rateLimiter.recordSend(tenantId, conversationId, cleanReply);
         }
 
@@ -311,6 +374,9 @@ export async function handleMessage(
             notifyOwnerOfEscalation(supabase, socket, tenantId, conversationId, phoneNumber)
                 .catch((err) => console.error(`[${tenantId}] Escalation notification error:`, err));
         }
+        })(); // end generation promise
+        setGenerationLock(conversationId, generationPromise);
+        await generationPromise;
     } catch (err) {
         console.error(`[${tenantId}] Error processing message from ${phoneNumber}:`, err);
     }
