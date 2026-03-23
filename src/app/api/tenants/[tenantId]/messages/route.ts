@@ -5,6 +5,20 @@ import { getCloudConfigByTenantId, sendTextMessage } from "@/lib/whatsapp-cloud"
 
 export const dynamic = "force-dynamic";
 
+// ── Rate limiter: max 20 messages per minute per user ──
+const sendRateMap = new Map<string, number[]>();
+const SEND_RATE_LIMIT = 20;
+const SEND_RATE_WINDOW_MS = 60_000;
+
+function isSendRateLimited(userId: string): boolean {
+    const now = Date.now();
+    const timestamps = (sendRateMap.get(userId) || []).filter(t => now - t < SEND_RATE_WINDOW_MS);
+    if (timestamps.length >= SEND_RATE_LIMIT) return true;
+    timestamps.push(now);
+    sendRateMap.set(userId, timestamps);
+    return false;
+}
+
 export async function POST(
     request: NextRequest,
     { params }: { params: Promise<{ tenantId: string }> }
@@ -52,6 +66,22 @@ export async function POST(
             return NextResponse.json(
                 { error: "Missing phone_number or text" },
                 { status: 400 }
+            );
+        }
+
+        // Validate text length (WhatsApp max ~4096 chars)
+        if (typeof text !== "string" || text.length > 4096) {
+            return NextResponse.json(
+                { error: "Text must be 1-4096 characters" },
+                { status: 400 }
+            );
+        }
+
+        // Rate limit: max 20 messages per minute per user
+        if (isSendRateLimited(user.id)) {
+            return NextResponse.json(
+                { error: "Rate limit exceeded — max 20 messages per minute" },
+                { status: 429 }
             );
         }
 

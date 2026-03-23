@@ -32,7 +32,17 @@ const PUBLIC_URL = process.env.PUBLIC_URL;
 
 // ── Middleware ──────────────────────────────────────────────────────
 
-app.use(cors({ origin: "*", credentials: true }));
+// CORS: restrict to known origins (Next.js app)
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").split(",").map(s => s.trim());
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("CORS not allowed"));
+        }
+    },
+}));
 app.use(express.json());
 
 function authMiddleware(

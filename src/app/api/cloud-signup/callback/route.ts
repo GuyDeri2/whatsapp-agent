@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { exchangeForLongLivedToken } from '@/lib/whatsapp-cloud';
+import { encryptToken } from '@/lib/token-encryption';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -238,7 +239,7 @@ export async function GET(req: Request) {
     const { error: upsertError } = await admin.from('whatsapp_cloud_config').upsert(
       {
         tenant_id: tenantId,
-        access_token: finalToken,
+        access_token: encryptToken(finalToken),
         phone_number_id: phoneNumberId,
         waba_id: wabaId,
         webhook_verify_token: webhookVerifyToken,

@@ -29,7 +29,7 @@ export async function GET(
         .from("tenants")
         .select("pending_learned_facts")
         .eq("id", tenantId)
-        .eq("user_id", user.id)
+        .eq("owner_id", user.id)
         .single();
 
     if (!tenant) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -67,7 +67,7 @@ export async function POST(
         .from("tenants")
         .select("agent_prompt, pending_learned_facts")
         .eq("id", tenantId)
-        .eq("user_id", user.id)
+        .eq("owner_id", user.id)
         .single();
 
     if (!tenant) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

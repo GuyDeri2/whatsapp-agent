@@ -21,15 +21,19 @@ const SYNC_INTERVAL_MS = 3000;
 
 // ── Encryption helpers ─────────────────────────────────────────────
 
-function getEncryptionKey(): Buffer | null {
+function getEncryptionKey(): Buffer {
     const hex = process.env.SESSION_ENCRYPTION_KEY;
-    if (!hex) return null;
+    if (!hex) {
+        throw new Error("FATAL: SESSION_ENCRYPTION_KEY not configured — sessions would be stored in plaintext!");
+    }
+    if (hex.length !== 64 || !/^[0-9a-fA-F]+$/.test(hex)) {
+        throw new Error("SESSION_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes for AES-256)");
+    }
     return Buffer.from(hex, "hex");
 }
 
 function encrypt(data: string): string {
     const key = getEncryptionKey();
-    if (!key) return data;
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
     const encrypted = Buffer.concat([cipher.update(data, "utf8"), cipher.final()]);
@@ -39,7 +43,6 @@ function encrypt(data: string): string {
 
 function decrypt(data: string): string {
     const key = getEncryptionKey();
-    if (!key) return data;
     const parts = data.split(":");
     if (parts.length !== 3) return data; // Not encrypted
     const [ivHex, tagHex, encHex] = parts;

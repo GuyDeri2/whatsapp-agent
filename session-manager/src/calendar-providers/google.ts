@@ -10,6 +10,7 @@
 
 import type { BusyBlock, CalendarProvider, CreatedEvent } from "./types";
 import { getSupabase } from "./index";
+import { decryptToken, encryptToken } from "../token-encryption";
 
 // ── Token Management ─────────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<{ accessToken: st
     const expiresAt = integration.token_expires_at ? new Date(integration.token_expires_at) : null;
     const needsRefresh = !expiresAt || expiresAt.getTime() - Date.now() < 5 * 60_000;
 
-    if (!needsRefresh) return { accessToken: integration.access_token, integration };
+    if (!needsRefresh) return { accessToken: decryptToken(integration.access_token), integration };
 
     if (!integration.refresh_token) {
         throw new Error(
@@ -60,7 +61,7 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<{ accessToken: st
         body: new URLSearchParams({
             client_id: process.env.GOOGLE_CLIENT_ID!,
             client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-            refresh_token: integration.refresh_token,
+            refresh_token: decryptToken(integration.refresh_token),
             grant_type: "refresh_token",
         }),
     });
@@ -75,7 +76,7 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<{ accessToken: st
 
     await getSupabase()
         .from("calendar_integrations")
-        .update({ access_token: json.access_token, token_expires_at: newExpiry, updated_at: new Date().toISOString() })
+        .update({ access_token: encryptToken(json.access_token), token_expires_at: newExpiry, updated_at: new Date().toISOString() })
         .eq("tenant_id", tenantId)
         .eq("provider", "google");
 

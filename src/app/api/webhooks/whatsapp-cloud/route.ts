@@ -177,6 +177,22 @@ function releaseGenerationLock(conversationId: string): void {
     activeGenerations.delete(conversationId);
 }
 
+/**
+ * Per-tenant AI call rate limiter — max 500 AI replies per tenant per hour.
+ * Prevents billing shock from DeepSeek API abuse.
+ */
+const tenantAiCalls = new Map<string, number[]>();
+const AI_RATE_LIMIT_PER_HOUR = 500;
+
+function isAiRateLimited(tenantId: string): boolean {
+    const now = Date.now();
+    const calls = (tenantAiCalls.get(tenantId) || []).filter(t => now - t < 3_600_000);
+    if (calls.length >= AI_RATE_LIMIT_PER_HOUR) return true;
+    calls.push(now);
+    tenantAiCalls.set(tenantId, calls);
+    return false;
+}
+
 async function processIncomingMessage(
     phoneNumberId: string,
     message: IncomingWhatsAppMessage,
@@ -346,6 +362,12 @@ async function generateAndSendAiReply(
         const lastMsg = history[history.length - 1];
         if (!lastMsg || lastMsg.role !== "user") {
             history.push({ role: "user", content: latestMessage, created_at: new Date().toISOString() });
+        }
+
+        // Per-tenant AI rate limit (500/hour) to prevent billing shock
+        if (isAiRateLimited(tenantId)) {
+            console.warn(`[${tenantId}] AI rate limit exceeded (${AI_RATE_LIMIT_PER_HOUR}/hour)`);
+            return;
         }
 
         // Generate AI reply

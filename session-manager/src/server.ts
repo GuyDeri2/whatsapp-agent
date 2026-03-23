@@ -22,6 +22,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { runBatchLearning } from "./learning-engine";
 import { sendDayBeforeReminders, sendTwoHourReminders } from "./reminders";
 import { summarizeConversationForHandoff } from "./ai-agent";
+import { decryptToken, encryptToken } from "./token-encryption";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -69,7 +70,7 @@ async function getCloudConfig(tenantId: string): Promise<CloudConfig | null> {
     }
 
     const config: CloudConfig | null = data
-        ? { phone_number_id: data.phone_number_id, access_token: data.access_token }
+        ? { phone_number_id: data.phone_number_id, access_token: decryptToken(data.access_token) }
         : null;
 
     // Evict oldest entry if cache is full
@@ -491,7 +492,7 @@ cron.schedule("0 3 * * *", async () => {
                         grant_type: "fb_exchange_token",
                         client_id: META_APP_ID,
                         client_secret: META_APP_SECRET,
-                        fb_exchange_token: cfg.access_token,
+                        fb_exchange_token: decryptToken(cfg.access_token),
                     })
                 );
 
@@ -513,7 +514,7 @@ cron.schedule("0 3 * * *", async () => {
                 await supabase
                     .from("whatsapp_cloud_config")
                     .update({
-                        access_token: data.access_token,
+                        access_token: encryptToken(data.access_token),
                         token_expires_at: newExpiresAt,
                     })
                     .eq("tenant_id", cfg.tenant_id);

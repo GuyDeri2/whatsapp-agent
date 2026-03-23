@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import crypto from 'crypto';
+import { encryptToken } from '@/lib/token-encryption';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,7 +109,7 @@ export async function GET(req: Request) {
   const upsertData: Record<string, unknown> = {
     tenant_id: tenantId,
     provider: 'google',
-    access_token: tokens.access_token,
+    access_token: encryptToken(tokens.access_token),
     token_expires_at: tokens.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null,
@@ -117,7 +118,7 @@ export async function GET(req: Request) {
     is_active: true,
   };
   if (tokens.refresh_token) {
-    upsertData.refresh_token = tokens.refresh_token;
+    upsertData.refresh_token = encryptToken(tokens.refresh_token);
   }
 
   const { error: upsertError } = await admin.from('calendar_integrations').upsert(

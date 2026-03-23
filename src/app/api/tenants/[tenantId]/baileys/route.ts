@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { decryptToken } from '@/lib/token-encryption';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +58,7 @@ export async function POST(
             try {
                 await fetch(
                     `https://graph.facebook.com/${META_API_VERSION}/me/permissions`,
-                    { method: 'DELETE', headers: { Authorization: `Bearer ${cloudConfig.access_token}` } }
+                    { method: 'DELETE', headers: { Authorization: `Bearer ${decryptToken(cloudConfig.access_token)}` } }
                 );
             } catch { /* non-fatal */ }
         }

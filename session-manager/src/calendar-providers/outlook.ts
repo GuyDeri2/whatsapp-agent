@@ -10,6 +10,7 @@
 
 import type { BusyBlock, CalendarProvider, CreatedEvent } from "./types";
 import { getSupabase } from "./index";
+import { decryptToken, encryptToken } from "../token-encryption";
 
 // ── Token Management ──────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
     const expiresAt = integration.token_expires_at ? new Date(integration.token_expires_at) : null;
     const needsRefresh = !expiresAt || expiresAt.getTime() - Date.now() < 5 * 60_000;
 
-    if (!needsRefresh) return integration.access_token;
+    if (!needsRefresh) return decryptToken(integration.access_token);
 
     if (!integration.refresh_token) {
         throw new Error(
@@ -53,7 +54,7 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
         body: new URLSearchParams({
             client_id: process.env.MICROSOFT_CLIENT_ID!,
             client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
-            refresh_token: integration.refresh_token,
+            refresh_token: decryptToken(integration.refresh_token),
             grant_type: "refresh_token",
             scope: "https://graph.microsoft.com/Calendars.ReadWrite offline_access",
         }),
@@ -69,12 +70,12 @@ async function refreshTokenIfNeeded(tenantId: string): Promise<string> {
 
     // Save new access_token + refresh_token (Microsoft may rotate the refresh token)
     const updatePayload: Record<string, string> = {
-        access_token: json.access_token,
+        access_token: encryptToken(json.access_token),
         token_expires_at: newExpiry,
         updated_at: new Date().toISOString(),
     };
     if (json.refresh_token) {
-        updatePayload.refresh_token = json.refresh_token;
+        updatePayload.refresh_token = encryptToken(json.refresh_token);
     }
 
     await getSupabase()

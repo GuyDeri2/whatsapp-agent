@@ -5,6 +5,7 @@
 
 import crypto from "crypto";
 import { getSupabaseAdmin } from "./supabase/admin";
+import { decryptToken } from "./token-encryption";
 
 const META_API_VERSION = process.env.META_API_VERSION || "v21.0";
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
@@ -88,7 +89,7 @@ export async function getCloudConfigByPhoneId(phoneNumberId: string): Promise<Cl
 
     if (error || !data) return null;
 
-    const config = data as CloudConfig;
+    const config = { ...data, access_token: decryptToken(data.access_token) } as CloudConfig;
     configCache.set(phoneNumberId, { config, fetchedAt: Date.now() });
     return config;
 }
@@ -105,7 +106,7 @@ export async function getCloudConfigByTenantId(tenantId: string): Promise<CloudC
         .single();
 
     if (error || !data) return null;
-    return data as CloudConfig;
+    return { ...data, access_token: decryptToken(data.access_token) } as CloudConfig;
 }
 
 /** Invalidate cached config (e.g. after token refresh). */

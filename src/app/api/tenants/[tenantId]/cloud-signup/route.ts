@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import crypto from 'crypto';
+import { decryptToken } from '@/lib/token-encryption';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,7 +142,7 @@ export async function DELETE(
         `https://graph.facebook.com/${META_API_VERSION}/me/permissions`,
         {
           method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${config.access_token}` },
+          headers: { 'Authorization': `Bearer ${decryptToken(config.access_token)}` },
         }
       );
     } catch {

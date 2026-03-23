@@ -295,7 +295,11 @@ export default function TenantPage() {
                 : data.whatsapp_cloud_config ?? null;
             const tenantWithConfig = { ...data, whatsapp_cloud_config: cloudConfig } as Tenant;
             applyTenantData(tenantWithConfig);
-            try { sessionStorage.setItem(cacheKey, JSON.stringify(tenantWithConfig)); } catch { /* ignore */ }
+            // Cache only non-sensitive fields (exclude cloud config credentials)
+            try {
+                const { whatsapp_cloud_config: _wcc, ...safeData } = tenantWithConfig;
+                sessionStorage.setItem(cacheKey, JSON.stringify(safeData));
+            } catch { /* ignore */ }
         }
     }, [supabase, tenantId, applyTenantData]);
 
