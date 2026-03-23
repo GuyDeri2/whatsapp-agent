@@ -233,6 +233,43 @@ function trimAtGap(history: ChatMessage[]): ChatMessage[] {
     return history;
 }
 
+// ── Deduplicate repeated AI responses ────────────────────────────────
+
+/**
+ * If the AI gave very similar responses multiple times in a row,
+ * keep only the last one. This prevents DeepSeek from pattern-matching
+ * on repeated responses (few-shot continuation).
+ *
+ * Uses a simple heuristic: if two assistant messages share >60% of words,
+ * they're considered duplicates.
+ */
+function deduplicateAssistantMessages(history: ChatMessage[]): ChatMessage[] {
+    if (history.length <= 2) return history;
+
+    const result: ChatMessage[] = [];
+    const seenAssistantHashes = new Set<string>();
+
+    // Walk backwards so we keep the LAST occurrence of each similar response
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (msg.role !== "assistant") {
+            result.unshift(msg);
+            continue;
+        }
+
+        // Create a rough "fingerprint" from the first 100 chars
+        const fingerprint = msg.content.substring(0, 100).replace(/\s+/g, " ").trim();
+        if (seenAssistantHashes.has(fingerprint)) {
+            // Skip this duplicate — we already have a later version
+            continue;
+        }
+        seenAssistantHashes.add(fingerprint);
+        result.unshift(msg);
+    }
+
+    return result;
+}
+
 // ── Generate AI reply ────────────────────────────────────────────────
 
 /**
@@ -242,20 +279,39 @@ export async function generateReply(
     tenantId: string,
     history: ChatMessage[]
 ): Promise<string | null> {
-    // Trim history at 40-minute gaps
+    // Trim history at 60-minute gaps
     const trimmed = trimAtGap(history);
 
-    let systemPrompt = await buildSystemPrompt(tenantId);
+    // Filter out owner messages — they are the business owner's manual replies
+    // and should not appear as "assistant" (bot) messages in the AI context.
+    const filtered = trimmed.filter(m => m.role !== "owner");
+
+    // Deduplicate repeated AI responses — if the bot gave very similar responses
+    // multiple times, only keep the last one to prevent pattern-continuation.
+    const deduped = deduplicateAssistantMessages(filtered);
 
     // New conversation: first message is from user and no prior history
-    const isNewConversation = trimmed.length === 1 && trimmed[0].role === "user";
+    const isNewConversation = deduped.length === 1 && deduped[0].role === "user";
+
+    let systemPrompt: string;
     if (isNewConversation) {
-        systemPrompt += `\n\n[שיחה חדשה — תגובה קצרה בפורמט הזה בלבד: "<ברכה לפי שעה>, אני העוזר הווירטואלי של <שם העסק>. במה אוכל לעזור היום?" ותו לא. אל תוסיף שום מידע נוסף.]`;
+        // Minimal prompt for greetings — no KB, no agent_prompt, just business name
+        const supabase = getSupabaseAdmin();
+        const { data: t } = await supabase
+            .from("tenants")
+            .select("business_name")
+            .eq("id", tenantId)
+            .single();
+        const businessName = t?.business_name || "העסק";
+        const now = new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", hour: "2-digit", minute: "2-digit", weekday: "long" });
+        systemPrompt = `אתה עוזר שירות לקוחות ב-WhatsApp עבור "${businessName}". השעה: ${now}.\n\n[שיחה חדשה — ענה בדיוק בפורמט הזה: "<ברכה לפי שעה>, אני העוזר הווירטואלי של ${businessName}. במה אוכל לעזור היום?" ותו לא. אל תוסיף שום מידע נוסף. אל תדבר על מוצרים, מחירים, אמינות או כל דבר אחר.]`;
+    } else {
+        systemPrompt = await buildSystemPrompt(tenantId);
     }
 
     const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: systemPrompt },
-        ...trimmed
+        ...deduped
             .slice(-20)
             .map(m => ({
                 role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
