@@ -21,7 +21,7 @@ import makeWASocket, {
 import { Boom } from "@hapi/boom";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { useSupabaseAuthState } from "./session-store";
-import { PresencePauseScheduler } from "./antiban";
+// PresencePauseScheduler removed — we stay "unavailable" at all times
 import { handleMessage, extractMessageContent } from "./message-handler";
 import { broadcastQR, clearQR } from "./qr-manager";
 import { resolveLidPhone, registerLidMapping } from "./lid-resolver";
@@ -35,7 +35,7 @@ const healthStates = new Map<string, SessionHealth>();
 const reconnecting = new Set<string>();
 const sessionCleanup = new Map<string, { saveCreds: () => Promise<void>; clearState: () => Promise<void>; stopSync: () => void; forceFlush: () => Promise<void> }>();
 
-const presencePauser = new PresencePauseScheduler();
+// No presence pauser — we always stay "unavailable" to appear offline
 
 // Reconnect cooldown — minimum 30s between reconnect attempts
 const lastReconnectAt = new Map<string, number>();
@@ -111,7 +111,7 @@ export async function startSession(tenantId: string): Promise<void> {
  * Stop a session gracefully.
  */
 export async function stopSession(tenantId: string, clearData = false): Promise<void> {
-    presencePauser.stop(tenantId);
+    // presencePauser removed — always invisible
 
     const cleanup = sessionCleanup.get(tenantId);
     if (cleanup) {
@@ -253,8 +253,14 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
                 { onConflict: "tenant_id" }
             );
 
-            // Start presence pause scheduler
-            presencePauser.start(tenantId, socket);
+            // Stay invisible — send "unavailable" immediately so contacts
+            // never see us as "online". Typing indicators (composing/paused)
+            // sent per-chat in humanSend still work without revealing online status.
+            try {
+                await socket.sendPresenceUpdate("unavailable");
+            } catch {
+                // Non-fatal
+            }
 
             // Bulk-fetch profile pictures for conversations without one (fire-and-forget)
             bulkFetchProfilePictures(socket, tenantId)
@@ -268,7 +274,7 @@ async function _initSocket(tenantId: string, fresh: boolean): Promise<void> {
 
             console.log(`[${tenantId}] Disconnected: ${statusCode} (${reason})`);
             session.lastDisconnect = new Date();
-            presencePauser.stop(tenantId);
+            // presencePauser removed — always invisible
 
             // Track disconnect in health state + update risk score
             const health = healthStates.get(tenantId);
@@ -530,9 +536,9 @@ export async function runWatchdog(): Promise<void> {
         if (!health) continue;
 
         try {
-            // Probe: send presence update with timeout
+            // Probe: send presence update with timeout (use "unavailable" to stay invisible)
             await Promise.race([
-                session.socket.sendPresenceUpdate("available"),
+                session.socket.sendPresenceUpdate("unavailable"),
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error("probe timeout")), 10_000)
                 ),
@@ -553,7 +559,7 @@ export async function runWatchdog(): Promise<void> {
 
             if (health.consecutiveFailures >= 3) {
                 console.error(`[${tenantId}] Zombie session detected — force reconnecting`);
-                presencePauser.stop(tenantId);
+                // presencePauser removed — always invisible
                 try { session.socket.end(undefined); } catch { /* already closed */ }
                 await _flushAndCleanup(tenantId);
                 await _reconnectWithCooldown(tenantId);
