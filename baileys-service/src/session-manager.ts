@@ -395,17 +395,30 @@ async function _handleDisconnect(tenantId: string, statusCode: number, reason: s
 
     const wasPairing = pairingSessions.has(tenantId);
 
-    // If we were in pairing mode (QR shown, never connected), do NOT auto-retry.
-    // This prevents flooding WhatsApp with rapid pairing attempts which triggers
-    // "cannot link new devices" rate-limiting.
+    // During pairing (QR shown, never reached "open"), allow expected reconnect codes
+    // through. After QR scan, WhatsApp always sends 515 (restart required) before
+    // establishing the real connection. Blocking that kills the pairing flow.
     if (wasPairing) {
-        console.log(`[${tenantId}] Pairing failed (${statusCode}: ${reason}) — stopping. User must click Connect again.`);
-        pairingSessions.delete(tenantId);
-        retryCounters.delete(tenantId);
-        await stopSession(tenantId, false);
-        // Clear QR code from frontend
-        await clearQR(tenantId);
-        return;
+        const allowedDuringPairing = [
+            DisconnectReason.restartRequired,  // 515 — expected after QR scan
+            DisconnectReason.connectionLost,    // 408 — network hiccup during handshake
+            DisconnectReason.timedOut,          // 408 — same
+        ];
+        if (!allowedDuringPairing.includes(statusCode)) {
+            console.log(`[${tenantId}] Pairing failed (${statusCode}: ${reason}) — stopping. User must click Connect again.`);
+            pairingSessions.delete(tenantId);
+            retryCounters.delete(tenantId);
+            await stopSession(tenantId, false);
+            await clearQR(tenantId);
+            return;
+        }
+        // 515/408 during pairing — flush creds first (pairing may have saved new keys),
+        // then allow normal reconnect logic below to handle it.
+        console.log(`[${tenantId}] Pairing in progress — allowing ${statusCode} reconnect`);
+        const cleanup = sessionCleanup.get(tenantId);
+        if (cleanup) {
+            try { await cleanup.forceFlush(); } catch { /* best-effort */ }
+        }
     }
 
     switch (statusCode) {

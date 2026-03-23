@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, LogOut, ArrowLeft, Bot, Activity, PauseCircle, Building2, Wifi, WifiOff, BookOpen, Loader2, Sparkles } from "lucide-react";
+import { Plus, LogOut, ArrowLeft, Bot, Activity, PauseCircle, Building2, Wifi, WifiOff, BookOpen, Loader2, Sparkles, Globe, Search } from "lucide-react";
 
 interface Tenant {
   id: string;
@@ -39,8 +39,13 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [formStep, setFormStep] = useState<"name" | "scanning" | "details">("name");
+  const [hasWebsite, setHasWebsite] = useState<boolean | null>(null);
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const [formData, setFormData] = useState({ business_name: "", description: "", products: "", target_customers: "", website_url: "" });
   const [creating, setCreating] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const fetchTenants = useCallback(async () => {
     try {
@@ -64,6 +69,48 @@ export default function Dashboard() {
     window.location.href = "/";
   };
 
+  const resetForm = () => {
+    setFormStep("name");
+    setHasWebsite(null);
+    setWebsiteUrl("");
+    setFormData({ business_name: "", description: "", products: "", target_customers: "", website_url: "" });
+    setScanning(false);
+    setScanError(null);
+  };
+
+  const handleScanWebsite = async () => {
+    if (!websiteUrl) return;
+    setScanning(true);
+    setScanError(null);
+    setFormStep("scanning");
+    try {
+      const res = await fetch("/api/website-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: websiteUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setScanError(data.error || "שגיאה בסריקת האתר");
+        setFormStep("name");
+      } else {
+        const a = data.analysis;
+        setFormData(prev => ({
+          ...prev,
+          website_url: websiteUrl,
+          description: a.description || prev.description,
+          products: a.products_services || prev.products,
+          target_customers: a.target_customers || prev.target_customers,
+        }));
+        setFormStep("details");
+      }
+    } catch {
+      setScanError("שגיאה בסריקת האתר");
+      setFormStep("name");
+    }
+    setScanning(false);
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
@@ -76,8 +123,7 @@ export default function Dashboard() {
       if (res.ok) {
         const data = await res.json();
         setShowForm(false);
-        setFormData({ business_name: "", description: "", products: "", target_customers: "", website_url: "" });
-        // Navigate directly to the new tenant — the onboarding wizard will show automatically
+        resetForm();
         if (data.tenant?.id) {
           router.push(`/tenant/${data.tenant.id}`);
           return;
@@ -204,7 +250,7 @@ export default function Dashboard() {
             </h2>
             <motion.button
               whileTap={{ scale: 0.96 }}
-              onClick={() => setShowForm(!showForm)}
+              onClick={() => { if (showForm) resetForm(); setShowForm(!showForm); }}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${showForm
                 ? "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10"
                 : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40"
@@ -225,56 +271,152 @@ export default function Dashboard() {
               >
                 <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_rgba(16,185,129,0.07)]">
                   <h3 className="text-lg font-semibold mb-6 text-white">הוסף עסק חדש למערכת</h3>
-                  <form onSubmit={handleCreate} className="space-y-5">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">שם העסק <span className="text-red-400">*</span></label>
-                      <input type="text" required value={formData.business_name}
-                        onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
-                        placeholder="לדוגמה: חנות אלקטרוניקה" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">כתובת אתר</label>
-                      <input type="url" value={formData.website_url}
-                        onChange={(e) => setFormData({ ...formData, website_url: e.target.value })}
-                        dir="ltr"
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
-                        placeholder="https://www.example.com" />
-                      <p className="text-xs text-slate-600 mt-1">נסרוק את האתר ונמלא אוטומטית את פרטי העסק — אפשר לדלג</p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                  {/* Step 1: Name + Website question */}
+                  {formStep === "name" && (
+                    <div className="space-y-5">
                       <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1.5">לקוחות יעד</label>
-                        <input type="text" value={formData.target_customers}
-                          onChange={(e) => setFormData({ ...formData, target_customers: e.target.value })}
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">שם העסק <span className="text-red-400">*</span></label>
+                        <input type="text" value={formData.business_name}
+                          onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
-                          placeholder="למשל: חובבי טכנולוגיה..." />
+                          placeholder="לדוגמה: חנות אלקטרוניקה" />
+                      </div>
+
+                      {scanError && (
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
+                          {scanError}
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-3">יש לעסק אתר אינטרנט?</label>
+                        <div className="flex gap-3">
+                          <button type="button"
+                            onClick={() => { setHasWebsite(true); setScanError(null); }}
+                            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border transition-all ${
+                              hasWebsite === true
+                                ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                                : "bg-black/40 border-white/10 text-slate-400 hover:border-white/20 hover:text-white"
+                            }`}>
+                            <Globe className="w-4 h-4" />
+                            כן, יש לי אתר
+                          </button>
+                          <button type="button"
+                            onClick={() => { setHasWebsite(false); setScanError(null); setWebsiteUrl(""); }}
+                            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border transition-all ${
+                              hasWebsite === false
+                                ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                                : "bg-black/40 border-white/10 text-slate-400 hover:border-white/20 hover:text-white"
+                            }`}>
+                            אין לי אתר
+                          </button>
+                        </div>
+                      </div>
+
+                      {hasWebsite === true && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-400 mb-1.5">כתובת האתר</label>
+                            <input type="url" value={websiteUrl}
+                              onChange={(e) => setWebsiteUrl(e.target.value)}
+                              dir="ltr"
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                              placeholder="https://www.example.com" />
+                            <p className="text-xs text-slate-600 mt-1">נסרוק את האתר ונמלא אוטומטית את פרטי העסק</p>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      <div className="flex justify-end gap-3 pt-2 border-t border-white/5">
+                        <button type="button" onClick={() => { setShowForm(false); resetForm(); }}
+                          className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+                          ביטול
+                        </button>
+                        {hasWebsite === true ? (
+                          <button type="button"
+                            disabled={!formData.business_name.trim() || !websiteUrl.trim()}
+                            onClick={handleScanWebsite}
+                            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-emerald-500/25">
+                            <Search className="w-4 h-4" /> סרוק ומלא אוטומטית
+                          </button>
+                        ) : hasWebsite === false ? (
+                          <button type="button"
+                            disabled={!formData.business_name.trim()}
+                            onClick={() => setFormStep("details")}
+                            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-emerald-500/25">
+                            המשך
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 2: Scanning animation */}
+                  {formStep === "scanning" && (
+                    <div className="flex flex-col items-center justify-center py-12 gap-4">
+                      <div className="relative">
+                        <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                          <Search className="w-7 h-7 text-emerald-400 animate-pulse" />
+                        </div>
+                        <Loader2 className="absolute -top-2 -right-2 w-6 h-6 text-emerald-400 animate-spin" />
+                      </div>
+                      <p className="text-white font-medium">סורק את האתר...</p>
+                      <p className="text-sm text-slate-500 text-center max-w-xs">אנחנו קוראים את תוכן האתר וממלאים אוטומטית את פרטי העסק. זה יכול לקחת עד דקה.</p>
+                    </div>
+                  )}
+
+                  {/* Step 3: Details (manual or pre-filled from scan) */}
+                  {formStep === "details" && (
+                    <form onSubmit={handleCreate} className="space-y-5">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">שם העסק <span className="text-red-400">*</span></label>
+                        <input type="text" required value={formData.business_name}
+                          onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                          placeholder="לדוגמה: חנות אלקטרוניקה" />
+                      </div>
+                      {formData.website_url && (
+                        <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-4 py-2.5 text-xs text-emerald-400 flex items-center gap-2">
+                          <Globe className="w-3.5 h-3.5 shrink-0" />
+                          <span dir="ltr" className="truncate">{formData.website_url}</span>
+                          <span className="text-emerald-500/60 mr-auto">— הפרטים מולאו מהאתר, ניתן לערוך</span>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1.5">לקוחות יעד</label>
+                          <input type="text" value={formData.target_customers}
+                            onChange={(e) => setFormData({ ...formData, target_customers: e.target.value })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                            placeholder="למשל: חובבי טכנולוגיה..." />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1.5">מוצרים / שירותים</label>
+                          <input type="text" value={formData.products}
+                            onChange={(e) => setFormData({ ...formData, products: e.target.value })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                            placeholder="מה אתם מוכרים?" />
+                        </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1.5">מוצרים / שירותים</label>
-                        <input type="text" value={formData.products}
-                          onChange={(e) => setFormData({ ...formData, products: e.target.value })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
-                          placeholder="מה אתם מוכרים?" />
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">תיאור העסק</label>
+                        <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={2}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all resize-none placeholder-slate-600"
+                          placeholder="מה העסק שלך עושה?" />
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">תיאור העסק</label>
-                      <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={2}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all resize-none placeholder-slate-600"
-                        placeholder="מה העסק שלך עושה?" />
-                    </div>
-                    <div className="flex justify-end gap-3 pt-2 border-t border-white/5">
-                      <button type="button" onClick={() => setShowForm(false)}
-                        className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all">
-                        ביטול
-                      </button>
-                      <button type="submit" disabled={creating}
-                        className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-emerald-500/25">
-                        {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> יוצר...</> : "צור סוכן חדש"}
-                      </button>
-                    </div>
-                  </form>
+                      <div className="flex justify-end gap-3 pt-2 border-t border-white/5">
+                        <button type="button" onClick={() => { setFormStep("name"); }}
+                          className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+                          חזרה
+                        </button>
+                        <button type="submit" disabled={creating}
+                          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-emerald-500/25">
+                          {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> יוצר...</> : "צור סוכן חדש"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               </motion.div>
             )}
