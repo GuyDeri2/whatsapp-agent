@@ -226,27 +226,12 @@ export default function Dashboard() {
                 <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_rgba(16,185,129,0.07)]">
                   <h3 className="text-lg font-semibold mb-6 text-white">הוסף עסק חדש למערכת</h3>
                   <form onSubmit={handleCreate} className="space-y-5">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1.5">שם העסק <span className="text-red-400">*</span></label>
-                        <input type="text" required value={formData.business_name}
-                          onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
-                          placeholder="לדוגמה: חנות אלקטרוניקה" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1.5">לקוחות יעד</label>
-                        <input type="text" value={formData.target_customers}
-                          onChange={(e) => setFormData({ ...formData, target_customers: e.target.value })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
-                          placeholder="למשל: חובבי טכנולוגיה..." />
-                      </div>
-                    </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">מוצרים / שירותים</label>
-                      <textarea value={formData.products} onChange={(e) => setFormData({ ...formData, products: e.target.value })} rows={2}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all resize-none placeholder-slate-600"
-                        placeholder="מה אתם מוכרים?" />
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">שם העסק <span className="text-red-400">*</span></label>
+                      <input type="text" required value={formData.business_name}
+                        onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                        placeholder="לדוגמה: חנות אלקטרוניקה" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-400 mb-1.5">כתובת אתר</label>
@@ -255,7 +240,23 @@ export default function Dashboard() {
                         dir="ltr"
                         className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
                         placeholder="https://www.example.com" />
-                      <p className="text-xs text-slate-600 mt-1">נסרוק את האתר ונמלא אוטומטית את פרטי העסק</p>
+                      <p className="text-xs text-slate-600 mt-1">נסרוק את האתר ונמלא אוטומטית את פרטי העסק — אפשר לדלג</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">לקוחות יעד</label>
+                        <input type="text" value={formData.target_customers}
+                          onChange={(e) => setFormData({ ...formData, target_customers: e.target.value })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                          placeholder="למשל: חובבי טכנולוגיה..." />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">מוצרים / שירותים</label>
+                        <input type="text" value={formData.products}
+                          onChange={(e) => setFormData({ ...formData, products: e.target.value })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all placeholder-slate-600"
+                          placeholder="מה אתם מוכרים?" />
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-400 mb-1.5">תיאור העסק</label>
