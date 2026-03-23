@@ -43,6 +43,32 @@ function looksLikeCustomerMessage(reply: string): boolean {
     return CUSTOMER_PERSPECTIVE_PATTERNS.some(p => p.test(trimmed));
 }
 
+// Detect when the AI says "handing off to agent" without including [PAUSE]
+const HANDOFF_KEYWORD_PATTERNS = [
+    /מעביר\s*אותך\s*ל?נציג/,           // "מעביר אותך לנציג"
+    /אעביר\s*אותך\s*ל?נציג/,           // "אעביר אותך לנציג"
+    /נציג\s*שלנו\s*(שי|י)וכל/,         // "נציג שלנו שיוכל"
+    /העברתי.*לנציג/,                     // "העברתי...לנציג"
+];
+
+function looksLikeHandoff(reply: string): boolean {
+    return HANDOFF_KEYWORD_PATTERNS.some(p => p.test(reply));
+}
+
+/**
+ * Fuzzy similarity: compare two Hebrew strings by word overlap.
+ * Returns a score 0-1 (1 = identical words).
+ */
+function wordSimilarity(a: string, b: string): number {
+    const normalize = (s: string) =>
+        s.replace(/[^\u0590-\u05FFa-zA-Z0-9\s]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const wordsA = new Set(normalize(a).split(" ").filter(w => w.length > 1));
+    const wordsB = new Set(normalize(b).split(" ").filter(w => w.length > 1));
+    if (wordsA.size === 0 || wordsB.size === 0) return 0;
+    const intersection = [...wordsA].filter(w => wordsB.has(w)).length;
+    return intersection / Math.max(wordsA.size, wordsB.size);
+}
+
 // ── Webhook Verification (GET) ──────────────────────────────────────
 
 export async function GET(req: Request) {
@@ -399,18 +425,23 @@ async function generateAndSendAiReply(
         }
 
         // Handle [PAUSE] — handoff to human
-        const isPause = reply.includes("[PAUSE]");
+        // Also detect when AI says "מעביר לנציג" without [PAUSE] tag
+        let isPause = reply.includes("[PAUSE]");
+        if (!isPause && looksLikeHandoff(reply)) {
+            console.log(`[${tenantId}] Handoff keywords detected without [PAUSE] — forcing pause`);
+            isPause = true;
+        }
         const cleanReply = reply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
-            // Anti-repetition: check if reply matches any of the last 5 assistant messages
+            // Anti-repetition: check if reply is similar to any of the last 5 assistant messages
+            // Uses word-level similarity (>= 70%) instead of exact match to catch rephrased duplicates
             const recentAssistant = history
                 .filter(m => m.role === "assistant")
                 .slice(-5)
-                .map(m => m.content.substring(0, 80).replace(/\s+/g, " ").trim());
-            const replyFingerprint = cleanReply.substring(0, 80).replace(/\s+/g, " ").trim();
-            const duplicateCount = recentAssistant.filter(m => m === replyFingerprint).length;
-            if (duplicateCount >= 1) {
+                .map(m => m.content);
+            const isSimilarToRecent = recentAssistant.some(prev => wordSimilarity(prev, cleanReply) >= 0.7);
+            if (isSimilarToRecent) {
                 console.warn(`[${tenantId}] Anti-repetition: reply matches previous message — auto-escalating`);
                 const escalationMsg = "מעביר אותך לנציג שלנו שיוכל לעזור לך טוב יותר.";
                 const escResult = await sendTextMessage(config, phoneNumber, escalationMsg);
