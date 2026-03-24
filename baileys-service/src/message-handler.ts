@@ -348,21 +348,40 @@ export async function handleMessage(
 
         // Fetch recent history (last 60 min, with created_at for gap detection)
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-        const { data: history } = await supabase
-            .from("messages")
-            .select("role, content, created_at")
-            .eq("conversation_id", conversationId)
-            .eq("tenant_id", tenantId)
-            .in("role", ["user", "assistant"])
-            .gte("created_at", oneHourAgo)
-            .order("created_at", { ascending: true })
-            .limit(20);
+        const [{ data: history }, { data: lastOwnerMsg }] = await Promise.all([
+            supabase
+                .from("messages")
+                .select("role, content, created_at")
+                .eq("conversation_id", conversationId)
+                .eq("tenant_id", tenantId)
+                .in("role", ["user", "assistant"])
+                .gte("created_at", oneHourAgo)
+                .order("created_at", { ascending: true })
+                .limit(20),
+            // Find the most recent owner message — marks the handoff boundary
+            supabase
+                .from("messages")
+                .select("created_at")
+                .eq("conversation_id", conversationId)
+                .eq("tenant_id", tenantId)
+                .eq("role", "owner")
+                .gte("created_at", oneHourAgo)
+                .order("created_at", { ascending: false })
+                .limit(1),
+        ]);
 
-        const chatHistory = (history ?? []).map((m) => ({
+        let chatHistory = (history ?? []).map((m) => ({
             role: m.role as "user" | "assistant" | "owner",
             content: m.content,
             created_at: m.created_at,
         }));
+
+        // If owner replied (took over from bot), treat everything after as a new conversation.
+        // This prevents the bot from using stale context from before the handoff.
+        if (lastOwnerMsg && lastOwnerMsg.length > 0) {
+            const ownerTime = lastOwnerMsg[0].created_at;
+            chatHistory = chatHistory.filter(m => m.created_at && m.created_at > ownerTime);
+        }
 
         // Generate AI reply + prefetch KB snippet for validator in parallel
         const recentAssistant = chatHistory

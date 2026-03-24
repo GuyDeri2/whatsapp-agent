@@ -387,15 +387,27 @@ async function generateAndSendAiReply(
     try {
         // Fetch conversation history — last 60 minutes only (user + assistant, skip owner)
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-        const { data: messages } = await supabase
-            .from("messages")
-            .select("role, content, created_at")
-            .eq("conversation_id", conversationId)
-            .eq("tenant_id", tenantId)
-            .in("role", ["user", "assistant"])
-            .gte("created_at", oneHourAgo)
-            .order("created_at", { ascending: false })
-            .limit(20);
+        const [{ data: messages }, { data: lastOwnerMsg }] = await Promise.all([
+            supabase
+                .from("messages")
+                .select("role, content, created_at")
+                .eq("conversation_id", conversationId)
+                .eq("tenant_id", tenantId)
+                .in("role", ["user", "assistant"])
+                .gte("created_at", oneHourAgo)
+                .order("created_at", { ascending: false })
+                .limit(20),
+            // Find the most recent owner message — marks the handoff boundary
+            supabase
+                .from("messages")
+                .select("created_at")
+                .eq("conversation_id", conversationId)
+                .eq("tenant_id", tenantId)
+                .eq("role", "owner")
+                .gte("created_at", oneHourAgo)
+                .order("created_at", { ascending: false })
+                .limit(1),
+        ]);
 
         // Build history with created_at for gap detection
         let history = (messages ?? []).reverse().map(m => ({
@@ -403,6 +415,13 @@ async function generateAndSendAiReply(
             content: m.content,
             created_at: m.created_at,
         }));
+
+        // If owner replied (took over from bot), treat everything after as a new conversation.
+        // This prevents the bot from using stale context from before the handoff.
+        if (lastOwnerMsg && lastOwnerMsg.length > 0) {
+            const ownerTime = lastOwnerMsg[0].created_at;
+            history = history.filter(m => m.created_at && m.created_at > ownerTime);
+        }
 
         // If the latest message isn't in history yet, append it (compare by wa_message_id-based insert timing)
         const lastMsg = history[history.length - 1];
