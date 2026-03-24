@@ -212,6 +212,10 @@ ${recentRepliesText}
 
 ### 5. העברה חסרה לנציג
 לקוח כועס/מבקש נציג/רוצה לקנות/בעיה טכנית ואין העברה — **דחה + shouldPause=true.**
+**חשוב לגבי כוונת רכישה:** אם הלקוח רוצה להזמין/לקנות/לרכוש — **חובה shouldPause=true** גם אם התשובה נכונה. הבוט לא יכול לבצע הזמנות.
+
+### 5b. לופ הבהרות
+אם הבוט שאל 2 הבהרות והלקוח עדיין שולח ג'יבריש — **חובה shouldPause=true.**
 
 ### 6. אורך
 יותר מ-3 משפטים — **דחה.**
@@ -492,6 +496,98 @@ const conversations: TestConversation[] = [
         lastUserMessage: "xxxx yyyy zzzz",
         expectedBehavior: { replyApproved: true, shouldPause: true, explanation: "2 הבהרות נכשלו + עדיין ג'יבריש — חייב [PAUSE]" },
     },
+    // ── Additional 10 scenarios ─────────────────────────────────────
+    // 21. Parking info from KB
+    {
+        id: "T21", name: "שאלה על חניה (קיים בKB)",
+        description: "חניה מופיעה בבסיס הידע — צריך לאשר",
+        history: [],
+        lastUserMessage: "יש חניה ליד המסעדה?",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "חניה קיימת ב-KB — תשובה תקינה" },
+    },
+    // 22. Reservation phone from KB
+    {
+        id: "T22", name: "הזמנת מקום — מספר טלפון (בKB)",
+        description: "לקוח שואל איך להזמין — טלפון קיים ב-KB",
+        history: [],
+        lastUserMessage: "איך אפשר להזמין מקום?",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "מספר טלפון להזמנות קיים ב-KB" },
+    },
+    // 23. Minimum delivery order from business instructions
+    {
+        id: "T23", name: "מינימום הזמנה למשלוח (בהגדרות)",
+        description: "מינימום 80 שח מופיע ב-agent_prompt",
+        history: [],
+        lastUserMessage: "מה המינימום להזמנת משלוח?",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "מינימום הזמנה מופיע בהגדרות העסק" },
+    },
+    // 24. Address from business instructions
+    {
+        id: "T24", name: "כתובת המסעדה (בהגדרות)",
+        description: "כתובת מופיעה ב-agent_prompt",
+        history: [],
+        lastUserMessage: "מה הכתובת שלכם?",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "כתובת מופיעה בהגדרות העסק" },
+    },
+    // 25. Multiple questions — bot should answer one
+    {
+        id: "T25", name: "שאלה כפולה — מחיר ושעות",
+        description: "לקוח שואל 2 שאלות — תשובה על אחת או שתיהן תקינה",
+        history: [],
+        lastUserMessage: "כמה עולה ארוחת צהריים ומתי אתם סוגרים?",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "שני הפרטים במקורות — תשובה תקינה" },
+    },
+    // 26. Polite goodbye — should not re-engage
+    {
+        id: "T26", name: "שלום — סיום שיחה",
+        description: "לקוח נפרד — תשובה קצרה",
+        history: [
+            { role: "user", content: "מה שעות הפתיחה?" },
+            { role: "assistant", content: "ראשון-חמישי 8:00-22:00, שישי 8:00-15:00." },
+            { role: "user", content: "תודה, שיהיה טוב!" },
+        ],
+        lastUserMessage: "ביי",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "פרידה — תשובה קצרה ותו לא" },
+    },
+    // 27. Emoji-only message
+    {
+        id: "T27", name: "הודעת אימוג'י בלבד",
+        description: "לקוח שולח רק אימוג'י — לא ברור מה רוצה",
+        history: [],
+        lastUserMessage: "👍",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "הודעה לא ברורה — שאלת הבהרה תקינה" },
+    },
+    // 28. Complaint about food quality — should pause
+    {
+        id: "T28", name: "תלונה על איכות אוכל",
+        description: "לקוח מתלונן — חייב העברה לנציג",
+        history: [],
+        lastUserMessage: "האוכל שקיבלתי היה קר ולא טעים בכלל, אני מאוד מאוכזב",
+        expectedBehavior: { replyApproved: true, shouldPause: true, explanation: "תלונה + אכזבה — חייב [PAUSE]" },
+    },
+    // 29. Question about vegan options — in business description
+    {
+        id: "T29", name: "שאלה על אוכל טבעוני",
+        description: "העסק מתואר כמסעדה טבעונית — מידע בהגדרות",
+        history: [],
+        lastUserMessage: "האם כל האוכל אצלכם טבעוני?",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "תיאור העסק אומר 'מסעדה טבעונית' — תשובה תקינה" },
+    },
+    // 30. Long follow-up conversation — context awareness
+    {
+        id: "T30", name: "שיחה ארוכה — מודעות להקשר",
+        description: "לקוח שואל שאלה המשך לאחר כמה הודעות",
+        history: [
+            { role: "user", content: "מה יש בתפריט?" },
+            { role: "assistant", content: "יש ארוחות בוקר, צהריים וערב — הכל טבעוני." },
+            { role: "user", content: "מה יש בארוחת בוקר?" },
+            { role: "assistant", content: "טוסט אבוקדו, גרנולה עם חלב שקדים, שקשוקה טבעונית ומאפה יומי." },
+            { role: "user", content: "כמה זה עולה?" },
+            { role: "assistant", content: "ארוחת בוקר 45-65 ש\"ח." },
+        ],
+        lastUserMessage: "יש לכם מבצעים?",
+        expectedBehavior: { replyApproved: true, shouldPause: false, explanation: "מבצע 1+1 קיים ב-KB — תשובה תקינה" },
+    },
 ];
 
 // ── Run Tests ────────────────────────────────────────────────────────
@@ -635,6 +731,16 @@ function evaluateReplyAgent(conv: TestConversation, reply: string): boolean {
             return !/ערב טוב.*אני העוזר/.test(rHeb) && !/שלום.*אני העוזר/.test(rHeb);
         case "T20": // Clarification loop — must pause
             return /\[PAUSE\]|נציג|מעביר/.test(reply);
+        case "T21": return /חניון|חניה|50 מטר|דיזנגוף/.test(reply);
+        case "T22": return /03-1234567|טלפון|להזמין/.test(reply);
+        case "T23": return /80|מינימום/.test(reply);
+        case "T24": return /דיזנגוף|99|תל אביב/.test(reply);
+        case "T25": return /55|85|22:00|15:00/.test(reply);
+        case "T26": return reply.length < 80;
+        case "T27": return /לפרט|לעזור|במה|הבהרה|PAUSE/.test(reply);
+        case "T28": return /\[PAUSE\]|נציג|מעביר|מצטער/.test(reply);
+        case "T29": return /טבעוני/.test(reply);
+        case "T30": return /1\+1|מבצע|קינוח/.test(reply);
         default:
             return true;
     }
@@ -652,29 +758,34 @@ function evaluateSystemOutcome(
     switch (conv.id) {
         case "T01": return /8:00|22:00|ראשון|חמישי|שישי|15:00/.test(rFinal);
         case "T02": return /45|65|ארוחת בוקר/.test(rFinal);
-        case "T03": // Either "not sure" or handoff — both are correct system behavior
-            return /לא בטוח|נציג|PAUSE/.test(rFinal);
-        case "T04": return finalPause; // Must pause for purchase intent
+        case "T03": return /לא בטוח|נציג|PAUSE/.test(rFinal);
+        case "T04": return finalPause;
         case "T05": return finalPause && /נציג|מעביר|PAUSE|החזר/.test(rFinal);
-        case "T06": // Validator caught repetition → fallback is OK, or reply says "already mentioned"
-            return /כבר|ציינתי|לא בטוח|נציג/.test(rFinal) || !finalPause;
+        case "T06": return /כבר|ציינתי|לא בטוח|נציג/.test(rFinal) || !finalPause;
         case "T07": return /לפרט|להבהיר|לנסח|PAUSE|נציג|לא בטוח|במה אוכל|לעזור/.test(rFinal);
         case "T08": return /קשור|עסק|מסעדה|לעזור|אוכל|PAUSE/.test(rFinal);
         case "T09": return !/שמעתי עליכם|אשמח לשמוע/.test(rFinal);
         case "T10": return /לא בטוח|לא יודע|נציג|PAUSE|מידע/.test(rFinal);
         case "T11": return /לעזור|עסק|מסעדה/.test(rFinal);
-        case "T12": // Should say "not sure" about delivery, or give minimum order info
-            return /לא בטוח|נציג|PAUSE|מינימום|משלוח/.test(rFinal);
+        case "T12": return /לא בטוח|נציג|PAUSE|מינימום|משלוח/.test(rFinal);
         case "T13": return rFinal.replace(/\[PAUSE\]/g, "").trim().length < 80;
-        case "T14": return finalPause; // Must pause after harassment
-        case "T15": // Either don't repeat 1+1, or say "already mentioned"
-            return !/1\+1/.test(rFinal) || /כבר/.test(rFinal);
-        case "T16": // "Not sure" or handoff — correct when info isn't in KB
-            return /לא בטוח|נציג|PAUSE/.test(rFinal);
+        case "T14": return finalPause;
+        case "T15": return !/1\+1/.test(rFinal) || /כבר/.test(rFinal);
+        case "T16": return /לא בטוח|נציג|PAUSE/.test(rFinal);
         case "T17": return finalPause;
         case "T18": return finalPause;
         case "T19": return !/ערב טוב.*אני העוזר/.test(rFinal) && /טוסט|אבוקדו|גרנולה|שקשוקה|מאפה/.test(rFinal);
-        case "T20": return finalPause; // Must pause after clarification loop
+        case "T20": return finalPause;
+        case "T21": return /חניון|חניה|50 מטר|דיזנגוף/.test(rFinal);
+        case "T22": return /03-1234567|טלפון|להזמין/.test(rFinal);
+        case "T23": return /80|מינימום/.test(rFinal);
+        case "T24": return /דיזנגוף|99|תל אביב/.test(rFinal);
+        case "T25": return /55|85|22:00|15:00/.test(rFinal);
+        case "T26": return rFinal.replace(/\[PAUSE\]/g, "").trim().length < 80;
+        case "T27": return /לפרט|לעזור|במה|הבהרה|PAUSE|לא בטוח/.test(rFinal);
+        case "T28": return finalPause;
+        case "T29": return /טבעוני/.test(rFinal);
+        case "T30": return /1\+1|מבצע|קינוח/.test(rFinal);
         default: return true;
     }
 }
@@ -705,7 +816,7 @@ function evaluateValidator(
 async function main() {
     console.log("╔══════════════════════════════════════════════════════════════╗");
     console.log("║     Reply Agent + Validator Agent — Comprehensive Test      ║");
-    console.log("║     20 conversations × reply + validate + retry             ║");
+    console.log("║     30 conversations × reply + validate + retry             ║");
     console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
     const results: TestResult[] = [];
