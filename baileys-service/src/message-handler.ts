@@ -296,7 +296,7 @@ export async function handleMessage(
 
         const { data: tenant } = await supabase
             .from("tenants")
-            .select("agent_mode, agent_filter_mode, business_name")
+            .select("agent_mode, agent_filter_mode, business_name, agent_prompt, description, products")
             .eq("id", tenantId)
             .single();
 
@@ -409,12 +409,20 @@ export async function handleMessage(
         const SAFE_FALLBACK = "לא בטוח, רוצה שאעביר לנציג?";
 
         if (!shouldSkipValidation(reply, isNewConversation)) {
+            // Build business context for validator (agent_prompt + description + products)
+            const businessContext = [
+                tenant.agent_prompt,
+                tenant.description ? `תיאור: ${tenant.description}` : null,
+                tenant.products ? `שירותים/מוצרים: ${tenant.products}` : null,
+            ].filter(Boolean).join("\n");
+
             const validatorInput = {
                 tenantId,
                 reply,
                 lastUserMessage: content,
                 history: chatHistory.map(m => ({ role: m.role, content: m.content })),
                 businessName: tenant.business_name ?? "",
+                businessContext,
                 knowledgeBaseSnippet: kbSnippet,
                 recentAssistantReplies: recentAssistant,
             };
@@ -438,13 +446,15 @@ export async function handleMessage(
                         finalReply = retryReply;
                         shouldPauseFromValidator = retryValidation.shouldPause;
                     } else {
+                        // Both rejected — safe fallback; only pause if a validator explicitly requested it
                         console.warn(`[${tenantId}] Validator rejected twice — using safe fallback`);
                         finalReply = SAFE_FALLBACK;
-                        shouldPauseFromValidator = true;
+                        shouldPauseFromValidator = validation.shouldPause || retryValidation.shouldPause;
                     }
                 } else {
+                    // Retry generation failed — safe fallback; pause only if first validator requested it
                     finalReply = SAFE_FALLBACK;
-                    shouldPauseFromValidator = true;
+                    shouldPauseFromValidator = validation.shouldPause;
                 }
             } else {
                 shouldPauseFromValidator = validation.shouldPause;

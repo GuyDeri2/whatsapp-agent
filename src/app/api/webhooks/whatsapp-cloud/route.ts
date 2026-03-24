@@ -306,7 +306,7 @@ async function processIncomingMessage(
             .single(),
         supabase
             .from("tenants")
-            .select("agent_mode, agent_filter_mode, business_name")
+            .select("agent_mode, agent_filter_mode, business_name, agent_prompt, description, products")
             .eq("id", tenantId)
             .single(),
     ]);
@@ -369,8 +369,15 @@ async function processIncomingMessage(
         return;
     }
 
+    // Build business context for validator (agent_prompt + description + products)
+    const businessContext = [
+        tenant.agent_prompt,
+        tenant.description ? `תיאור: ${tenant.description}` : null,
+        tenant.products ? `שירותים/מוצרים: ${tenant.products}` : null,
+    ].filter(Boolean).join("\n");
+
     // Generate and send AI reply (message already saved above)
-    await generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText, tenant.business_name ?? "");
+    await generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText, tenant.business_name ?? "", businessContext);
 }
 
 // ── AI Reply Generation ─────────────────────────────────────────────
@@ -382,7 +389,8 @@ async function generateAndSendAiReply(
     conversationId: string,
     phoneNumber: string,
     latestMessage: string,
-    businessName: string
+    businessName: string,
+    businessContext: string
 ): Promise<void> {
     try {
         // Fetch conversation history — last 60 minutes only (user + assistant, skip owner)
@@ -467,6 +475,7 @@ async function generateAndSendAiReply(
                 lastUserMessage: latestMessage,
                 history: history.map(m => ({ role: m.role, content: m.content })),
                 businessName,
+                businessContext,
                 knowledgeBaseSnippet: kbSnippet,
                 recentAssistantReplies: recentAssistant,
             };
@@ -490,15 +499,15 @@ async function generateAndSendAiReply(
                         finalReply = retryReply;
                         shouldPauseFromValidator = retryValidation.shouldPause;
                     } else {
-                        // Both rejected — safe fallback + pause
+                        // Both rejected — safe fallback; only pause if a validator explicitly requested it
                         console.warn(`[${tenantId}] Validator rejected twice — using safe fallback`);
                         finalReply = SAFE_FALLBACK;
-                        shouldPauseFromValidator = true;
+                        shouldPauseFromValidator = validation.shouldPause || retryValidation.shouldPause;
                     }
                 } else {
-                    // Retry generation failed — safe fallback + pause
+                    // Retry generation failed — safe fallback; pause only if first validator requested it
                     finalReply = SAFE_FALLBACK;
-                    shouldPauseFromValidator = true;
+                    shouldPauseFromValidator = validation.shouldPause;
                 }
             } else {
                 shouldPauseFromValidator = validation.shouldPause;
