@@ -8,6 +8,7 @@ import type { WASocket, WAMessage } from "@whiskeysockets/baileys";
 import { getSupabase } from "./session-manager";
 import { humanSend, RateLimiter } from "./antiban";
 import { generateReply, summarizeConversationForHandoff } from "./ai-agent";
+import { validateReply, shouldSkipValidation, getKnowledgeBaseSnippet } from "./ai-validator";
 import { resolveLidPhone } from "./lid-resolver";
 import { fetchAndStoreProfilePicture } from "./profile-pictures";
 
@@ -295,7 +296,7 @@ export async function handleMessage(
 
         const { data: tenant } = await supabase
             .from("tenants")
-            .select("agent_mode, agent_filter_mode")
+            .select("agent_mode, agent_filter_mode, business_name")
             .eq("id", tenantId)
             .single();
 
@@ -363,41 +364,94 @@ export async function handleMessage(
             created_at: m.created_at,
         }));
 
-        const reply = await generateReply(tenantId, chatHistory);
+        // Generate AI reply + prefetch KB snippet for validator in parallel
+        const recentAssistant = chatHistory
+            .filter(m => m.role === "assistant")
+            .slice(-5)
+            .map(m => m.content);
+        const isNewConversation = chatHistory.filter(m => m.role === "user").length === 1
+            && chatHistory.filter(m => m.role === "assistant").length === 0;
+
+        const [reply, kbSnippet] = await Promise.all([
+            generateReply(tenantId, chatHistory),
+            getKnowledgeBaseSnippet(tenantId),
+        ]);
         if (!reply) return;
 
-        // Role confusion guard: if AI responds from customer's perspective, block it
+        // Role confusion guard (deterministic fallback — runs even if validator fails)
         if (looksLikeCustomerMessage(reply)) {
             console.warn(`[${tenantId}] Role confusion detected — AI responded as customer: "${reply.substring(0, 60)}"`);
-            // Don't send anything — just silently skip
             return;
         }
 
-        // Check for [PAUSE] — handoff to owner
-        // Also detect when AI says "מעביר לנציג" without [PAUSE] tag
-        let shouldPause = reply.includes("[PAUSE]");
-        if (!shouldPause && looksLikeHandoff(reply)) {
+        // ── Validator Gate ───────────────────────────────────────
+        let finalReply = reply;
+        let shouldPauseFromValidator = false;
+        const SAFE_FALLBACK = "לא בטוח, רוצה שאעביר לנציג?";
+
+        if (!shouldSkipValidation(reply, isNewConversation)) {
+            const validatorInput = {
+                tenantId,
+                reply,
+                lastUserMessage: content,
+                history: chatHistory.map(m => ({ role: m.role, content: m.content })),
+                businessName: tenant.business_name ?? "",
+                knowledgeBaseSnippet: kbSnippet,
+                recentAssistantReplies: recentAssistant,
+            };
+
+            const validation = await validateReply(validatorInput);
+            console.log(`[${tenantId}] Validator: ${validation.approved ? "approved" : "rejected"} — ${validation.reason || "ok"}`);
+
+            if (!validation.approved) {
+                // Retry once: regenerate with validator feedback
+                const retryReply = await generateReply(tenantId, [
+                    ...chatHistory,
+                    { role: "assistant" as const, content: reply },
+                    { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${validation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. אם אתה לא בטוח — אמור שלא בטוח והצע להעביר לנציג.]` },
+                ]);
+
+                if (retryReply && !looksLikeCustomerMessage(retryReply)) {
+                    const retryValidation = await validateReply({ ...validatorInput, reply: retryReply });
+                    console.log(`[${tenantId}] Validator (retry): ${retryValidation.approved ? "approved" : "rejected"} — ${retryValidation.reason || "ok"}`);
+
+                    if (retryValidation.approved) {
+                        finalReply = retryReply;
+                        shouldPauseFromValidator = retryValidation.shouldPause;
+                    } else {
+                        console.warn(`[${tenantId}] Validator rejected twice — using safe fallback`);
+                        finalReply = SAFE_FALLBACK;
+                        shouldPauseFromValidator = true;
+                    }
+                } else {
+                    finalReply = SAFE_FALLBACK;
+                    shouldPauseFromValidator = true;
+                }
+            } else {
+                shouldPauseFromValidator = validation.shouldPause;
+            }
+        }
+
+        // ── Deterministic Safety Net (fallback for validator fail-open) ──
+        let shouldPause = finalReply.includes("[PAUSE]");
+        if (!shouldPause && looksLikeHandoff(finalReply)) {
             console.log(`[${tenantId}] Handoff keywords detected without [PAUSE] — forcing pause`);
             shouldPause = true;
         }
-        const cleanReply = reply.replace(/\[PAUSE\]/g, "").trim();
+        // Validator has FINAL say on pause decisions
+        if (shouldPauseFromValidator) shouldPause = true;
+
+        const cleanReply = finalReply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
-            // Anti-repetition: check if reply is similar to any of the last 5 assistant messages
-            // Uses word-level similarity (>= 70%) instead of exact match to catch rephrased duplicates
-            const recentAssistant = chatHistory
-                .filter(m => m.role === "assistant")
-                .slice(-5)
-                .map(m => m.content);
+            // Anti-repetition: deterministic safety net (catches cases where validator failed open)
             const isSimilarToRecent = recentAssistant.some(prev => wordSimilarity(prev, cleanReply) >= 0.7);
             if (isSimilarToRecent) {
                 console.warn(`[${tenantId}] Anti-repetition: reply too similar to recent message — auto-escalating`);
-                // Auto-escalate instead of repeating
                 const escalationMsg = "מעביר אותך לנציג שלנו שיוכל לעזור לך טוב יותר.";
                 await humanSend(socket, jid, escalationMsg);
                 await _saveMessage(tenantId, conversationId, "assistant", escalationMsg, null, true);
                 lastAiReplyAt.set(conversationId, Date.now());
-                // Pause the conversation
                 await supabase
                     .from("conversations")
                     .update({ is_paused: true, updated_at: new Date().toISOString() })
@@ -432,7 +486,7 @@ export async function handleMessage(
             rateLimiter.recordSend(tenantId, conversationId, cleanReply);
         }
 
-        // Pause conversation if handoff + notify owner
+        // Pause conversation if needed (validator + [PAUSE] tag + handoff detection)
         if (shouldPause) {
             await supabase
                 .from("conversations")
@@ -440,7 +494,6 @@ export async function handleMessage(
                 .eq("id", conversationId)
                 .eq("tenant_id", tenantId);
 
-            // Notify business owner via Baileys socket (best-effort, non-blocking)
             notifyOwnerOfEscalation(supabase, socket, tenantId, conversationId, phoneNumber)
                 .catch((err) => console.error(`[${tenantId}] Escalation notification error:`, err));
         }

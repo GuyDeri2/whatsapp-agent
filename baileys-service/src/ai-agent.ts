@@ -8,7 +8,7 @@ import { getSupabase } from "./session-manager";
 
 let _openai: OpenAI | null = null;
 
-function getOpenAI(): OpenAI {
+export function getOpenAI(): OpenAI {
     if (!_openai) {
         if (!process.env.DEEPSEEK_API_KEY) {
             throw new Error("DEEPSEEK_API_KEY is not set");

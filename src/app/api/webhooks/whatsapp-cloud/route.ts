@@ -12,6 +12,7 @@
 import { NextResponse, after } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { generateReply, summarizeConversationForHandoff } from "@/lib/ai-agent";
+import { validateReply, shouldSkipValidation, getKnowledgeBaseSnippet } from "@/lib/ai-validator";
 import {
     verifyWebhookSignature,
     getCloudConfigByPhoneId,
@@ -305,7 +306,7 @@ async function processIncomingMessage(
             .single(),
         supabase
             .from("tenants")
-            .select("agent_mode, agent_filter_mode")
+            .select("agent_mode, agent_filter_mode, business_name")
             .eq("id", tenantId)
             .single(),
     ]);
@@ -369,7 +370,7 @@ async function processIncomingMessage(
     }
 
     // Generate and send AI reply (message already saved above)
-    await generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText);
+    await generateAndSendAiReply(config, supabase, tenantId, conversation.id, phoneNumber, messageText, tenant.business_name ?? "");
 }
 
 // ── AI Reply Generation ─────────────────────────────────────────────
@@ -380,7 +381,8 @@ async function generateAndSendAiReply(
     tenantId: string,
     conversationId: string,
     phoneNumber: string,
-    latestMessage: string
+    latestMessage: string,
+    businessName: string
 ): Promise<void> {
     try {
         // Fetch conversation history — last 60 minutes only (user + assistant, skip owner)
@@ -414,32 +416,91 @@ async function generateAndSendAiReply(
             return;
         }
 
-        // Generate AI reply
-        const reply = await generateReply(tenantId, history);
+        // Generate AI reply + prefetch KB snippet for validator in parallel
+        const recentAssistant = history
+            .filter(m => m.role === "assistant")
+            .slice(-5)
+            .map(m => m.content);
+        const isNewConversation = history.filter(m => m.role === "user").length === 1
+            && history.filter(m => m.role === "assistant").length === 0;
+
+        const [reply, kbSnippet] = await Promise.all([
+            generateReply(tenantId, history),
+            getKnowledgeBaseSnippet(tenantId),
+        ]);
         if (!reply) return;
 
-        // Role confusion guard: if AI responds from customer's perspective, block it
+        // Role confusion guard (deterministic fallback — runs even if validator fails)
         if (looksLikeCustomerMessage(reply)) {
             console.warn(`[${tenantId}] Role confusion detected — AI responded as customer: "${reply.substring(0, 60)}"`);
             return;
         }
 
+        // ── Validator Gate ───────────────────────────────────────
+        let finalReply = reply;
+        let shouldPauseFromValidator = false;
+        const SAFE_FALLBACK = "לא בטוח, רוצה שאעביר לנציג?";
+
+        if (!shouldSkipValidation(reply, isNewConversation)) {
+            const validatorInput = {
+                tenantId,
+                reply,
+                lastUserMessage: latestMessage,
+                history: history.map(m => ({ role: m.role, content: m.content })),
+                businessName,
+                knowledgeBaseSnippet: kbSnippet,
+                recentAssistantReplies: recentAssistant,
+            };
+
+            const validation = await validateReply(validatorInput);
+            console.log(`[${tenantId}] Validator: ${validation.approved ? "approved" : "rejected"} — ${validation.reason || "ok"}`);
+
+            if (!validation.approved) {
+                // Retry once: regenerate with validator feedback
+                const retryReply = await generateReply(tenantId, [
+                    ...history,
+                    { role: "assistant" as const, content: reply },
+                    { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${validation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. אם אתה לא בטוח — אמור שלא בטוח והצע להעביר לנציג.]` },
+                ]);
+
+                if (retryReply && !looksLikeCustomerMessage(retryReply)) {
+                    const retryValidation = await validateReply({ ...validatorInput, reply: retryReply });
+                    console.log(`[${tenantId}] Validator (retry): ${retryValidation.approved ? "approved" : "rejected"} — ${retryValidation.reason || "ok"}`);
+
+                    if (retryValidation.approved) {
+                        finalReply = retryReply;
+                        shouldPauseFromValidator = retryValidation.shouldPause;
+                    } else {
+                        // Both rejected — safe fallback + pause
+                        console.warn(`[${tenantId}] Validator rejected twice — using safe fallback`);
+                        finalReply = SAFE_FALLBACK;
+                        shouldPauseFromValidator = true;
+                    }
+                } else {
+                    // Retry generation failed — safe fallback + pause
+                    finalReply = SAFE_FALLBACK;
+                    shouldPauseFromValidator = true;
+                }
+            } else {
+                shouldPauseFromValidator = validation.shouldPause;
+            }
+        }
+
+        // ── Deterministic Safety Net (fallback for validator fail-open) ──
         // Handle [PAUSE] — handoff to human
         // Also detect when AI says "מעביר לנציג" without [PAUSE] tag
-        let isPause = reply.includes("[PAUSE]");
-        if (!isPause && looksLikeHandoff(reply)) {
+        let isPause = finalReply.includes("[PAUSE]");
+        if (!isPause && looksLikeHandoff(finalReply)) {
             console.log(`[${tenantId}] Handoff keywords detected without [PAUSE] — forcing pause`);
             isPause = true;
         }
-        const cleanReply = reply.replace(/\[PAUSE\]/g, "").trim();
+        // Validator has FINAL say on pause decisions
+        if (shouldPauseFromValidator) isPause = true;
+
+        const cleanReply = finalReply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
-            // Anti-repetition: check if reply is similar to any of the last 5 assistant messages
-            // Uses word-level similarity (>= 70%) instead of exact match to catch rephrased duplicates
-            const recentAssistant = history
-                .filter(m => m.role === "assistant")
-                .slice(-5)
-                .map(m => m.content);
+            // Anti-repetition: deterministic safety net (catches cases where validator failed open)
             const isSimilarToRecent = recentAssistant.some(prev => wordSimilarity(prev, cleanReply) >= 0.7);
             if (isSimilarToRecent) {
                 console.warn(`[${tenantId}] Anti-repetition: reply matches previous message — auto-escalating`);
@@ -484,7 +545,7 @@ async function generateAndSendAiReply(
             }
         }
 
-        // Pause conversation if [PAUSE] detected (handoff to human)
+        // Pause conversation if needed (validator + [PAUSE] tag + handoff detection)
         if (isPause) {
             await supabase
                 .from("conversations")
