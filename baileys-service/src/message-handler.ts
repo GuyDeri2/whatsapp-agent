@@ -443,8 +443,8 @@ export async function handleMessage(
 
                 for (let attempt = 1; attempt <= MAX_VALIDATOR_RETRIES; attempt++) {
                     retryHistory.push(
-                        { role: "assistant" as const, content: currentReply },
-                        { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${currentValidation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. אם אתה לא בטוח — אמור שלא בטוח והצע להעביר לנציג.]` },
+                        { role: "assistant" as const, content: currentReply, created_at: new Date().toISOString() },
+                        { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${currentValidation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. אם אתה לא בטוח — אמור שלא בטוח והצע להעביר לנציג.]`, created_at: new Date().toISOString() },
                     );
 
                     const retryReply = await generateReply(tenantId, retryHistory);
