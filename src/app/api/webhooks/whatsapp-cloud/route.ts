@@ -497,7 +497,7 @@ async function generateAndSendAiReply(
                 for (let attempt = 1; attempt <= MAX_VALIDATOR_RETRIES; attempt++) {
                     retryHistory.push(
                         { role: "assistant" as const, content: currentReply, created_at: new Date().toISOString() },
-                        { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${currentValidation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. אם אתה לא בטוח — אמור שלא בטוח והצע להעביר לנציג.]`, created_at: new Date().toISOString() },
+                        { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${currentValidation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. נסה קודם לענות ישירות על השאלה. רק אם באמת אין לך מידע — הצע להעביר לנציג.]`, created_at: new Date().toISOString() },
                     );
 
                     const retryReply = await generateReply(tenantId, retryHistory);
@@ -545,21 +545,45 @@ async function generateAndSendAiReply(
         const cleanReply = finalReply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
-            // Anti-repetition: soft guard — send gentle acknowledgment instead of escalating
+            // Anti-repetition: if reply is too similar to a recent one, retry with explicit instruction
             const isSimilarToRecent = recentAssistant.some(prev => wordSimilarity(prev, cleanReply) >= 0.7);
             if (isSimilarToRecent) {
-                console.warn(`[${tenantId}] Anti-repetition: reply too similar to recent message — sending soft response`);
-                const softMsg = "אני כאן אם תצטרך עזרה נוספת 🙂";
-                const softResult = await sendTextMessage(config, phoneNumber, softMsg);
+                console.warn(`[${tenantId}] Anti-repetition: reply too similar to recent message — retrying with differentiation prompt`);
+                const antiRepeatHistory = [...history,
+                    { role: "assistant" as const, content: finalReply, created_at: new Date().toISOString() },
+                    { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה שלך דומה מדי לתשובה קודמת שכבר שלחת. הלקוח ממתין לעזרה אמיתית. אתה חייב לכתוב תשובה שונה לחלוטין. אפשרויות: (1) ענה ישירות על מה שהלקוח שאל, גם אם כבר ענית משהו דומה — נסח אחרת. (2) אם אין לך מידע ספציפי — אמור "לא בטוח לגבי הפרטים המדויקים, רוצה שאעביר לנציג?" עם [PAUSE]. אל תחזור על תשובות קודמות.]`, created_at: new Date().toISOString() },
+                ];
+                const retryReply = await generateReply(tenantId, antiRepeatHistory);
+                if (retryReply && !looksLikeCustomerMessage(retryReply)) {
+                    const retryClean = retryReply.replace(/\[PAUSE\]/g, "").trim();
+                    if (retryClean && !recentAssistant.some(prev => wordSimilarity(prev, retryClean) >= 0.7)) {
+                        // Retry succeeded with a different reply
+                        let retryPause = retryReply.includes("[PAUSE]") || isPause;
+                        if (!retryPause && looksLikeHandoff(retryReply)) retryPause = true;
+                        const retryResult = await sendTextMessage(config, phoneNumber, retryClean);
+                        await supabase.from("messages").insert({
+                            conversation_id: conversationId, tenant_id: tenantId, role: "assistant",
+                            content: retryClean, is_from_agent: true,
+                            wa_message_id: retryResult.messageId ?? null, status: retryResult.success ? "sent" : "failed",
+                        });
+                        if (retryPause) {
+                            await supabase.from("conversations").update({ is_paused: true }).eq("id", conversationId);
+                            await notifyOwnerOfEscalation(config, supabase, tenantId, conversationId, phoneNumber);
+                        }
+                        return;
+                    }
+                }
+                // Retry also similar or failed — transfer to rep
+                console.warn(`[${tenantId}] Anti-repetition retry also similar — transferring to rep`);
+                const handoffMsg = "לא בטוח לגבי הפרטים המדויקים, מעביר אותך לנציג שלנו.";
+                const handoffResult = await sendTextMessage(config, phoneNumber, handoffMsg);
                 await supabase.from("messages").insert({
-                    conversation_id: conversationId,
-                    tenant_id: tenantId,
-                    role: "assistant",
-                    content: softMsg,
-                    is_from_agent: true,
-                    wa_message_id: softResult.messageId ?? null,
-                    status: softResult.success ? "sent" : "failed",
+                    conversation_id: conversationId, tenant_id: tenantId, role: "assistant",
+                    content: handoffMsg, is_from_agent: true,
+                    wa_message_id: handoffResult.messageId ?? null, status: handoffResult.success ? "sent" : "failed",
                 });
+                await supabase.from("conversations").update({ is_paused: true }).eq("id", conversationId);
+                await notifyOwnerOfEscalation(config, supabase, tenantId, conversationId, phoneNumber);
                 return;
             }
 
