@@ -545,23 +545,21 @@ async function generateAndSendAiReply(
         const cleanReply = finalReply.replace(/\[PAUSE\]/g, "").trim();
 
         if (cleanReply) {
-            // Anti-repetition: deterministic safety net (catches cases where validator failed open)
+            // Anti-repetition: soft guard — send gentle acknowledgment instead of escalating
             const isSimilarToRecent = recentAssistant.some(prev => wordSimilarity(prev, cleanReply) >= 0.7);
             if (isSimilarToRecent) {
-                console.warn(`[${tenantId}] Anti-repetition: reply matches previous message — auto-escalating`);
-                const escalationMsg = "מעביר אותך לנציג שלנו שיוכל לעזור לך טוב יותר.";
-                const escResult = await sendTextMessage(config, phoneNumber, escalationMsg);
+                console.warn(`[${tenantId}] Anti-repetition: reply too similar to recent message — sending soft response`);
+                const softMsg = "אני כאן אם תצטרך עזרה נוספת 🙂";
+                const softResult = await sendTextMessage(config, phoneNumber, softMsg);
                 await supabase.from("messages").insert({
                     conversation_id: conversationId,
                     tenant_id: tenantId,
                     role: "assistant",
-                    content: escalationMsg,
+                    content: softMsg,
                     is_from_agent: true,
-                    wa_message_id: escResult.messageId ?? null,
-                    status: escResult.success ? "sent" : "failed",
+                    wa_message_id: softResult.messageId ?? null,
+                    status: softResult.success ? "sent" : "failed",
                 });
-                await supabase.from("conversations").update({ is_paused: true }).eq("id", conversationId);
-                await notifyOwnerOfEscalation(config, supabase, tenantId, conversationId, phoneNumber);
                 return;
             }
 
