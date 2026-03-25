@@ -493,11 +493,13 @@ async function generateAndSendAiReply(
                 let approved = false;
                 const retryHistory = [...history];
                 let lastShouldPause = currentValidation.shouldPause;
+                const rejectionReasons: string[] = [currentValidation.reason];
 
                 for (let attempt = 1; attempt <= MAX_VALIDATOR_RETRIES; attempt++) {
+                    const allReasons = rejectionReasons.join("; ");
                     retryHistory.push(
                         { role: "assistant" as const, content: currentReply, created_at: new Date().toISOString() },
-                        { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${currentValidation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. נסה קודם לענות ישירות על השאלה. רק אם באמת אין לך מידע — הצע להעביר לנציג.]`, created_at: new Date().toISOString() },
+                        { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה (ניסיון ${attempt}/${MAX_VALIDATOR_RETRIES}). סיבות דחייה עד כה: ${allReasons}. כתוב תשובה שונה לחלוטין. חשוב: ענה ישירות על מה שהלקוח שאל. אם אין לך מידע מדויק על מוצר ספציפי — אמור מה כן ידוע לך מהמאגר ואז הצע להעביר לנציג לפרטים נוספים עם [PAUSE]. אל תגיד "לא הבנתי" אם השאלה ברורה.]`, created_at: new Date().toISOString() },
                     );
 
                     const retryReply = await generateReply(tenantId, retryHistory);
@@ -520,6 +522,7 @@ async function generateAndSendAiReply(
 
                     currentReply = retryReply;
                     currentValidation = retryValidation;
+                    rejectionReasons.push(retryValidation.reason);
                 }
 
                 if (!approved) {
