@@ -466,7 +466,8 @@ async function generateAndSendAiReply(
         // ── Validator Gate ───────────────────────────────────────
         let finalReply = reply;
         let shouldPauseFromValidator = false;
-        const SAFE_FALLBACK = "לא בטוח, רוצה שאעביר לנציג?";
+        const MAX_VALIDATOR_RETRIES = 5;
+        const TECHNICAL_FALLBACK = "מצטערים, נתקלנו בבעיה טכנית. מעביר אותך לנציג שלנו. [PAUSE]";
 
         if (!shouldSkipValidation(reply, isNewConversation)) {
             const validatorInput = {
@@ -480,37 +481,53 @@ async function generateAndSendAiReply(
                 recentAssistantReplies: recentAssistant,
             };
 
-            const validation = await validateReply(validatorInput);
-            console.log(`[${tenantId}] Validator: ${validation.approved ? "approved" : "rejected"} — ${validation.reason || "ok"}`);
+            let currentReply = reply;
+            let currentValidation = await validateReply(validatorInput);
+            console.log(`[${tenantId}] Validator: ${currentValidation.approved ? "approved" : "rejected"} — ${currentValidation.reason || "ok"}`);
 
-            if (!validation.approved) {
-                // Retry once: regenerate with validator feedback
-                const retryReply = await generateReply(tenantId, [
-                    ...history,
-                    { role: "assistant" as const, content: reply },
-                    { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${validation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. אם אתה לא בטוח — אמור שלא בטוח והצע להעביר לנציג.]` },
-                ]);
+            if (currentValidation.approved) {
+                finalReply = currentReply;
+                shouldPauseFromValidator = currentValidation.shouldPause;
+            } else {
+                // Retry loop — up to MAX_VALIDATOR_RETRIES attempts
+                let approved = false;
+                const retryHistory = [...history];
+                let lastShouldPause = currentValidation.shouldPause;
 
-                if (retryReply && !looksLikeCustomerMessage(retryReply)) {
+                for (let attempt = 1; attempt <= MAX_VALIDATOR_RETRIES; attempt++) {
+                    retryHistory.push(
+                        { role: "assistant" as const, content: currentReply, created_at: new Date().toISOString() },
+                        { role: "user" as const, content: `[הערת מערכת — לא מהלקוח: התשובה הקודמת נדחתה. סיבה: ${currentValidation.reason}. כתוב תשובה חדשה שמתקנת את הבעיה. אם אתה לא בטוח — אמור שלא בטוח והצע להעביר לנציג.]`, created_at: new Date().toISOString() },
+                    );
+
+                    const retryReply = await generateReply(tenantId, retryHistory);
+                    if (!retryReply || looksLikeCustomerMessage(retryReply)) {
+                        console.warn(`[${tenantId}] Retry ${attempt} generation failed`);
+                        continue;
+                    }
+
                     const retryValidation = await validateReply({ ...validatorInput, reply: retryReply });
-                    console.log(`[${tenantId}] Validator (retry): ${retryValidation.approved ? "approved" : "rejected"} — ${retryValidation.reason || "ok"}`);
+                    console.log(`[${tenantId}] Validator (retry ${attempt}): ${retryValidation.approved ? "approved" : "rejected"} — ${retryValidation.reason || "ok"}`);
+
+                    lastShouldPause = lastShouldPause || retryValidation.shouldPause;
 
                     if (retryValidation.approved) {
                         finalReply = retryReply;
                         shouldPauseFromValidator = retryValidation.shouldPause;
-                    } else {
-                        // Both rejected — safe fallback; only pause if a validator explicitly requested it
-                        console.warn(`[${tenantId}] Validator rejected twice — using safe fallback`);
-                        finalReply = SAFE_FALLBACK;
-                        shouldPauseFromValidator = validation.shouldPause || retryValidation.shouldPause;
+                        approved = true;
+                        break;
                     }
-                } else {
-                    // Retry generation failed — safe fallback; pause only if first validator requested it
-                    finalReply = SAFE_FALLBACK;
-                    shouldPauseFromValidator = validation.shouldPause;
+
+                    currentReply = retryReply;
+                    currentValidation = retryValidation;
                 }
-            } else {
-                shouldPauseFromValidator = validation.shouldPause;
+
+                if (!approved) {
+                    // All retries exhausted — technical fallback + force handoff
+                    console.warn(`[${tenantId}] Validator rejected ${MAX_VALIDATOR_RETRIES + 1} times — technical fallback + handoff`);
+                    finalReply = TECHNICAL_FALLBACK;
+                    shouldPauseFromValidator = true;
+                }
             }
         }
 
