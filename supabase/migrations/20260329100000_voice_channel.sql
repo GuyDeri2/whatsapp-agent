@@ -9,7 +9,7 @@ ALTER TABLE tenants
   ADD COLUMN IF NOT EXISTS voice_settings jsonb DEFAULT '{"stability":0.65,"similarity_boost":0.8,"speed":0.95}',
   ADD COLUMN IF NOT EXISTS voice_first_message text,
   ADD COLUMN IF NOT EXISTS voice_custom_instructions text,
-  ADD COLUMN IF NOT EXISTS voice_webhook_secret text DEFAULT encode(gen_random_bytes(32), 'hex'),
+  ADD COLUMN IF NOT EXISTS voice_webhook_secret text DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
   ADD COLUMN IF NOT EXISTS twilio_phone_number text,
   ADD COLUMN IF NOT EXISTS voice_enabled boolean DEFAULT false;
 
