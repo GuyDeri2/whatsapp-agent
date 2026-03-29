@@ -42,6 +42,8 @@ When you receive a development command:
 - Supabase (tables, RLS, Auth)
 - session-manager (Baileys, message handling, AI replies)
 - Database schema & migrations
+- Voice channel: ElevenLabs API (`src/lib/elevenlabs.ts`), Twilio SMS, voice agent setup/config
+- KB sync to ElevenLabs (when voice is enabled for a tenant)
 
 ### Use UX Agent for:
 - User flows and interaction design

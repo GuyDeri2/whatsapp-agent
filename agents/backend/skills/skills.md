@@ -153,3 +153,100 @@ if (agent_prompt && agent_prompt.length > 5000) {
   return NextResponse.json({ error: 'agent_prompt too long (max 5000 chars)' }, { status: 400 })
 }
 ```
+
+---
+
+## ElevenLabs Conversational AI Integration
+
+### Agent Creation & Config
+```typescript
+// src/lib/elevenlabs.ts — ElevenLabs API client
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
+const BASE_URL = "https://api.elevenlabs.io";
+
+// Create agent → returns agent_id, saved to tenants.elevenlabs_agent_id
+async function createAgent(config: AgentConfigParams): Promise<string>;
+// Update agent config (voice, prompt, tools, KB refs)
+async function updateAgent(agentId: string, config: Partial<AgentConfigParams>): Promise<void>;
+// Sync all KB docs to agent's knowledge base references
+async function syncKnowledgeBase(agentId: string, docIds: string[]): Promise<void>;
+// Create/delete individual KB documents
+async function createKBDocument(name: string, text: string): Promise<string>; // returns doc_id
+async function deleteKBDocument(docId: string): Promise<void>;
+```
+
+### Two-Layer Voice Config Pattern
+```
+Layer 1 (Platform — immutable, in voice-platform-config.ts):
+  - Hebrew pronunciation rules, gender-aware grammar
+  - Tool definitions (send_sms via webhook)
+  - Safety boundaries, response length limits
+
+Layer 2 (Business owner — customizable, in DB):
+  - Business name, greeting, custom instructions
+  - Voice selection (from voice_catalog)
+  - KB content (synced to ElevenLabs)
+```
+
+### Gender-Aware System Prompt
+```typescript
+// src/lib/voice-platform-config.ts
+function buildSystemPrompt(gender: "male" | "female"): string {
+  // Hebrew verb conjugation changes by gender:
+  // male: "אתה מזכיר AI", "אמור", "ענה"
+  // female: "את מזכירה AI", "אמרי", "עני"
+}
+```
+
+### KB Sync to ElevenLabs (CRITICAL PATTERN)
+```
+ElevenLabs KB docs CANNOT be updated in-place. Pattern:
+1. Delete old doc (by elevenlabs_kb_id)
+2. Create new doc with updated content
+3. Update elevenlabs_kb_id in knowledge_base row
+4. Call syncKnowledgeBaseToAgent() to update agent references
+```
+
+---
+
+## Twilio SMS Integration
+
+```typescript
+// src/lib/twilio.ts — Lazy-initialized singleton
+import Twilio from "twilio";
+
+let client: Twilio.Twilio | null = null;
+function getClient(): Twilio.Twilio {
+  if (!client) client = Twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
+  return client;
+}
+
+// Phone numbers must include country code without +
+async function sendSms(to: string, body: string): Promise<void> {
+  await getClient().messages.create({ to: `+${to}`, from: process.env.TWILIO_FROM_NUMBER!, body });
+}
+```
+
+---
+
+## Voice Webhook (ElevenLabs Tools)
+
+```typescript
+// src/app/api/webhooks/elevenlabs-tools/[tenantId]/route.ts
+// Validates x-webhook-secret header against tenant's voice_webhook_secret
+// Executes tool calls from ElevenLabs (e.g., send_sms)
+// Uses supabaseAdmin (service role) — no user auth needed for webhooks
+```
+
+---
+
+## Voice API Routes
+
+```
+GET  /api/tenants/[tenantId]/voice          → Read voice settings
+PATCH /api/tenants/[tenantId]/voice         → Update settings + sync to ElevenLabs
+POST /api/tenants/[tenantId]/voice/setup    → Create ElevenLabs agent for tenant
+GET  /api/tenants/[tenantId]/voice/catalog  → List voices from voice_catalog table
+POST /api/tenants/[tenantId]/voice/kb-sync  → Sync KB change to ElevenLabs
+POST /api/webhooks/elevenlabs-tools/[tenantId] → ElevenLabs tool webhook (SMS)
+```

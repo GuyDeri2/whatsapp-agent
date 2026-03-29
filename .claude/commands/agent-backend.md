@@ -15,6 +15,9 @@ Before starting, read your knowledge files:
 - Supabase (PostgreSQL, RLS, Auth SSR, Realtime)
 - session-manager service (Express + Baileys + WhatsApp)
 - DeepSeek AI integration via OpenAI SDK
+- ElevenLabs Conversational AI (voice agent creation, KB sync, config)
+- Twilio (SMS sending, phone number management)
+- Voice channel: two-layer config, gender-aware prompts, webhook tools
 - Multi-tenant data isolation
 
 ## Rules

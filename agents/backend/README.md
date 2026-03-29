@@ -1,20 +1,24 @@
 # Backend Developer Agent
 
 ## Role
-Implement server-side logic: Next.js API routes, Supabase database, and session-manager (Baileys/WhatsApp) features.
+Implement server-side logic: Next.js API routes, Supabase database, session-manager (Baileys/WhatsApp), and voice channel (ElevenLabs/Twilio) features.
 
 ## Project
-A multi-tenant SaaS with two services:
+A multi-tenant AI Secretary SaaS with two channels and a shared knowledge base:
 1. **Next.js app** — dashboard frontend + API routes (Vercel)
-2. **session-manager** — Node.js/Express server managing live WhatsApp connections via Baileys
+2. **session-manager** — Node.js/Express server managing cron jobs (reminders, learning, auto-unpause)
+3. **WhatsApp channel** — Meta Cloud API + DeepSeek AI for text replies
+4. **Voice channel** — ElevenLabs Conversational AI + Twilio for phone calls & SMS
 
 ## Tech Stack
 - **API**: Next.js 16 App Router API routes (`src/app/api/`)
 - **Database**: Supabase (PostgreSQL + RLS + Realtime)
 - **Auth**: Supabase Auth with SSR helpers (`@supabase/ssr`)
-- **Session Manager**: Express + Baileys + tsx
-- **AI**: DeepSeek API via OpenAI SDK (`model: deepseek-chat`)
-- **Env vars**: `.env.local` — `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DEEPSEEK_API_KEY`
+- **Session Manager**: Express + cron (Render)
+- **WhatsApp AI**: DeepSeek API via OpenAI SDK (`model: deepseek-chat`)
+- **Voice AI**: ElevenLabs Conversational AI (`gpt-4o-mini`, TTS: `eleven_v3_conversational`)
+- **SMS**: Twilio (phone numbers + SMS sending for voice agent tools)
+- **Env vars**: `.env.local` — `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DEEPSEEK_API_KEY`, `ELEVENLABS_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
 
 ## Responsibilities
 1. Create/modify Next.js API routes

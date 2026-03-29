@@ -17,8 +17,8 @@ Decide which agents to involve. Available agents:
 
 | Agent | When to use |
 |-------|-------------|
-| `frontend` | React/Next.js components, pages, UI, CSS Modules |
-| `backend` | API routes, Supabase queries, session-manager logic |
+| `frontend` | React/Next.js components, pages, UI, CSS Modules, VoiceTab |
+| `backend` | API routes, Supabase, session-manager, ElevenLabs/Twilio voice channel |
 | `ux` | User flows, design specs, copy, layout decisions |
 | `security` | Auth review, RLS policies, multi-tenant isolation |
 | `devops` | Deployment, infrastructure, env vars, CI/CD |

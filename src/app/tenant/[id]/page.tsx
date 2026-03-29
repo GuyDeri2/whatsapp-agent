@@ -12,6 +12,8 @@ import { ContactsTab } from "@/components/tenant/ContactsTab";
 import { CapabilitiesTab } from "@/components/tenant/CapabilitiesTab";
 import { LeadsTab } from "@/components/tenant/LeadsTab";
 import { CalendarTab } from "@/components/tenant/CalendarTab";
+import { VoiceTab } from "@/components/tenant/VoiceTab";
+import { HomeTab } from "@/components/tenant/HomeTab";
 import { OnboardingWizard } from "@/components/tenant/OnboardingWizard";
 
 /* ------------------------------------------------------------------ */
@@ -36,6 +38,9 @@ interface Tenant {
     website_last_crawled_at: string | null;
     agent_prompt: string | null;
     setup_completed: boolean;
+    elevenlabs_agent_id?: string | null;
+    voice_enabled?: boolean;
+    twilio_phone_number?: string | null;
     connection_type?: string | null;
     whatsapp_cloud_config?: {
         phone_number_id: string;
@@ -217,7 +222,7 @@ export default function TenantPage() {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
-    const [activeTab, setActiveTab] = useState<"chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads" | "calendar">("chat");
+    const [activeTab, setActiveTab] = useState<"home" | "chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads" | "calendar" | "voice">("home");
     const [enabledTabs, setEnabledTabs] = useState<string[]>([]);
     // QR code and connection status removed — WhatsApp Cloud API uses OAuth, not QR scanning
     const [saving, setSaving] = useState(false);
@@ -976,35 +981,68 @@ export default function TenantPage() {
                 </div>
             </header>
 
-            {/* Tab Navigation */}
+            {/* Tab Navigation — Progressive Disclosure */}
             <nav className="relative z-10 flex overflow-x-auto border-b border-white/[0.06] px-2 sm:px-6 hide-scrollbar bg-black/30">
-                {[
-                    { id: "chat",         icon: "💬", label: "שיחות",       flag: "tab_chat" },
-                    { id: "contacts",     icon: "👥", label: "אנשי קשר",   flag: "tab_contacts", action: fetchContactRules },
-                    { id: "connect",      icon: "📱", label: "ווטסאפ",     flag: "tab_connect" },
-                    { id: "capabilities", icon: "🧠", label: "יכולות",     flag: "tab_capabilities" },
-                    { id: "leads",        icon: "🎯", label: "לידים",      flag: "tab_leads" },
-                    { id: "calendar",     icon: "📅", label: "יומן",       flag: "tab_calendar" },
-                    { id: "settings",     icon: "⚙️", label: "הגדרות",     flag: "tab_settings" }
-                ].filter((tab) => enabledTabs.length === 0 || enabledTabs.includes(tab.flag)).map((tab) => (
-                    <button
-                        key={tab.id}
-                        onClick={() => { setActiveTab(tab.id as any); if (tab.action) tab.action(); }}
-                        className={`relative flex items-center gap-2 px-4 py-3 whitespace-nowrap text-sm font-medium transition-all ${activeTab === tab.id
-                            ? "text-white"
-                            : "text-neutral-500 hover:text-neutral-300"
-                        }`}
-                    >
-                        <span className="text-base leading-none">{tab.icon}</span>
-                        <span>{tab.label}</span>
-                        {activeTab === tab.id && (
-                            <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-                        )}
-                    </button>
-                ))}
+                {(() => {
+                    const waConnected = tenant.whatsapp_connected;
+                    const voiceConnected = !!tenant.elevenlabs_agent_id;
+
+                    const allTabs: { id: string; icon: string; label: string; flag: string; action?: () => void }[] = [
+                        // Always visible
+                        { id: "home",         icon: "🏠", label: "בית",         flag: "tab_home" },
+                        // WhatsApp dynamic tabs — only when WA connected
+                        ...(waConnected ? [
+                            { id: "chat",         icon: "💬", label: "שיחות",       flag: "tab_chat" },
+                            { id: "contacts",     icon: "👥", label: "אנשי קשר",   flag: "tab_contacts", action: fetchContactRules },
+                            { id: "leads",        icon: "🎯", label: "לידים",      flag: "tab_leads" },
+                            { id: "calendar",     icon: "📅", label: "יומן",       flag: "tab_calendar" },
+                        ] : []),
+                        // Voice dynamic tab — only when voice agent set up
+                        ...(voiceConnected ? [
+                            { id: "voice",        icon: "📞", label: "טלפון",      flag: "tab_voice" },
+                        ] : []),
+                        // Always visible
+                        { id: "capabilities", icon: "🧠", label: "יכולות",     flag: "tab_capabilities" },
+                        { id: "settings",     icon: "⚙️", label: "הגדרות",     flag: "tab_settings" },
+                    ];
+
+                    return allTabs
+                        .filter((tab) => enabledTabs.length === 0 || tab.id === "home" || enabledTabs.includes(tab.flag))
+                        .map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => { setActiveTab(tab.id as typeof activeTab); if (tab.action) tab.action(); }}
+                            className={`relative flex items-center gap-2 px-4 py-3 whitespace-nowrap text-sm font-medium transition-all ${activeTab === tab.id
+                                ? "text-white"
+                                : "text-neutral-500 hover:text-neutral-300"
+                            }`}
+                        >
+                            <span className="text-base leading-none">{tab.icon}</span>
+                            <span>{tab.label}</span>
+                            {activeTab === tab.id && (
+                                <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                            )}
+                        </button>
+                    ));
+                })()}
             </nav>
 
             <div className="relative z-10 flex-1 flex flex-col h-0 overflow-hidden bg-black/40">
+                {activeTab === "home" && (
+                    <div className="p-6 overflow-y-auto w-full max-w-4xl mx-auto h-full">
+                        <HomeTab
+                            whatsappConnected={tenant.whatsapp_connected}
+                            whatsappPhone={tenant.whatsapp_phone}
+                            voiceConnected={!!tenant.elevenlabs_agent_id}
+                            voicePhone={tenant.twilio_phone_number ?? null}
+                            onNavigateToConnect={() => setActiveTab("connect")}
+                            onNavigateToVoice={() => setActiveTab("voice")}
+                            onNavigateToChat={() => setActiveTab("chat")}
+                            onNavigateToVoiceSettings={() => setActiveTab("voice")}
+                        />
+                    </div>
+                )}
+
                 {activeTab === "chat" && (
                     <ChatTab
                         tenant={tenant}
@@ -1101,6 +1139,10 @@ export default function TenantPage() {
                     <div className="flex-1 overflow-y-auto p-6">
                         <CalendarTab tenant={tenant} />
                     </div>
+                )}
+
+                {activeTab === "voice" && (
+                    <VoiceTab tenantId={tenant.id} />
                 )}
 
                 {activeTab === "settings" && (

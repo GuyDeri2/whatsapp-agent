@@ -2,6 +2,14 @@
 
 This folder contains the **knowledge base** for the AI dev team. The agents run through **Claude Code** (not DeepSeek).
 
+## Project: Unified AI Secretary (מזכירה AI)
+
+A multi-channel AI secretary SaaS for Israeli businesses. Two independent channels share one knowledge base:
+- **WhatsApp Channel** — Meta Cloud API + DeepSeek AI (text)
+- **Voice Channel** — ElevenLabs Conversational AI + Twilio (phone calls)
+
+Each channel has its own integrations, system prompts, and settings. The shared knowledge base (`knowledge_base` table) is synced to ElevenLabs when voice is enabled.
+
 ## How It Works Now
 
 Agents are invoked via Claude Code custom commands (slash commands):
@@ -19,7 +27,7 @@ Agents are invoked via Claude Code custom commands (slash commands):
 |---------|-------------|
 | `/project:team <task>` | PM orchestrates the full team — plans, dispatches subagents, synthesizes |
 | `/project:agent-frontend <task>` | Frontend specialist (React, Next.js, CSS Modules) |
-| `/project:agent-backend <task>` | Backend specialist (API routes, Supabase, session-manager) |
+| `/project:agent-backend <task>` | Backend specialist (API routes, Supabase, session-manager, ElevenLabs, Twilio) |
 | `/project:agent-ux <task>` | UX designer (flows, copy, layout, accessibility) |
 | `/project:agent-security <task>` | Security engineer (auth, RLS, multi-tenant isolation) |
 | `/project:agent-devops <task>` | DevOps engineer (deploy, infrastructure, CI/CD) |

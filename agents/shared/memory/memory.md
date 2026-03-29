@@ -1,7 +1,11 @@
 # Shared Project Context
 
 ## Project Overview
-**WhatsApp Agent** — a multi-tenant B2B SaaS platform that lets businesses automate their WhatsApp customer support using AI.
+**מזכירה AI (AI Secretary)** — a multi-tenant B2B SaaS platform with two independent communication channels:
+1. **WhatsApp Channel** — Meta Cloud API + DeepSeek AI for text-based customer support
+2. **Voice Channel** — ElevenLabs Conversational AI + Twilio for phone calls & SMS
+
+Both channels share a single **knowledge base** per tenant. Each channel has its own AI model, system prompts, and integrations. The business owner enters KB data once.
 
 Target market: Israeli small-to-medium businesses (restaurants, clinics, shops, service providers).
 Primary language: Hebrew (RTL), secondary: English.
@@ -43,6 +47,14 @@ Primary language: Hebrew (RTL), secondary: English.
 | agent_mode | enum | `learning` / `active` / `paused` |
 | agent_filter_mode | enum | `all` / `whitelist` / `blacklist` |
 | whatsapp_phone | text | |
+| elevenlabs_agent_id | text | ElevenLabs agent ID (voice) |
+| elevenlabs_voice_id | text | Selected voice from catalog |
+| voice_settings | jsonb | `{stability, similarity_boost, speed}` |
+| voice_first_message | text | Greeting for phone calls |
+| voice_custom_instructions | text | Voice-specific AI instructions |
+| voice_webhook_secret | text | Per-tenant webhook auth |
+| twilio_phone_number | text | Assigned Twilio number |
+| voice_enabled | boolean | Feature flag for voice channel |
 
 ### conversations
 - id, tenant_id, phone_number, contact_name, is_group, updated_at
@@ -52,9 +64,16 @@ Primary language: Hebrew (RTL), secondary: English.
 
 ### knowledge_base
 - id, tenant_id, category, question, answer, source (manual/learned), updated_at
+- elevenlabs_kb_id — tracks synced doc ID in ElevenLabs (voice channel)
 
 ### contact_rules
 - id, tenant_id, phone_number, rule_type (allow/block)
+
+### voice_catalog (NEW — 2026-03-29)
+- id, elevenlabs_voice_id (UNIQUE), name, display_name_he, gender (male/female), preview_url, is_default
+
+### call_logs (NEW — 2026-03-29)
+- id, tenant_id (FK → tenants, CASCADE), elevenlabs_conversation_id, caller_phone, started_at, ended_at, duration_seconds, status, summary, transcript (jsonb)
 
 ---
 
@@ -80,11 +99,17 @@ Primary language: Hebrew (RTL), secondary: English.
 │   │   ├── SettingsTab.tsx
 │   │   ├── CapabilitiesTab.tsx
 │   │   ├── ChatTab.tsx
-│   │   └── ContactsTab.tsx
-│   └── lib/supabase/
-│       ├── client.ts
-│       ├── server.ts
-│       └── admin.ts
+│   │   ├── ContactsTab.tsx
+│   │   └── VoiceTab.tsx              ← Voice channel management
+│   └── lib/
+│       ├── supabase/
+│       │   ├── client.ts
+│       │   ├── server.ts
+│       │   └── admin.ts
+│       ├── elevenlabs.ts             ← ElevenLabs API client
+│       ├── voice-platform-config.ts  ← Platform config (Layer 1)
+│       ├── voice-agent-setup.ts      ← Voice agent orchestration
+│       └── twilio.ts                 ← Twilio SMS service
 ├── session-manager/
 │   └── src/
 │       ├── server.ts                     ← Express + cron
@@ -127,6 +152,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_URL=...
 DEEPSEEK_API_KEY=...
+ELEVENLABS_API_KEY=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_FROM_NUMBER=...
 ```
 
 ---

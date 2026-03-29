@@ -348,6 +348,35 @@ A system that crawls a business website, extracts structured knowledge using Dee
 - `source='website'` in knowledge_base allows clean delete+re-insert on re-crawl
 - Crawl results are NOT auto-applied — user reviews analysis first, then clicks apply
 
+## Voice Channel Integration — 2026-03-29
+
+### What was built:
+Unified voice channel (ElevenLabs + Twilio) into the WhatsApp Agent project. Voice and WhatsApp are **independent channels** sharing one knowledge base.
+
+### New files:
+- `src/lib/elevenlabs.ts` — ElevenLabs API client (createAgent, updateAgent, syncKB, create/deleteKBDocument)
+- `src/lib/voice-platform-config.ts` — Platform Layer 1 config: `buildSystemPrompt(gender)`, `buildToolDefinitions()`, constants
+- `src/lib/voice-agent-setup.ts` — Agent setup orchestration: `setupVoiceAgent()`, `updateVoiceAgentConfig()`, `syncKnowledgeBaseToVoiceAgent()`
+- `src/lib/twilio.ts` — Twilio SMS (lazy-init client, `sendSms()`)
+- Voice API routes: `voice/route.ts`, `voice/setup/route.ts`, `voice/catalog/route.ts`, `voice/kb-sync/route.ts`
+- Webhook: `webhooks/elevenlabs-tools/[tenantId]/route.ts`
+
+### Key patterns:
+1. **Two-Layer Config**: Layer 1 (platform, immutable) in `voice-platform-config.ts`, Layer 2 (business) in DB
+2. **KB Sync**: ElevenLabs docs can't be updated → delete old → create new → update `elevenlabs_kb_id` → sync agent
+3. **Gender-aware prompts**: `buildSystemPrompt("male"|"female")` adapts Hebrew verb forms
+4. **Webhook security**: `voice_webhook_secret` per tenant, validated via `x-webhook-secret` header
+5. **Feature flag**: `voice_enabled` boolean on tenants — instant toggle
+6. **Channel independence**: Voice code never imports WhatsApp code. Failure in one doesn't affect the other.
+
+### Voice AI stack:
+- AI: GPT-4o-mini (via ElevenLabs, NOT DeepSeek)
+- TTS: `eleven_v3_conversational`
+- SMS: Twilio
+
+### New env vars:
+`ELEVENLABS_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
+
 ## Purchase Flows API Routes — 2026-03-22
 
 ### What was built:

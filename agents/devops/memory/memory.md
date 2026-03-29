@@ -234,6 +234,29 @@ Commit `f83394a` — security hardening + anti-ban improvements. Pushed to GitHu
 ## Positive Pattern (2026-03-17)
 [Score: 9/10] When checking deployment environments, also verify corresponding service configurations (like Supabase dashboard) for complete picture.
 
+## Voice Channel Infrastructure — 2026-03-29
+
+### New Environment Variables (must be set on Vercel):
+- `ELEVENLABS_API_KEY` — ElevenLabs API access for voice agent creation/management
+- `TWILIO_ACCOUNT_SID` — Twilio account ID for SMS
+- `TWILIO_AUTH_TOKEN` — Twilio auth for SMS sending
+- `TWILIO_FROM_NUMBER` — Twilio phone number (source for outgoing SMS)
+
+### New DB Migration:
+- `supabase/migrations/20260329100000_voice_channel.sql` — adds voice columns to tenants, creates voice_catalog and call_logs tables
+
+### Architecture Note:
+- Voice channel runs entirely in Vercel serverless (Next.js API routes) — no session-manager involvement
+- ElevenLabs manages the voice AI agent (hosted by them)
+- Twilio provides phone numbers and routes calls to ElevenLabs
+- SMS sending happens via webhook: ElevenLabs → our webhook → Twilio
+
+### Deploy Checklist for Voice:
+1. Set env vars on Vercel (4 new vars above)
+2. Run `npx supabase db push` for the voice migration
+3. Populate `voice_catalog` table with available ElevenLabs voices
+4. Configure Twilio webhook URLs if needed
+
 ## Baileys Service — 2026-03-22
 - **Render service ID**: `srv-d6uko0ndiees73chbe7g` (separate from session-manager `srv-d6ksj5fgi27c73bjllkg`)
 - Anti-ban fixes deployed: read receipts, identical message blocking, risk score tracking, markOnlineOnConnect: false

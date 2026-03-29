@@ -17,7 +17,11 @@ The agents run as Claude Code subagents (Agent tool) — NOT via external APIs o
 ---
 
 ## What This Project Is
-A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsApp customer support with AI.
+A **multi-tenant B2B SaaS** platform — **מזכירה AI (AI Secretary)** — that lets businesses automate customer communication with AI across two independent channels:
+1. **WhatsApp Channel** — Meta Cloud API + DeepSeek AI for text-based support
+2. **Voice Channel** — ElevenLabs Conversational AI + Twilio for phone calls & SMS
+
+Both channels share a single **knowledge base** per tenant. Each has its own AI model, system prompts, and integrations.
 - Target: Israeli small-to-medium businesses (restaurants, clinics, shops)
 - Primary language: Hebrew (RTL), secondary: English
 - Developer: Guy Deri
@@ -33,7 +37,9 @@ A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsAp
 | Auth | Supabase SSR (`@supabase/ssr`) |
 | Database | Supabase (PostgreSQL + RLS + Realtime) |
 | WhatsApp | Meta WhatsApp Cloud API (Embedded Signup, webhooks) |
-| AI | DeepSeek API via OpenAI-compatible SDK (`model: deepseek-chat`) |
+| WhatsApp AI | DeepSeek API via OpenAI-compatible SDK (`model: deepseek-chat`) |
+| Voice AI | ElevenLabs Conversational AI (`gpt-4o-mini`, TTS: `eleven_v3_conversational`) |
+| Phone/SMS | Twilio (phone numbers + SMS for voice agent tools) |
 | Deploy | Vercel (Next.js) + Render (session-manager cron service) |
 
 ---
@@ -60,10 +66,15 @@ A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsAp
 │   │   ├── SettingsTab.tsx             ← business profile + agent config
 │   │   ├── CapabilitiesTab.tsx         ← knowledge base, agent mode, filters
 │   │   ├── ChatTab.tsx                 ← WhatsApp chat display
-│   │   └── ContactsTab.tsx             ← contact rules (whitelist/blacklist)
+│   │   ├── ContactsTab.tsx             ← contact rules (whitelist/blacklist)
+│   │   └── VoiceTab.tsx               ← Voice channel management (ElevenLabs + Twilio)
 │   └── lib/
 │       ├── whatsapp-cloud.ts           ← Cloud API client (send, verify, config cache)
 │       ├── ai-agent.ts                 ← AI reply generation (DeepSeek)
+│       ├── elevenlabs.ts               ← ElevenLabs API client (voice agents, KB sync)
+│       ├── voice-platform-config.ts    ← Voice platform config (Layer 1, immutable)
+│       ├── voice-agent-setup.ts        ← Voice agent orchestration
+│       ├── twilio.ts                   ← Twilio SMS service
 │       └── supabase/
 │           ├── client.ts               ← browser client
 │           ├── server.ts               ← server component client
@@ -106,9 +117,16 @@ A **multi-tenant B2B SaaS** platform that lets businesses automate their WhatsAp
 
 ### `knowledge_base`
 - `id`, `tenant_id`, `category`, `question`, `answer`, `source` (`manual`/`learned`), `updated_at`
+- `elevenlabs_kb_id` — tracks synced ElevenLabs doc ID (for voice channel KB sync)
 
 ### `contact_rules`
 - `id`, `tenant_id`, `phone_number`, `rule_type` (`allow`/`block`)
+
+### `voice_catalog`
+- `id`, `elevenlabs_voice_id` (UNIQUE), `name`, `display_name_he`, `gender`, `preview_url`, `is_default`
+
+### `call_logs`
+- `id`, `tenant_id` (FK), `elevenlabs_conversation_id`, `caller_phone`, `started_at`, `ended_at`, `duration_seconds`, `status`, `summary`, `transcript` (jsonb)
 
 ---
 
@@ -161,6 +179,10 @@ META_API_VERSION (default: v21.0)
 WHATSAPP_WEBHOOK_VERIFY_TOKEN
 SESSION_MANAGER_URL
 SESSION_MANAGER_SECRET
+ELEVENLABS_API_KEY
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_FROM_NUMBER
 ```
 File: `.env.local` at project root (gitignored). See `.env.local.example`.
 
@@ -234,3 +256,7 @@ npm run dev         # port 3001
 - **Embedded Signup (OAuth)** — tenants connect WhatsApp via Meta OAuth flow, credentials stored in `whatsapp_cloud_config`.
 - **agent_prompt is user-controlled** — be aware of prompt injection risk when feeding it to the AI
 - **Learning engine runs on cron** — batch processes owner replies daily at 02:00
+- **Voice channel is independent** — ElevenLabs/Twilio code never imports WhatsApp code. Channels share only `knowledge_base` table.
+- **Voice feature flag** — `voice_enabled` on tenants table. Instant per-tenant toggle without deployment.
+- **KB sync to ElevenLabs** — ElevenLabs docs can't be updated in-place. Pattern: delete old → create new → update `elevenlabs_kb_id` → sync agent references.
+- **Two-layer voice config** — Layer 1 (platform, immutable in `voice-platform-config.ts`) + Layer 2 (business owner, stored in DB)

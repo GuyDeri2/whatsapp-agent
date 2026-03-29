@@ -138,6 +138,33 @@
 - `WebsiteCrawlAnalysis` interface defined locally in SettingsTab — mirrors the API response shape
 - Checkboxes implemented as toggle buttons with CheckSquare/Square icons (no native checkbox styling needed)
 
+## VoiceTab Component — 2026-03-29
+
+### What Was Built
+- New `src/components/tenant/VoiceTab.tsx` — full voice channel management tab
+- Added to dashboard as "📞 טלפון" tab in `src/app/tenant/[id]/page.tsx`
+
+### Sections in VoiceTab:
+1. **Agent setup** — toggle enable/disable, "הקם סוכן" button (POST /voice/setup)
+2. **Phone number** — display Twilio number (manual allocation initially)
+3. **Voice selection** — dropdown from `voice_catalog` with audio preview (preview_url)
+4. **Greeting** — customizable first message for phone calls
+5. **Custom instructions** — voice-specific instructions (separate from WhatsApp agent_prompt)
+6. **Call history** — table from `call_logs` (caller, duration, status, summary)
+
+### Integration Points:
+- Voice tab only visible when feature is relevant (tab flag: `tab_voice`)
+- `activeTab` union type extended: `"chat" | "settings" | "connect" | "contacts" | "capabilities" | "leads" | "calendar" | "voice"`
+- Tenant interface extended with: `elevenlabs_agent_id?: string | null`, `voice_enabled?: boolean`
+- CapabilitiesTab: visual notice "בסיס הידע משותף לוואטסאפ ולטלפון" when voice is enabled
+- KB operations in CapabilitiesTab trigger `/api/tenants/[tenantId]/voice/kb-sync` when voice is enabled
+
+### Patterns:
+- Uses same dark theme + emerald accent as other tabs
+- React.memo wrapper for performance
+- RTL Hebrew layout
+- Audio preview: `<audio>` element with play/pause toggle per voice option
+
 ## Purchase Flows Admin UI — 2026-03-22
 
 ### What Was Built

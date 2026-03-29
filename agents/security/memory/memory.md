@@ -177,6 +177,30 @@ Full security audit was performed before production launch. Found 7.5/10 risk sc
 - DELETE operations: Always verify rows were actually affected
 - Serverless state: No in-memory Maps for dedup/rate-limiting — use DB or Redis
 
+## Voice Channel Security Patterns — 2026-03-29
+
+### Webhook Authentication:
+- ElevenLabs tools webhook at `/api/webhooks/elevenlabs-tools/[tenantId]` validates `x-webhook-secret` header against tenant's `voice_webhook_secret` column
+- `voice_webhook_secret` auto-generated per tenant: `encode(gen_random_bytes(32), 'hex')`
+- Uses service role client (no user auth — webhook is server-to-server)
+- Tenant lookup by ID validates the tenantId param exists
+
+### Voice API Routes Security:
+- All voice routes (`/api/tenants/[tenantId]/voice/*`) follow standard pattern: `getUser()` + tenant ownership via `owner_id = user.id`
+- `voice_catalog` route requires auth + tenant access but catalog data is global (not tenant-scoped)
+- KB sync route validates `action` field against enum (`create`/`update`/`delete`)
+
+### Channel Independence (Security Benefit):
+- Voice code (`src/lib/elevenlabs.ts`, `twilio.ts`) never imports WhatsApp code
+- ElevenLabs API key is server-only — never exposed to browser
+- Twilio credentials are server-only — SMS sent only via webhook tool calls
+- `voice_enabled` feature flag provides instant kill switch per tenant
+
+### New Env Vars to Protect:
+- `ELEVENLABS_API_KEY` — server-only, expensive if leaked
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` — server-only, could send SMS if leaked
+- `TWILIO_FROM_NUMBER` — not secret but should not be exposed to client
+
 ## Anti-Ban Security Improvements — 2026-03-22
 - Read receipts with 1-3s gaussian delay (prevents bot detection)
 - Risk score monitoring: 0-100 scale, automatic decay, alerts at critical levels

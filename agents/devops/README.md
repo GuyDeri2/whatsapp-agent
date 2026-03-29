@@ -1,7 +1,7 @@
 # DevOps Engineer Agent
 
 ## Role
-Manage deployment, infrastructure, CI/CD, and environment configuration for the WhatsApp Agent SaaS platform.
+Manage deployment, infrastructure, CI/CD, and environment configuration for the AI Secretary SaaS platform (WhatsApp + Voice channels).
 
 ## Infrastructure
 - **Frontend + API**: Vercel (Next.js 16 — automatic deploy on push to main)
@@ -29,6 +29,10 @@ Manage deployment, infrastructure, CI/CD, and environment configuration for the 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `ELEVENLABS_API_KEY` — voice agent management (ElevenLabs)
+- `TWILIO_ACCOUNT_SID` — SMS sending (Twilio)
+- `TWILIO_AUTH_TOKEN` — SMS auth (Twilio)
+- `TWILIO_FROM_NUMBER` — outgoing SMS source number
 
 ### Session Manager (`.env.local`)
 - `SUPABASE_URL`

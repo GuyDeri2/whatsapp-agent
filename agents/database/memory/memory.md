@@ -58,6 +58,21 @@
 - [2026-03-22] Phone number normalization inconsistency prevents DB-level exact matching. Convention exists but enforcement is application-side only.
 - [2026-03-22] UNIQUE constraints create implicit indexes — no need to add explicit indexes on the same column set.
 
+## Voice Channel Migration — 2026-03-29
+
+### What was done:
+Created `supabase/migrations/20260329100000_voice_channel.sql`:
+1. **`tenants` table** — added 8 voice columns: `elevenlabs_agent_id`, `elevenlabs_voice_id`, `voice_settings` (jsonb), `voice_first_message`, `voice_custom_instructions`, `voice_webhook_secret` (auto-generated hex), `twilio_phone_number`, `voice_enabled` (boolean, default false)
+2. **`voice_catalog` table** — available ElevenLabs voices with `elevenlabs_voice_id` (UNIQUE), `name`, `display_name_he`, `gender` (CHECK: male/female), `preview_url`, `is_default`
+3. **`call_logs` table** — voice call history with `tenant_id` FK (CASCADE), `elevenlabs_conversation_id`, `caller_phone`, timestamps, `duration_seconds`, `status`, `summary`, `transcript` (jsonb). Index on `tenant_id`.
+4. **`knowledge_base`** — added `elevenlabs_kb_id` column to track synced ElevenLabs doc IDs
+
+### Lessons:
+- [2026-03-29] `voice_catalog` has no `tenant_id` — it's a global catalog, not tenant-scoped. No RLS needed beyond default auth.
+- [2026-03-29] `call_logs` needs standard tenant isolation RLS (same pattern as conversations/messages).
+- [2026-03-29] `voice_webhook_secret` uses `encode(gen_random_bytes(32), 'hex')` as default — auto-generated per tenant row.
+- [2026-03-29] Voice columns on tenants are all nullable with safe defaults — no migration risk for existing rows.
+
 ## Purchase Flows Migration — 2026-03-22
 
 ### What was done
