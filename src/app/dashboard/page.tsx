@@ -15,6 +15,7 @@ interface Tenant {
   whatsapp_phone: string | null;
   voice_enabled: boolean;
   elevenlabs_agent_id: string | null;
+  twilio_phone_number: string | null;
   created_at: string;
 }
 
@@ -217,7 +218,7 @@ export default function Dashboard() {
           {[
             { title: "סה״כ עסקים", value: loading ? "—" : tenants.length, icon: <Building2 className="w-5 h-5" />, color: "text-emerald-400", glow: "rgba(16,185,129,0.15)" },
             { title: "סוכני WhatsApp פעילים", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected && t.agent_mode === "active").length, icon: <MessageSquare className="w-5 h-5" />, color: "text-green-400", glow: "rgba(74,222,128,0.15)" },
-            { title: "סוכנים קוליים פעילים", value: loading ? "—" : tenants.filter(t => t.voice_enabled && t.elevenlabs_agent_id).length, icon: <Phone className="w-5 h-5" />, color: "text-violet-400", glow: "rgba(139,92,246,0.15)" },
+            { title: "סוכנים קוליים פעילים", value: loading ? "—" : tenants.filter(t => t.voice_enabled && t.elevenlabs_agent_id && t.twilio_phone_number).length, icon: <Phone className="w-5 h-5" />, color: "text-violet-400", glow: "rgba(139,92,246,0.15)" },
           ].map((stat, idx) => (
             <motion.div
               key={stat.title}

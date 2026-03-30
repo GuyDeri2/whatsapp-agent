@@ -15,6 +15,7 @@ const TENANT_LIST_COLUMNS = [
     "whatsapp_connected",
     "voice_enabled",
     "elevenlabs_agent_id",
+    "twilio_phone_number",
     "setup_completed",
     "created_at",
     "updated_at",

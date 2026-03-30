@@ -111,7 +111,7 @@ export async function setupVoiceAgent(
   // 4. Update tenant with agent ID and enable voice
   await supabase
     .from("tenants")
-    .update({ elevenlabs_agent_id: agentId, voice_enabled: true })
+    .update({ elevenlabs_agent_id: agentId })
     .eq("id", tenantId);
 
   return agentId;
