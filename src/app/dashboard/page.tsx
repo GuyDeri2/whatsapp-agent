@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, LogOut, ArrowLeft, Bot, Activity, PauseCircle, Building2, Wifi, WifiOff, BookOpen, Loader2, Sparkles, Globe, Search } from "lucide-react";
+import { Plus, LogOut, ArrowLeft, Bot, Activity, PauseCircle, Building2, Wifi, WifiOff, BookOpen, Loader2, Sparkles, Globe, Search, Phone, MessageSquare } from "lucide-react";
 
 interface Tenant {
   id: string;
@@ -13,6 +13,8 @@ interface Tenant {
   agent_mode: "learning" | "active" | "paused";
   whatsapp_connected: boolean;
   whatsapp_phone: string | null;
+  voice_enabled: boolean;
+  elevenlabs_agent_id: string | null;
   created_at: string;
 }
 
@@ -175,7 +177,7 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-white tracking-tight">
                 {getGreeting()}{profile?.first_name ? `, ${profile.first_name}${profile.last_name ? ` ${profile.last_name}` : ""}` : ""}
               </h1>
-              <p className="text-slate-500 text-sm">נהל את סוכני הווטסאפ שלך</p>
+              <p className="text-slate-500 text-sm">נהל את הסוכנים שלך</p>
             </div>
           </div>
 
@@ -211,11 +213,12 @@ export default function Dashboard() {
         </motion.header>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
           {[
             { title: "סה״כ עסקים", value: loading ? "—" : tenants.length, icon: <Building2 className="w-5 h-5" />, color: "text-emerald-400", glow: "rgba(16,185,129,0.15)" },
             { title: "מחוברים לווטסאפ", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected).length, icon: <Wifi className="w-5 h-5" />, color: "text-teal-300", glow: "rgba(20,184,166,0.15)" },
-            { title: "סוכנים פעילים", value: loading ? "—" : tenants.filter(t => t.agent_mode === "active").length, icon: <Sparkles className="w-5 h-5" />, color: "text-green-400", glow: "rgba(74,222,128,0.15)" },
+            { title: "סוכני WhatsApp פעילים", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected && t.agent_mode === "active").length, icon: <MessageSquare className="w-5 h-5" />, color: "text-green-400", glow: "rgba(74,222,128,0.15)" },
+            { title: "סוכנים קוליים פעילים", value: loading ? "—" : tenants.filter(t => t.voice_enabled && t.elevenlabs_agent_id).length, icon: <Phone className="w-5 h-5" />, color: "text-violet-400", glow: "rgba(139,92,246,0.15)" },
           ].map((stat, idx) => (
             <motion.div
               key={stat.title}

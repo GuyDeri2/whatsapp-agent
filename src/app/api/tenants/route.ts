@@ -13,6 +13,8 @@ const TENANT_LIST_COLUMNS = [
     "agent_mode",
     "whatsapp_phone",
     "whatsapp_connected",
+    "voice_enabled",
+    "elevenlabs_agent_id",
     "setup_completed",
     "created_at",
     "updated_at",
