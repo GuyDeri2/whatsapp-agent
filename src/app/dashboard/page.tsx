@@ -213,10 +213,9 @@ export default function Dashboard() {
         </motion.header>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
           {[
             { title: "סה״כ עסקים", value: loading ? "—" : tenants.length, icon: <Building2 className="w-5 h-5" />, color: "text-emerald-400", glow: "rgba(16,185,129,0.15)" },
-            { title: "מחוברים לווטסאפ", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected).length, icon: <Wifi className="w-5 h-5" />, color: "text-teal-300", glow: "rgba(20,184,166,0.15)" },
             { title: "סוכני WhatsApp פעילים", value: loading ? "—" : tenants.filter(t => t.whatsapp_connected && t.agent_mode === "active").length, icon: <MessageSquare className="w-5 h-5" />, color: "text-green-400", glow: "rgba(74,222,128,0.15)" },
             { title: "סוכנים קוליים פעילים", value: loading ? "—" : tenants.filter(t => t.voice_enabled && t.elevenlabs_agent_id).length, icon: <Phone className="w-5 h-5" />, color: "text-violet-400", glow: "rgba(139,92,246,0.15)" },
           ].map((stat, idx) => (
@@ -483,21 +482,41 @@ export default function Dashboard() {
                     </p>
 
                     <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-xs">
-                        {tenant.whatsapp_connected ? (
-                          <>
-                            <span className="relative flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                            </span>
-                            <span className="text-emerald-400 font-medium" dir="ltr">{tenant.whatsapp_phone || "מחובר"}</span>
-                          </>
-                        ) : (
-                          <>
-                            <WifiOff className="w-3.5 h-3.5 text-slate-600" />
-                            <span className="text-slate-600">לא מחובר</span>
-                          </>
-                        )}
+                      <div className="flex items-center gap-3 text-xs">
+                        {/* WhatsApp status */}
+                        <div className="flex items-center gap-1.5">
+                          {tenant.whatsapp_connected ? (
+                            <>
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                              </span>
+                              <span className="text-emerald-400 font-medium">WhatsApp</span>
+                            </>
+                          ) : (
+                            <>
+                              <WifiOff className="w-3 h-3 text-slate-600" />
+                              <span className="text-slate-600">WhatsApp</span>
+                            </>
+                          )}
+                        </div>
+                        {/* Voice status */}
+                        <div className="flex items-center gap-1.5">
+                          {tenant.voice_enabled && tenant.elevenlabs_agent_id ? (
+                            <>
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+                              </span>
+                              <span className="text-violet-400 font-medium">טלפון</span>
+                            </>
+                          ) : (
+                            <>
+                              <Phone className="w-3 h-3 text-slate-600" />
+                              <span className="text-slate-600">טלפון</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-1.5 text-xs text-slate-600 group-hover:text-emerald-400 transition-colors">
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity">פתח</span>
