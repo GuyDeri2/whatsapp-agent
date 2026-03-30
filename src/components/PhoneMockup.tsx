@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CheckCheck } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
-export function PhoneMockup() {
+export function PhoneMockup({ embedded = false }: { embedded?: boolean }) {
     const defaultMessages = [
         { text: "היי, אפשר לקבל פרטים על השירות שלכם?", sender: "user" },
         { text: "שלום! בשמחה. איזה שירות מעניין אותך במיוחד? 🤖", sender: "bot" },
@@ -68,18 +68,8 @@ export function PhoneMockup() {
         };
     }, []);
 
-    return (
-        <div className="relative mx-auto w-full max-w-[320px] aspect-[1/2.05] bg-[#0A0A0A] rounded-[2.8rem] sm:rounded-[3rem] border-[8px] border-neutral-800 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col ring-1 ring-white/10">
-            {/* Glossy Bezel shine */}
-            <div className="absolute inset-0 rounded-[2.5rem] border border-white/5 pointer-events-none z-50"></div>
-
-            {/* Notch */}
-            <div className="absolute top-0 inset-x-0 w-[45%] h-6 bg-[#0A0A0A] rounded-b-2xl mx-auto z-40 flex justify-center items-end pb-1.5 shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
-                <div className="w-14 h-1.5 bg-neutral-900 rounded-full flex gap-2 items-center justify-end px-1">
-                    <div className="w-1 h-1 bg-blue-900/50 rounded-full"></div>
-                </div>
-            </div>
-
+    const screenContent = (
+        <>
             {/* Screen/WhatsApp Header */}
             <div className="bg-[#075e54] text-white pt-10 pb-3 px-4 flex items-center shadow-lg z-30 shrink-0 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
@@ -151,6 +141,22 @@ export function PhoneMockup() {
                     </svg>
                 </div>
             </div>
+        </>
+    );
+
+    if (embedded) {
+        return <div className="absolute inset-0 flex flex-col">{screenContent}</div>;
+    }
+
+    return (
+        <div className="relative mx-auto w-full max-w-[320px] aspect-[1/2.05] bg-[#0A0A0A] rounded-[2.8rem] sm:rounded-[3rem] border-[8px] border-neutral-800 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col ring-1 ring-white/10">
+            <div className="absolute inset-0 rounded-[2.5rem] border border-white/5 pointer-events-none z-50"></div>
+            <div className="absolute top-0 inset-x-0 w-[45%] h-6 bg-[#0A0A0A] rounded-b-2xl mx-auto z-40 flex justify-center items-end pb-1.5 shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
+                <div className="w-14 h-1.5 bg-neutral-900 rounded-full flex gap-2 items-center justify-end px-1">
+                    <div className="w-1 h-1 bg-blue-900/50 rounded-full"></div>
+                </div>
+            </div>
+            {screenContent}
         </div>
     );
 }
