@@ -11,17 +11,32 @@ import { BrainCircuit, Zap, ShieldCheck, Bell, Bot, ArrowRight, Sparkles, Messag
 export default function LandingPage() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [activeChannel, setActiveChannel] = useState<"whatsapp" | "voice">("whatsapp");
+    const autoToggleTimerRef = useRef<NodeJS.Timeout | null>(null);
     const { scrollY } = useScroll();
     const y1 = useTransform(scrollY, [0, 1000], [0, 200]);
     const y2 = useTransform(scrollY, [0, 1000], [0, -200]);
 
-    // Auto-toggle between channels
+    // Auto-toggle: WhatsApp shows for 16s (chat animation completes), Voice for 10s
+    const scheduleAutoToggle = (channel: "whatsapp" | "voice", delay?: number) => {
+        if (autoToggleTimerRef.current) clearTimeout(autoToggleTimerRef.current);
+        const wait = delay ?? (channel === "whatsapp" ? 16000 : 10000);
+        autoToggleTimerRef.current = setTimeout(() => {
+            const next = channel === "whatsapp" ? "voice" : "whatsapp";
+            setActiveChannel(next);
+            scheduleAutoToggle(next);
+        }, wait);
+    };
+
     useEffect(() => {
-        const interval = setInterval(() => {
-            setActiveChannel(prev => prev === "whatsapp" ? "voice" : "whatsapp");
-        }, 8000);
-        return () => clearInterval(interval);
+        scheduleAutoToggle("whatsapp");
+        return () => { if (autoToggleTimerRef.current) clearTimeout(autoToggleTimerRef.current); };
     }, []);
+
+    const handleManualToggle = (channel: "whatsapp" | "voice") => {
+        setActiveChannel(channel);
+        // After manual click, delay auto-toggle by 15 seconds
+        scheduleAutoToggle(channel, 15000);
+    };
 
     useEffect(() => {
         const supabase = createClient();
@@ -135,8 +150,8 @@ export default function LandingPage() {
                     </motion.div>
 
                     {/* Right — Single Phone with Channel Toggle */}
-                    <div className="relative flex flex-col items-center lg:items-end mt-8 lg:mt-0">
-                        {/* Channel Toggle */}
+                    <div className="relative flex flex-col items-center mt-8 lg:mt-0">
+                        {/* Channel Toggle — centered */}
                         <motion.div
                             initial={{ opacity: 0, y: -20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -144,7 +159,7 @@ export default function LandingPage() {
                             className="flex items-center gap-1 p-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md mb-6 relative z-20"
                         >
                             <button
-                                onClick={() => setActiveChannel("whatsapp")}
+                                onClick={() => handleManualToggle("whatsapp")}
                                 className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
                                     activeChannel === "whatsapp"
                                         ? "bg-[#25D366] text-white shadow-lg shadow-emerald-500/20"
@@ -155,7 +170,7 @@ export default function LandingPage() {
                                 וואטסאפ
                             </button>
                             <button
-                                onClick={() => setActiveChannel("voice")}
+                                onClick={() => handleManualToggle("voice")}
                                 className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
                                     activeChannel === "voice"
                                         ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20"
@@ -167,12 +182,12 @@ export default function LandingPage() {
                             </button>
                         </motion.div>
 
-                        {/* Phone Frame */}
+                        {/* Phone Frame — centered */}
                         <motion.div
                             initial={{ opacity: 0, y: 40, scale: 0.9 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             transition={{ duration: 1.2, type: "spring", bounce: 0.3 }}
-                            className="relative w-full max-w-[300px] sm:max-w-[320px]"
+                            className="relative w-full max-w-[300px] sm:max-w-[320px] mx-auto"
                         >
                             {/* Glow behind phone */}
                             <div className={`absolute -inset-8 rounded-[4rem] blur-[80px] opacity-30 transition-colors duration-1000 ${
