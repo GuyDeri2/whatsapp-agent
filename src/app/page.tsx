@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { PhoneMockup } from "@/components/PhoneMockup";
-import { BrainCircuit, Zap, ShieldCheck, Bell, Bot, ArrowRight, Sparkles } from "lucide-react";
+import { PhoneCallSimulation } from "@/components/PhoneCallSimulation";
+import { BrainCircuit, Zap, ShieldCheck, Bell, Bot, ArrowRight, Sparkles, Mic } from "lucide-react";
 
 export default function LandingPage() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -24,13 +25,14 @@ export default function LandingPage() {
         <div className="min-h-screen bg-transparent text-white selection:bg-accent/30 selection:text-white overflow-hidden" dir="rtl">
             {/* Animated Ambient Background */}
             <div className="fixed inset-0 z-0 pointer-events-none">
-                <div className="absolute inset-0 bg-[#0B0D14]" />
-                {/* Grid Overlay */}
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0wIDEwaDQwaC00MFYwaDQwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC4wMikiIGZpbGw9Im5vbmUiLz4KPC9zdmc+')] [mask-image:linear-gradient(to_bottom,white_10%,transparent_90%)] opacity-30" />
+                <div className="absolute inset-0 bg-[#06080D]" />
+                {/* Premium Grid Overlay */}
+                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0wIDEwaDQwaC00MFYwaDQwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC4wMSkiIGZpbGw9Im5vbmUiLz4KPC9zdmc+')] [mask-image:radial-gradient(ellipse_at_center,white_10%,transparent_70%)] opacity-40" />
 
                 {/* Glowing Orbs */}
-                <motion.div style={{ y: y1 }} className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] rounded-full bg-accent-strong/20 blur-[130px] opacity-60 mix-blend-screen" />
-                <motion.div style={{ y: y2 }} className="absolute bottom-[-10%] left-[-10%] w-[600px] h-[600px] rounded-full bg-emerald-glow blur-[150px] opacity-40 mix-blend-screen" />
+                <motion.div style={{ y: y1 }} className="absolute -top-[20%] right-[-10%] w-[800px] h-[800px] rounded-full bg-accent/10 blur-[150px] opacity-70 mix-blend-screen" />
+                <motion.div style={{ y: y2 }} className="absolute -bottom-[20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-indigo-500/10 blur-[150px] opacity-50 mix-blend-screen" />
+                <div className="absolute top-[30%] left-[40%] w-[400px] h-[400px] rounded-full bg-emerald-500/5 blur-[120px] opacity-40 mix-blend-screen" />
             </div>
 
             {/* Navigation */}
@@ -74,22 +76,23 @@ export default function LandingPage() {
 
                     {/* Left Copy */}
                     <motion.div
-                        className="flex flex-col gap-8 text-center lg:text-right relative"
+                        className="flex flex-col gap-8 text-center lg:text-right relative lg:pr-4"
                     >
                         <motion.div
                             initial={{ opacity: 0, y: 30 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.8, delay: 0.2 }}
                         >
-                            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent-glow border border-accent/20 text-accent-hover text-sm font-semibold mb-8 backdrop-blur-md shadow-[0_0_20px_rgba(59,130,246,0.15)]">
+                            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-accent-hover text-sm font-semibold mb-8 backdrop-blur-md shadow-[0_0_30px_rgba(59,130,246,0.15)] ring-1 ring-white/5">
                                 <Sparkles className="w-4 h-4" />
-                                המהפכה בשירות הלקוחות 2026
+                                חדש: סוכני קול בינה מלאכותית
                             </div>
-                            <h1 className="text-5xl lg:text-[5.5rem] font-extrabold tracking-tight leading-[1.05]">
+                            <h1 className="text-5xl lg:text-[5.5rem] font-extrabold tracking-tight leading-[1.05] drop-shadow-2xl">
                                 שירות לקוחות,<br />
-                                <span className="relative">
-                                    <span className="absolute -inset-2 bg-accent-glow blur-2xl opacity-50"></span>
-                                    <span className="relative text-transparent bg-clip-text bg-gradient-to-r from-blue-300 via-blue-100 to-indigo-300">
+                                קולי והודעות <br />
+                                <span className="relative inline-block mt-2">
+                                    <span className="absolute -inset-4 bg-accent/20 blur-3xl opacity-50"></span>
+                                    <span className="relative text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-white">
                                         על טייס אוטומטי.
                                     </span>
                                 </span>
@@ -102,8 +105,7 @@ export default function LandingPage() {
                             transition={{ duration: 0.8, delay: 0.4 }}
                             className="text-lg lg:text-xl text-neutral-400 max-w-xl mx-auto lg:mx-0 leading-relaxed font-light"
                         >
-                            סוכן AI חכם בשילוב ווטסאפ שלומד את העסק שלך ועונה ללקוחות 24/7.
-                            תן לבינה המלאכותית שלנו למנף לידים ולסגור עסקאות בזמן שאתה ישן.
+                            מערכת ה-AI המקיפה לעסק שלך. סוכנים וירטואליים שלומדים את העסק, משיבים בוואטסאפ ואפילו מנהלים שיחות טלפון קוליות עם הלקוחות שלך 24/7.
                         </motion.p>
 
                         <motion.div
@@ -113,27 +115,37 @@ export default function LandingPage() {
                             className="flex flex-col sm:flex-row gap-5 justify-center lg:justify-start mt-4"
                         >
                             {!isLoggedIn && (
-                                <Link href="/register" className="group relative flex items-center justify-center gap-3 px-8 py-4 bg-white text-black rounded-full font-bold text-lg overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.15)]">
-                                    <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-black/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
-                                    התחל ניסיון חינם עכשיו
+                                <Link href="/register" className="group relative flex items-center justify-center gap-3 px-8 py-4 bg-white text-black rounded-full font-bold text-lg overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_40px_rgba(255,255,255,0.2)]">
+                                    <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-black/5 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
+                                    התחל ניסיון חינם
                                     <ArrowRight className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
                                 </Link>
                             )}
-                            <Link href="/demo" className="glass-panel flex items-center justify-center gap-2 px-8 py-4 rounded-full font-medium text-lg text-white hover:bg-white/10 transition-colors">
-                                צפה בהדגמה חיה
+                            <Link href="/demo" className="glass-panel flex items-center justify-center gap-2 px-8 py-4 rounded-full font-medium text-lg text-white hover:bg-white/10 transition-colors border border-white/10 shadow-lg">
+                                <Mic className="w-5 h-5 text-accent" />
+                                שמע הדגמה
                             </Link>
                         </motion.div>
                     </motion.div>
 
-                    {/* Right iPhone PhoneMockup */}
-                    <div className="relative flex justify-center lg:justify-end perspective-1000 mt-10 lg:mt-0">
+                    {/* Right iPhones Mockups */}
+                    <div className="relative flex justify-center lg:justify-end perspective-1000 mt-16 lg:mt-0 h-[600px] sm:h-[700px] w-full items-center">
                         <motion.div
-                            initial={{ opacity: 0, scale: 0.85, rotateY: -15, rotateX: 10 }}
-                            animate={{ opacity: 1, scale: 1, rotateY: -5, rotateX: 5 }}
+                            initial={{ opacity: 0, x: -60, scale: 0.85, rotateY: -20, rotateX: 10 }}
+                            animate={{ opacity: 1, x: 0, scale: 1, rotateY: -15, rotateX: 5 }}
                             transition={{ duration: 1.5, type: "spring", bounce: 0.3 }}
-                            className="relative z-10 w-full max-w-[340px]"
+                            className="absolute lg:right-4 z-10 w-full max-w-[280px] sm:max-w-[320px] drop-shadow-2xl"
                         >
                             <PhoneMockup />
+                        </motion.div>
+
+                        <motion.div
+                            initial={{ opacity: 0, x: 60, scale: 0.85, rotateY: 20, rotateX: 10 }}
+                            animate={{ opacity: 1, x: -80, y: 40, scale: 1.05, rotateY: 5, rotateX: -5 }}
+                            transition={{ duration: 1.5, delay: 0.3, type: "spring", bounce: 0.4 }}
+                            className="absolute lg:left-0 z-20 w-full max-w-[280px] sm:max-w-[320px] drop-shadow-[0_30px_60px_rgba(0,0,0,0.8)]"
+                        >
+                            <PhoneCallSimulation />
                         </motion.div>
                     </div>
 
