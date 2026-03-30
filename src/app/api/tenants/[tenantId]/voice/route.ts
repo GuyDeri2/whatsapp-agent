@@ -45,6 +45,7 @@ const fieldValidators: Record<string, (v: unknown) => boolean> = {
     voice_settings: (v) => v !== null && typeof v === "object" && !Array.isArray(v),
     voice_first_message: (v) => v === null || (typeof v === "string" && v.length <= 2000),
     voice_custom_instructions: (v) => v === null || (typeof v === "string" && v.length <= 10000),
+    twilio_phone_number: (v) => v === null || (typeof v === "string" && /^\+?\d{7,20}$/.test(v)),
     voice_enabled: (v) => typeof v === "boolean",
 };
 

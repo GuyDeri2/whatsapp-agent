@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { twilioService } from "@/lib/twilio";
 
@@ -22,12 +23,17 @@ export async function POST(
         .eq("id", tenantId)
         .single();
 
-    // Validate webhook secret
-    if (tenant?.voice_webhook_secret && tenant.voice_webhook_secret !== secret) {
-        return NextResponse.json(
-            { error: "Unauthorized webhook call" },
-            { status: 401 }
-        );
+    // Validate webhook secret (timing-safe comparison to prevent timing attacks)
+    if (tenant?.voice_webhook_secret) {
+        const expected = Buffer.from(tenant.voice_webhook_secret, "utf-8");
+        const received = Buffer.from(secret ?? "", "utf-8");
+
+        if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+            return NextResponse.json(
+                { error: "Unauthorized webhook call" },
+                { status: 401 }
+            );
+        }
     }
 
     let body: { phone_number?: string; message?: string };

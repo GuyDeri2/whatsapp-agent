@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2, Globe, Check, CheckCheck, XCircle } from "lucide-react";
+import { Brain, Lightbulb, BookOpen, Plus, Save, X, Edit2, Trash2, Folder, Calendar, Bot, UserCheck, Loader2, Globe, Check, CheckCheck, XCircle, Info } from "lucide-react";
 
 interface AgentLearning {
     id: string;
@@ -24,7 +24,12 @@ interface UnansweredQuestion {
     date: string;
 }
 
-const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant: { id: string } }) {
+const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant: { id: string; elevenlabs_agent_id?: string | null } }) {
+    // Fire-and-forget KB sync to ElevenLabs voice agent
+    const triggerKbSync = useCallback(() => {
+        if (!tenant.elevenlabs_agent_id) return;
+        fetch(`/api/tenants/${tenant.id}/voice/kb-sync`, { method: 'POST' }).catch(() => {});
+    }, [tenant.id, tenant.elevenlabs_agent_id]);
     const supabaseRef = useRef(createClient());
     const [learnings, setLearnings] = useState<AgentLearning[]>([]);
     const [loading, setLoading] = useState(true);
@@ -107,6 +112,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                 setEditingPendingIndex(null);
                 setEditedPendingFact("");
                 await fetchPendingFacts();
+                triggerKbSync();
             } else {
                 const data = await res.json();
                 alert(data.error || "שגיאה");
@@ -129,6 +135,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
             if (!error) {
                 setEditingId(null);
                 fetchLearnings();
+                triggerKbSync();
             } else {
                 alert("שגיאה בעדכון הנתונים");
             }
@@ -144,6 +151,8 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
         if (error) {
             fetchLearnings(); // Revert
             alert("שגיאה במחיקה");
+        } else {
+            triggerKbSync();
         }
     };
 
@@ -172,6 +181,7 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
 
         if (!error) {
             fetchLearnings(); // Replace temp item with real server record
+            triggerKbSync();
         } else {
             setLearnings(prev => prev.filter(l => l.id !== tempId)); // Revert
             setIsAdding(true); // Re-open form
@@ -385,6 +395,14 @@ const CapabilitiesTab = React.memo(function CapabilitiesTab({ tenant }: { tenant
                         הוסף כלל אצבע
                     </button>
                 </div>
+
+                {/* Shared KB notice — visible when voice agent exists */}
+                {tenant.elevenlabs_agent_id && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 12, background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.18)", marginBottom: 4 }}>
+                        <Info style={{ width: 16, height: 16, color: "#60a5fa", flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, color: "#93c5fd", lineHeight: 1.5 }}>בסיס הידע משותף לוואטסאפ ולטלפון</span>
+                    </div>
+                )}
 
                 {loading ? (
                     <div className="flex-1 flex flex-col items-center justify-center text-neutral-500 py-12">

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Phone, PhoneCall, PhoneOff, Mic, Volume2, Save, Loader2, Clock, User, Play, Pause } from "lucide-react";
+import { Phone, PhoneCall, PhoneOff, Mic, Volume2, Save, Loader2, Clock, User, Play, Pause, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 /* ------------------------------------------------------------------ */
@@ -57,6 +57,14 @@ const VoiceTab = React.memo(function VoiceTab({ tenantId }: { tenantId: string }
     const [firstMessage, setFirstMessage] = useState("");
     const [customInstructions, setCustomInstructions] = useState("");
     const [voiceEnabled, setVoiceEnabled] = useState(false);
+    const [phoneNumber, setPhoneNumber] = useState("");
+    const [phoneSaving, setPhoneSaving] = useState(false);
+
+    // Onboarding wizard state (for initial setup flow)
+    const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3>(1);
+    const [onboardingPhone, setOnboardingPhone] = useState("");
+    const [onboardingPhoneSaving, setOnboardingPhoneSaving] = useState(false);
+    const [onboardingActivating, setOnboardingActivating] = useState(false);
 
     // Audio preview
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -78,6 +86,7 @@ const VoiceTab = React.memo(function VoiceTab({ tenantId }: { tenantId: string }
                 setFirstMessage(data.voice_first_message || "");
                 setCustomInstructions(data.voice_custom_instructions || "");
                 setVoiceEnabled(data.voice_enabled || false);
+                setPhoneNumber(data.twilio_phone_number || "");
             }
 
             if (catalogRes.ok) {
@@ -117,6 +126,7 @@ const VoiceTab = React.memo(function VoiceTab({ tenantId }: { tenantId: string }
             }
             setSuccess("הסוכן הקולי הוקם בהצלחה!");
             await fetchData();
+            setOnboardingStep(2);
         } catch (err) {
             setError(err instanceof Error ? err.message : "שגיאה בהקמת הסוכן");
         } finally {
@@ -152,6 +162,84 @@ const VoiceTab = React.memo(function VoiceTab({ tenantId }: { tenantId: string }
             setSaving(false);
         }
     }, [tenantId, voiceId, firstMessage, customInstructions, voiceEnabled]);
+
+    /* ---- Save phone number ---- */
+    const handleSavePhone = useCallback(async () => {
+        setPhoneSaving(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/tenants/${tenantId}/voice`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    twilio_phone_number: phoneNumber || null,
+                }),
+            });
+            if (!res.ok) {
+                const { error: msg } = await res.json();
+                throw new Error(msg || "Save failed");
+            }
+            const { data } = await res.json();
+            setConfig(data);
+            setPhoneNumber(data.twilio_phone_number || "");
+            setSuccess("מספר הטלפון נשמר בהצלחה!");
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "שגיאה בשמירת מספר טלפון");
+        } finally {
+            setPhoneSaving(false);
+        }
+    }, [tenantId, phoneNumber]);
+
+    /* ---- Onboarding: save phone number (step 2) ---- */
+    const handleOnboardingPhone = useCallback(async () => {
+        setOnboardingPhoneSaving(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/tenants/${tenantId}/voice`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ twilio_phone_number: onboardingPhone || null }),
+            });
+            if (!res.ok) {
+                const { error: msg } = await res.json();
+                throw new Error(msg || "Save failed");
+            }
+            const { data } = await res.json();
+            setConfig(data);
+            setPhoneNumber(data.twilio_phone_number || "");
+            setSuccess("מספר הטלפון נשמר בהצלחה!");
+            setOnboardingStep(3);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "שגיאה בשמירת מספר טלפון");
+        } finally {
+            setOnboardingPhoneSaving(false);
+        }
+    }, [tenantId, onboardingPhone]);
+
+    /* ---- Onboarding: activate voice (step 3) ---- */
+    const handleOnboardingActivate = useCallback(async () => {
+        setOnboardingActivating(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/tenants/${tenantId}/voice`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ voice_enabled: true }),
+            });
+            if (!res.ok) {
+                const { error: msg } = await res.json();
+                throw new Error(msg || "Activation failed");
+            }
+            const { data } = await res.json();
+            setConfig(data);
+            setVoiceEnabled(true);
+            setSuccess("הסוכן הקולי הופעל בהצלחה! 🎉");
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "שגיאה בהפעלת הסוכן");
+        } finally {
+            setOnboardingActivating(false);
+        }
+    }, [tenantId]);
 
     /* ---- Voice preview ---- */
     const playPreview = useCallback((voice: VoiceCatalogEntry) => {
@@ -211,6 +299,21 @@ const VoiceTab = React.memo(function VoiceTab({ tenantId }: { tenantId: string }
 
     const isSetup = !!config?.elevenlabs_agent_id;
 
+    // Determine if we should show the onboarding wizard:
+    // Show wizard when voice is not fully set up (no agent, or agent exists but not yet enabled).
+    // Once voice_enabled is true, the full management UI takes over.
+    const showOnboarding = !isSetup || (isSetup && !config?.voice_enabled);
+
+    // Derive the correct onboarding step from current config state
+    // (handles page reloads mid-setup)
+    const derivedStep: 1 | 2 | 3 = !isSetup ? 1 : !config?.twilio_phone_number ? 2 : 3;
+    const effectiveStep = Math.max(onboardingStep, derivedStep) as 1 | 2 | 3;
+
+    // Step completion status
+    const step1Done = isSetup;
+    const step2Done = !!config?.twilio_phone_number;
+    const step3Done = !!config?.voice_enabled;
+
     return (
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6" dir="rtl">
             {/* Toast messages */}
@@ -225,30 +328,224 @@ const VoiceTab = React.memo(function VoiceTab({ tenantId }: { tenantId: string }
                 </div>
             )}
 
-            {/* ─── Setup section (if not set up yet) ─── */}
-            {!isSetup && (
-                <section className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 text-center space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
-                        <Phone className="w-8 h-8 text-emerald-400" />
+            {/* ─── Onboarding wizard (before voice is fully activated) ─── */}
+            {showOnboarding && (
+                <section className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 space-y-5">
+                    {/* Header */}
+                    <div className="text-center space-y-2">
+                        <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
+                            <Phone className="w-8 h-8 text-emerald-400" />
+                        </div>
+                        <h2 className="text-xl font-bold text-white">הפעלת סוכן קולי</h2>
+                        <p className="text-neutral-400 text-sm max-w-md mx-auto">
+                            הקם סוכן קולי שיענה ללקוחות בטלפון. הסוכן ישתמש באותו בסיס ידע כמו הוואטסאפ.
+                        </p>
                     </div>
-                    <h2 className="text-xl font-bold text-white">הפעלת סוכן קולי</h2>
-                    <p className="text-neutral-400 text-sm max-w-md mx-auto">
-                        הקם סוכן קולי שיענה ללקוחות בטלפון. הסוכן ישתמש באותו בסיס ידע כמו הוואטסאפ.
-                    </p>
-                    <button
-                        onClick={handleSetup}
-                        disabled={setupLoading}
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-500/20"
-                    >
-                        {setupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
-                        {setupLoading ? "מקים..." : "הקם סוכן קולי"}
-                    </button>
+
+                    {/* Progress bar */}
+                    <div className="flex items-center gap-1 px-2">
+                        {[1, 2, 3].map((s) => (
+                            <div
+                                key={s}
+                                className={`flex-1 h-1.5 rounded-full transition-colors ${
+                                    s <= effectiveStep
+                                        ? (s < effectiveStep || (s === 1 && step1Done) || (s === 2 && step2Done) || (s === 3 && step3Done))
+                                            ? "bg-emerald-500"
+                                            : "bg-emerald-500/40"
+                                        : "bg-white/[0.06]"
+                                }`}
+                            />
+                        ))}
+                    </div>
+
+                    {/* ── Step 1: הקמת סוכן קולי ── */}
+                    <div className={`rounded-xl border p-4 transition-all ${
+                        effectiveStep === 1 && !step1Done
+                            ? "border-emerald-500/30 bg-emerald-500/[0.04]"
+                            : step1Done
+                                ? "border-emerald-500/20 bg-emerald-500/[0.02]"
+                                : "border-white/[0.04] bg-white/[0.01] opacity-40"
+                    }`}>
+                        <div className="flex items-center gap-3">
+                            {step1Done ? (
+                                <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+                            ) : (
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                    effectiveStep === 1 ? "border-emerald-400 text-emerald-400" : "border-neutral-600 text-neutral-600"
+                                }`}>
+                                    1
+                                </div>
+                            )}
+                            <div className="flex-1">
+                                <span className={`font-semibold text-sm ${step1Done ? "text-emerald-400" : "text-white"}`}>
+                                    הקמת סוכן קולי
+                                </span>
+                                {step1Done && (
+                                    <span className="text-emerald-400/60 text-xs mr-2">הושלם</span>
+                                )}
+                            </div>
+                        </div>
+                        {effectiveStep === 1 && !step1Done && (
+                            <div className="mt-3 pr-9">
+                                <p className="text-neutral-400 text-xs mb-3">
+                                    יצירת סוכן קולי חדש ב-ElevenLabs עם בסיס הידע של העסק שלך.
+                                </p>
+                                <button
+                                    onClick={handleSetup}
+                                    disabled={setupLoading}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                                >
+                                    {setupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
+                                    {setupLoading ? "מקים סוכן..." : "הקם סוכן קולי"}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ── Step 2: חיבור מספר טלפון ── */}
+                    <div className={`rounded-xl border p-4 transition-all ${
+                        effectiveStep === 2 && !step2Done
+                            ? "border-emerald-500/30 bg-emerald-500/[0.04]"
+                            : step2Done
+                                ? "border-emerald-500/20 bg-emerald-500/[0.02]"
+                                : "border-white/[0.04] bg-white/[0.01] opacity-40"
+                    }`}>
+                        <div className="flex items-center gap-3">
+                            {step2Done ? (
+                                <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+                            ) : (
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                    effectiveStep === 2 ? "border-emerald-400 text-emerald-400" : "border-neutral-600 text-neutral-600"
+                                }`}>
+                                    2
+                                </div>
+                            )}
+                            <div className="flex-1">
+                                <span className={`font-semibold text-sm ${step2Done ? "text-emerald-400" : "text-white"}`}>
+                                    חיבור מספר טלפון
+                                </span>
+                                {step2Done && (
+                                    <span className="text-emerald-400/60 text-xs mr-2">הושלם</span>
+                                )}
+                            </div>
+                        </div>
+                        {effectiveStep === 2 && !step2Done && (
+                            <div className="mt-3 pr-9">
+                                <p className="text-neutral-400 text-xs mb-3">
+                                    הזן את מספר הטלפון של Twilio שישמש לקבלת שיחות נכנסות.
+                                </p>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="tel"
+                                        value={onboardingPhone}
+                                        onChange={(e) => setOnboardingPhone(e.target.value)}
+                                        placeholder="+972..."
+                                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                        dir="ltr"
+                                    />
+                                    <button
+                                        onClick={handleOnboardingPhone}
+                                        disabled={onboardingPhoneSaving || !onboardingPhone.trim()}
+                                        className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all"
+                                    >
+                                        {onboardingPhoneSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                        שמור
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {step2Done && config?.twilio_phone_number && (
+                            <p className="text-neutral-400 text-xs mt-1 pr-9 font-mono" dir="ltr">
+                                {config.twilio_phone_number}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* ── Step 3: הפעלה ── */}
+                    <div className={`rounded-xl border p-4 transition-all ${
+                        effectiveStep === 3 && !step3Done
+                            ? "border-emerald-500/30 bg-emerald-500/[0.04]"
+                            : step3Done
+                                ? "border-emerald-500/20 bg-emerald-500/[0.02]"
+                                : "border-white/[0.04] bg-white/[0.01] opacity-40"
+                    }`}>
+                        <div className="flex items-center gap-3">
+                            {step3Done ? (
+                                <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+                            ) : (
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                    effectiveStep === 3 ? "border-emerald-400 text-emerald-400" : "border-neutral-600 text-neutral-600"
+                                }`}>
+                                    3
+                                </div>
+                            )}
+                            <div className="flex-1">
+                                <span className={`font-semibold text-sm ${step3Done ? "text-emerald-400" : "text-white"}`}>
+                                    הפעלה
+                                </span>
+                                {step3Done && (
+                                    <span className="text-emerald-400/60 text-xs mr-2">הושלם</span>
+                                )}
+                            </div>
+                        </div>
+                        {effectiveStep === 3 && !step3Done && (
+                            <div className="mt-3 pr-9">
+                                <p className="text-neutral-400 text-xs mb-3">
+                                    הפעל את הסוכן הקולי כדי שיתחיל לענות לשיחות.
+                                </p>
+                                <button
+                                    onClick={handleOnboardingActivate}
+                                    disabled={onboardingActivating}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                                >
+                                    {onboardingActivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+                                    {onboardingActivating ? "מפעיל..." : "הפעל סוכן קולי"}
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </section>
             )}
 
-            {/* ─── Voice settings (when set up) ─── */}
-            {isSetup && (
+            {/* ─── Voice settings (when fully set up and activated) ─── */}
+            {isSetup && !showOnboarding && (
                 <>
+                    {/* Phone number management */}
+                    <section className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5 space-y-3">
+                        <h3 className="text-white font-semibold flex items-center gap-2">
+                            <Phone className="w-4 h-4 text-emerald-400" />
+                            מספר טלפון
+                        </h3>
+                        {config?.twilio_phone_number ? (
+                            <div className="flex items-center gap-3">
+                                <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                                <span className="text-white text-sm font-mono" dir="ltr">{config.twilio_phone_number}</span>
+                            </div>
+                        ) : (
+                            <>
+                                <p className="text-neutral-500 text-xs">הזן מספר Twilio לקבלת שיחות נכנסות</p>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="tel"
+                                        value={phoneNumber}
+                                        onChange={(e) => setPhoneNumber(e.target.value)}
+                                        placeholder="+972..."
+                                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                        dir="ltr"
+                                    />
+                                    <button
+                                        onClick={handleSavePhone}
+                                        disabled={phoneSaving || !phoneNumber.trim()}
+                                        className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all"
+                                    >
+                                        {phoneSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                        שמור
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </section>
+
                     {/* Status + toggle */}
                     <section className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5">
                         <div className="flex items-center justify-between">
@@ -260,15 +557,15 @@ const VoiceTab = React.memo(function VoiceTab({ tenantId }: { tenantId: string }
                             </div>
                             <button
                                 onClick={() => setVoiceEnabled(!voiceEnabled)}
-                                className={`relative w-12 h-6 rounded-full transition-colors ${voiceEnabled ? "bg-emerald-600" : "bg-neutral-700"}`}
+                                disabled={!config?.elevenlabs_agent_id || !config?.twilio_phone_number}
+                                className={`relative w-12 h-6 rounded-full transition-colors ${voiceEnabled ? "bg-emerald-600" : "bg-neutral-700"} disabled:opacity-40 disabled:cursor-not-allowed`}
                             >
                                 <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${voiceEnabled ? "right-0.5" : "right-[1.625rem]"}`} />
                             </button>
                         </div>
-                        {config?.twilio_phone_number && (
-                            <p className="text-neutral-400 text-sm mt-2">
-                                <Phone className="w-3.5 h-3.5 inline ml-1" />
-                                {config.twilio_phone_number}
+                        {!config?.twilio_phone_number && (
+                            <p className="text-amber-400/80 text-xs mt-2">
+                                יש להגדיר מספר טלפון כדי להפעיל את הסוכן הקולי
                             </p>
                         )}
                     </section>
